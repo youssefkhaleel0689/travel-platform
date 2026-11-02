@@ -26,3 +26,13 @@ Edit main.ts to add a global ValidationPipe (whitelist, forbidNonWhitelisted, tr
 How the output was used:
 Reviewed the diff line by line, tested /api, / and /api/docs in the browser, then merged through PR #4.
 ================================================
+================================================
+Date: 2026-11-03
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: Foundation / cleanup (no requirement ID)
+Prompt:
+Remove the @nestjs/observe add-on completely: delete the Observe code from app.module.ts and main.ts, uninstall the package, remove the OBSERVE_* variables from .env.example, delete AGENTS.md, then verify the build, the boot log, the connection to Atlas, and search the repo for leftover references.
+How the output was used:
+Reviewed the diff of every changed file. The scaffold had sent request traces to an external dashboard (observe.nestjs.com) using real keys; it is not required by the project. Verified that the app still connects to Atlas and that /api and /api/docs respond.
+================================================
