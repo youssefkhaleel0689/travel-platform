@@ -36,3 +36,13 @@ Remove the @nestjs/observe add-on completely: delete the Observe code from app.m
 How the output was used:
 Reviewed the diff of every changed file. The scaffold had sent request traces to an external dashboard (observe.nestjs.com) using real keys; it is not required by the project. Verified that the app still connects to Atlas and that /api and /api/docs respond.
 ================================================
+================================================
+Date: 2026-11-03
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: Foundation / documentation (no requirement ID)
+Prompt:
+Write the root README with local setup instructions for the backend, environment variables, troubleshooting, the team Git workflow and the shared database rules, and replace the default Nest README in backend/.
+How the output was used:
+Used the text as the base of README.md. The first version lost its code blocks when written from PowerShell; this was caught by reading the pasted result and fixed by rewriting it with a different fence style. Verified the final file with line and keyword checks.
+================================================
