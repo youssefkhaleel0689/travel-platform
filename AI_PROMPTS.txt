@@ -1,0 +1,28 @@
+================================================
+Date: 2026-11-02
+Student: Youssef khaleel
+Tool: Claude (chat)
+Related Requirement: Foundation / setup (no requirement ID)
+Prompt:
+Step-by-step guidance to install the NestJS packages (config, mongoose, swagger, class-validator, class-transformer), create .env and .env.example, and connect NestJS to MongoDB Atlas in app.module.ts.
+How the output was used:
+Used the explanations and the app.module.ts code as a starting point. The first version removed ObserveInstrument from app.module.ts and broke the build; this was found during review and fixed (PR #1). The connection was verified with the real URI, a fake URI and a missing URI.
+================================================
+Date: 2026-11-02
+Student: Youssef khaleel
+Tool: Claude Code
+Related Requirement: Foundation / setup (MongoDB connection fix)
+Prompt:
+Fix src/app.module.ts: add ConfigModule.forRoot (global) and MongooseModule.forRootAsync using ConfigService.getOrThrow('MONGODB_URI'), keep Observe, verify the connection with real, fake and missing URI.
+How the output was used:
+Reviewed the diff and the boot log, then committed and merged through PR #1.
+================================================
+Date: 2026-11-02
+Student: Youssef khaleel
+Tool: Claude Code
+Related Requirement: GEN-02
+Prompt:
+Edit main.ts to add a global ValidationPipe (whitelist, forbidNonWhitelisted, transform), the "api" global prefix, and Swagger UI at /api/docs with cookie auth.
+How the output was used:
+Reviewed the diff line by line, tested /api, / and /api/docs in the browser, then merged through PR #4.
+================================================
