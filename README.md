@@ -83,6 +83,57 @@ Check that it works:
 | `ENOTFOUND` | Wrong host in the connection string |
 | `Cannot GET /` | Expected: all routes start with `/api` |
 
+## API error format
+
+Every error from the API has the same JSON shape, so the frontend can show messages next to each form field (GEN-02). Validation errors (400) list every invalid field in `errors`; nested objects and array elements use dotted paths such as `passengers.0.name`:
+
+~~~
+{
+  "statusCode": 400,
+  "code": "VALIDATION_FAILED",
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "errors": [ { "field": "email", "messages": ["email must be an email"] } ],
+  "path": "/api/auth/register",
+  "timestamp": "2026-11-03T10:00:00.000Z"
+}
+~~~
+
+All other errors have the same shape without `errors`:
+
+~~~
+{
+  "statusCode": 404,
+  "code": "NOT_FOUND",
+  "error": "Not Found",
+  "message": "Flight not found",
+  "path": "/api/flights/123",
+  "timestamp": "2026-11-03T10:00:00.000Z"
+}
+~~~
+
+Default `code` per status (used when you do not set your own):
+
+| Status | `code` |
+| --- | --- |
+| 400 | `BAD_REQUEST` (`VALIDATION_FAILED` for DTO validation) |
+| 400 | `INVALID_VALUE` (a value Mongoose cannot convert, such as a malformed ObjectId in `/api/hotels/abc`; the value is never echoed) |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `NOT_FOUND` |
+| 409 | `CONFLICT` (`DUPLICATE_KEY` for MongoDB unique index violations) |
+| 500 | `INTERNAL_ERROR` (the message is always "Internal server error"; details go to the server log only) |
+| other | `HTTP_<status>` |
+
+Throw Nest's built-in exceptions. Pass an object to set your own `code`:
+
+~~~
+throw new NotFoundException('Flight not found');
+throw new ConflictException({ code: 'SEAT_UNAVAILABLE', message: 'Only 1 seat left' });
+~~~
+
+Document error responses in Swagger with `ErrorResponseDto` from `src/common/dto/error-response.dto.ts`, for example `@ApiBadRequestResponse({ type: ErrorResponseDto })`. The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
+
 ## Team workflow
 
 `develop` is the integration branch and `main` holds stable releases. Direct pushes are blocked: every change goes through a pull request that needs one approving review.
