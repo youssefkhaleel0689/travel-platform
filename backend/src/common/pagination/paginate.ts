@@ -34,3 +34,11 @@ export async function paginateQuery<T>(
 
   return new PageDto(items, PageMetaDto.create(page, totalItems));
 }
+
+// Use this only for lists built in code. If the data is in MongoDB use
+// paginateQuery instead, because this needs the whole list in memory.
+// It does not sort: pass the array already in the order you want.
+export function paginateArray<T>(all: T[], page: number): PageDto<T> {
+  const items = all.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  return new PageDto(items, PageMetaDto.create(page, all.length));
+}
