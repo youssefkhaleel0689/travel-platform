@@ -5,6 +5,7 @@ import { IsInt, IsOptional, Min } from 'class-validator';
 // Query params for paginated list endpoints. There is no limit param on purpose.
 export class PaginationQueryDto {
   @ApiPropertyOptional({
+    type: 'integer',
     minimum: 1,
     default: 1,
     example: 1,

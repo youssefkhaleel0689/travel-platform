@@ -187,6 +187,11 @@ describe('Pagination (e2e)', () => {
       );
       expect(names).toContain('page');
       expect(names).not.toContain('limit');
+
+      const page = getOperation()?.parameters?.find(
+        (p) => 'name' in p && p.name === 'page',
+      );
+      expect(page).toMatchObject({ in: 'query', schema: { type: 'integer' } });
     });
 
     it('describes the 200 response as PageDto with TestItemDto items', () => {
