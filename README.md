@@ -134,6 +134,65 @@ throw new ConflictException({ code: 'SEAT_UNAVAILABLE', message: 'Only 1 seat le
 
 Document error responses in Swagger with `ErrorResponseDto` from `src/common/dto/error-response.dto.ts`, for example `@ApiBadRequestResponse({ type: ErrorResponseDto })`. The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
 
+## Pagination (GEN-05)
+
+Every list endpoint returns pages of exactly 10 items in the same shape. The client sends only `page` (starts at 1). There is no `limit`: `?limit=50` is rejected with a 400 validation error. The helpers live in `src/common/pagination/`.
+
+~~~
+{
+  "items": [
+    { "id": "6720f1c2a1b2c3d4e5f60718", "name": "Cairo to Berlin" },
+    { "id": "6720f1c2a1b2c3d4e5f60719", "name": "Berlin to Rome" }
+  ],
+  "meta": {
+    "page": 1,
+    "pageSize": 10,
+    "totalItems": 25,
+    "totalPages": 3,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
+}
+~~~
+
+| Field | Meaning |
+| --- | --- |
+| `page` | The page that was returned (as requested, starting at 1) |
+| `pageSize` | Always 10 |
+| `totalItems` | Number of items matching the request across all pages |
+| `totalPages` | Number of pages; 0 when there are no items |
+| `hasNextPage` | `true` if `page` is before the last page |
+| `hasPreviousPage` | `true` if `page` is greater than 1 |
+
+Controller:
+
+~~~
+@Get()
+@ApiPaginatedResponse(AccountDto)
+list(@Query() query: PaginationQueryDto) {
+  return this.accountsService.list(query.page);
+}
+~~~
+
+Service:
+
+~~~
+return paginateQuery(this.userModel, filter, { page, sort: { createdAt: -1 } });
+
+// For a list built in code:
+return paginateArray(list, page);
+~~~
+
+Rules:
+
+- Always bind `PaginationQueryDto`; the helpers assume a valid `page`, validation happens in the DTO.
+- `paginateQuery` always adds `_id` as the last sort key so pages never repeat or skip rows; do not remove it.
+- A page beyond the last returns `items: []` with status 200.
+- Use `paginateQuery` when the data is in MongoDB; use `paginateArray` only for lists built in code (it loads the whole list in memory and does not sort).
+- `paginateQuery` returns plain lean objects including `_id` and `__v`: map them to a response DTO and never return fields such as password hashes.
+
+The helpers are in `src/common/pagination/`, and `test/pagination.e2e-spec.ts` shows every case end to end, including how the Swagger document looks.
+
 ## Team workflow
 
 `develop` is the integration branch and `main` holds stable releases. Direct pushes are blocked: every change goes through a pull request that needs one approving review.
