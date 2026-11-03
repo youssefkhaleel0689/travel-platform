@@ -35,8 +35,8 @@ export class PageMetaDto {
 
 // The single response shape returned by every paginated endpoint.
 export class PageDto<T> {
-  // No @ApiProperty here: Swagger cannot describe generics, so a decorator
-  // will document the item type per endpoint in a later step.
+  // No @ApiProperty here: Swagger cannot describe generics, so the item type
+  // is documented per endpoint by the ApiPaginatedResponse decorator.
   items: T[];
 
   @ApiProperty({ type: PageMetaDto })
