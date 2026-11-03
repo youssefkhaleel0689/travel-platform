@@ -46,3 +46,22 @@ Write the root README with local setup instructions for the backend, environment
 How the output was used:
 Used the text as the base of README.md. The first version lost its code blocks when written from PowerShell; this was caught by reading the pasted result and fixed by rewriting it with a different fence style. Verified the final file with line and keyword checks.
 ================================================
+================================================
+Date: 2026-11-03
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: GEN-02
+Prompt:
+Design one shared API error response shape with field-level validation messages (GEN-02), a stable error code, handling of MongoDB duplicate keys and generic 500 errors without leaking details.
+How the output was used:
+Used the proposed JSON shape and the list of cases as the specification for the implementation prompt. Added the "code" field and the duplicate-key and 500 handling after discussion.
+================================================
+Date: 2026-11-03
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: GEN-02
+Prompt:
+Implement configureApp (prefix, ValidationPipe with exceptionFactory, global exception filter), the validation error flattening into dotted field paths, ErrorResponseDto, e2e tests with a test-only controller, and a README section on the error format. Follow-ups: generic message for router 404s, CastError handling (400 INVALID_VALUE) and logging of 5xx HttpExceptions.
+How the output was used:
+Reviewed app.setup.ts, the exception filter and the validation factory line by line. The review found two gaps (invalid ObjectId returning 500, 5xx HttpExceptions not logged), which were fixed in follow-up prompts. Ran build, unit and e2e tests myself (11/11 e2e) and checked the unknown-route response on the running server.
+================================================
