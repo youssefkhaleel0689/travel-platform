@@ -193,6 +193,53 @@ Rules:
 
 The helpers are in `src/common/pagination/`, and `test/pagination.e2e-spec.ts` shows every case end to end, including how the Swagger document looks.
 
+## Module structure and conventions
+
+The backend is organized into 7 feature modules plus shared code in `src/common/`. Every module follows the same layout, so any teammate can open any module and find things in the same place.
+
+Feature modules:
+
+| Module | Contains |
+| --- | --- |
+| `auth` | Registration, login, sessions, users |
+| `flights` | Airlines, flights, cabins, prices, seat holds |
+| `hotels` | Hotels, rooms, availability, room holds, reviews |
+| `payments` | Stripe payments, refunds |
+| `itineraries` | Itineraries, days, activities, budgets, exchange rates |
+| `blog` | Posts, comments, likes |
+| `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
+
+Where bookings live is decided at the data-model review.
+
+Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/` and `validation/` (`validationExceptionFactory`); `reference-data/`, `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+
+Layout of one module:
+
+~~~
+src/flights/
+  flights.module.ts
+  flights.controller.ts
+  flights.service.ts
+  flights.service.spec.ts
+  schemas/
+  dto/
+~~~
+
+Rules:
+
+- Files are kebab-case (`flight-search.service.ts`), classes are PascalCase (`FlightSearchService`).
+- Unit tests are `*.spec.ts` next to the file; end-to-end tests are in `test/`.
+- Controllers validate and delegate, services hold the business rules, schemas define the data shape.
+- A module uses another module through its exported service, never through its Mongoose model.
+- IDs: reference data keeps the given string ids (`cairo`, `EG`, `CAI`, `att-1`); all other documents use ObjectId, returned to clients as a string `id`.
+- Time: store dates in UTC and return ISO 8601; each airport has an IANA `time_zone` (`CAI` is `Africa/Cairo`).
+- Money: store as Decimal128 and return as a string (`"199.99"`). Convert it to a string in the response DTO mapping, not in a schema transform, because lean queries (`paginateQuery`) skip document transforms. Do arithmetic with a decimal library (decimal.js, not installed yet; the first module that needs money arithmetic adds it), never `Number()`. Convert to integer minor units only when calling Stripe.
+- Currency: PAY-04 requires one platform currency; the team chose USD. Flight and hotel prices, payments and refunds are always USD and are never converted. Itinerary budgets may use any seeded currency (EGP, AED, GBP, USD, EUR, JPY, SAR); conversion applies to budgets only.
+- Swagger: every endpoint has `@ApiTags`, a summary, `@ApiOkResponse` or `@ApiPaginatedResponse`, error responses using `ErrorResponseDto`, and `@ApiCookieAuth` when it is protected.
+- Errors and lists: throw Nest exceptions with an error code (see "API error format"); every list endpoint uses `PaginationQueryDto` (see "Pagination (GEN-05)").
+
+Shared helpers are in `src/common/`, and the requirements sheet in `docs/requirements/` is the authoritative source for business rules.
+
 ## Team workflow
 
 `develop` is the integration branch and `main` holds stable releases. Direct pushes are blocked: every change goes through a pull request that needs one approving review.

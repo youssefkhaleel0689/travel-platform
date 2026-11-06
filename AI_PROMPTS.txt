@@ -85,3 +85,23 @@ Implement the pagination helper in small steps: PaginationQueryDto, PageMetaDto 
 How the output was used:
 Reviewed the code and the diff of every step before each commit. Claude Code checked the installed Mongoose 9 types instead of guessing (FilterQuery is now QueryFilter). Ran the pagination e2e test myself (10/10) and checked git diff --stat before each commit. Added type: 'integer' to the page parameter by hand so Swagger matches the validation, and a test now guards it. Build, lint and the other test suites (19 unit, 10 error-format e2e) were run by Claude Code and I reviewed their output.
 ================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: None (foundation conventions; references PAY-04, FLT-02, GEN-05)
+Prompt:
+Update the module structure and conventions proposal with the team decisions: 7 feature modules from the project description, shared code in src/common/ that never imports a feature module, money stored as Decimal128 and returned as a string, and USD as the single platform currency for PAY-04. Asked for the reasoning behind each rule and a Claude Code prompt that adds the section to the README in the existing style.
+How the output was used:
+Used the rule list as the specification for the README section. The pagination section showed that paginateQuery returns lean objects, which skip schema transforms, so we decided to convert Decimal128 in the response DTO mapping instead of a toJSON transform. Checked the time_zone column and the CAI value in the updated mock data myself before committing.
+================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: None (foundation conventions; references PAY-04, FLT-02, GEN-05)
+Prompt:
+Add a "Module structure and conventions" section to README.md between "Pagination (GEN-05)" and "Team workflow", matching the existing style, after verifying that ErrorResponseDto, ApiPaginatedResponse, PaginationQueryDto and paginateQuery exist and listing what is in src/common/. Follow-up: three wording fixes (USD as a team decision, "organized into" instead of "has", decimal.js not installed yet).
+How the output was used:
+Claude Code verified the four names in the code and reported four statements not backed by the code or requirements; three were reworded and time_zone was kept because the updated mock data has it. Reviewed git diff: 47 added lines, none removed. Staged README.md by name so the replaced Excel files stay out of this PR.
+================================================
