@@ -270,12 +270,50 @@ airports: total=8 upserted=0 modified=0 matched=8
 attractions: total=8 upserted=0 modified=0 matched=8
 ~~~
 
+Endpoints:
+
+| Endpoint | Requirement | Filters |
+| --- | --- | --- |
+| `GET /api/airports` | FLT-02 | `cityId`, `countryId` |
+| `GET /api/countries` | ITN-01, HTL-01 | |
+| `GET /api/cities` | ITN-05, ITN-16, HTL-01 | `countryId` |
+| `GET /api/currencies` | ACC-09, ITN-18 | |
+
+All four are public and paginated. An unknown but well-formed filter returns an empty page; a malformed one returns 400.
+
+Using reference data in your module:
+
+~~~
+// hotels.module.ts
+@Module({ imports: [ReferenceDataModule], providers: [HotelsService] })
+export class HotelsModule {}
+
+// hotels.service.ts
+constructor(private readonly referenceData: ReferenceDataService) {}
+
+async create(dto: CreateHotelDto) {
+  await this.referenceData.assertCityExists(dto.cityId);
+  // ...
+}
+~~~
+
+| Method | Use it for | Error code (400) |
+| --- | --- | --- |
+| `getAirportOrThrow` | Flight creation and search (FLT-03, FLT-11) | `UNKNOWN_AIRPORT` |
+| `assertCityExists` | Hotels, itinerary days, transport entries (HTL-01, ITN-05, ITN-16) | `UNKNOWN_CITY` |
+| `assertCountriesExist` | Itinerary countries (ITN-01) | `UNKNOWN_COUNTRY` |
+| `assertSupportedCurrency` | Preferred currency and budgets (ACC-09, ITN-14, ITN-16, ITN-18) | `UNSUPPORTED_CURRENCY` |
+
 Rules:
 
 - `docs/requirements/Mock_Data.xlsx` is the source. Each sheet is converted to one JSON file in `src/common/reference-data/data/` with the same column names (snake_case), the same row order and the values unchanged; `currencies.json` holds the distinct values of the Countries `currency` column in order of first appearance. The seed maps these names to the camelCase schema fields and validates the result. Any change to the workbook regenerates the JSON in the same pull request.
 - Do not edit seeded documents by hand: the next seed run resets them to the dataset. Extra documents with other ids are left untouched.
 - Tell the team before running the seed against the shared database for the first time with changed data.
 - Validation and id formats live in `src/common/reference-data/` (`reference-data.patterns.ts`); other modules reuse those patterns instead of writing their own.
+- Never inject the reference data models in a feature module; use `ReferenceDataService` (see "Module structure and conventions").
+- Validate reference ids in your DTOs with the patterns in `reference-data.patterns.ts`; the service checks the format again, but the DTO gives the field-level error.
+- Booking prices, payments and refunds are always USD (PAY-04); do not use `assertSupportedCurrency` for them.
+- `test/reference-data.e2e-spec.ts` reads the seeded data on the shared database; run `npm run seed` first.
 
 The module and schemas are in `src/common/reference-data/`, and the validation, mapping and entry point are in its `seed/` folder.
 
