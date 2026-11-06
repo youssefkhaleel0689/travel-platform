@@ -115,3 +115,23 @@ Read-only comparison of the updated docs/requirements/Mock_Data.xlsx with the co
 How the output was used:
 Confirmed the update only adds the airport time_zone column (FLT-02) and the rows FRA, frankfurt and att-8, with all existing ids and values unchanged. Used the result in the pull request description. Cross-sheet references (att-8 to frankfurt) were not checked; the GEN-12 seed script will reject rows that point to a missing city or country.
 ================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: GEN-12, FLT-02
+Prompt:
+Design the GEN-12 reference data seed: where the given ids live (string _id), field naming, where the seed reads the data from, which checks run before writing, how to make it safe to re-run on a shared database, and how to prove that. Also asked for a review of a teammate's schema document against our conventions.
+How the output was used:
+Chose string _id from the dataset, JSON files generated from the workbook (no Excel library in the backend), validation of all data before any write, and replaceOne upserts in dependency order that never delete. Switched field names from snake_case to camelCase (cityId, countryId, timeZone) to match the team schema document; the JSON keeps the dataset names and the seed maps them. Ran the seed twice myself: the first run upserted 39 documents, the second matched 39 and modified none.
+================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: GEN-12, FLT-02
+Prompt:
+In steps: convert the mock data sheets to JSON with the original column names; add the five reference data schemas with shared id patterns and unit tests; add the seed (validation that collects all errors, mapping, seeder with bulkWrite replaceOne upserts, standalone entry point, npm run seed) with unit tests; document it in the README. Follow-ups: shared patterns for every reference field, validate() instead of the deprecated validateSync(), and README wording fixes.
+How the output was used:
+Reviewed every step's report and diff before committing it separately. Claude Code confirmed the JSON files are copied to dist after the build, that the seed exits with code 1 when it cannot connect, and that the existing e2e tests still pass after the tsconfig change. Build, lint and 57 unit tests were run by Claude Code; I ran the seed against Atlas myself. Noted for later: seed.ts boots the full AppModule, so it should move to a dedicated module once scheduled jobs exist.
+================================================
