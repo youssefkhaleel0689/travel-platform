@@ -73,6 +73,7 @@ Check that it works:
 | --- | --- |
 | `npm run start:dev` | Run in watch mode (needs `.env`) |
 | `npm run build` | Compile and catch TypeScript errors |
+| `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
 
 ### Troubleshooting
 
@@ -211,7 +212,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/` and `validation/` (`validationExceptionFactory`); `reference-data/`, `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/` and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Layout of one module:
 
@@ -232,13 +233,51 @@ Rules:
 - Controllers validate and delegate, services hold the business rules, schemas define the data shape.
 - A module uses another module through its exported service, never through its Mongoose model.
 - IDs: reference data keeps the given string ids (`cairo`, `EG`, `CAI`, `att-1`); all other documents use ObjectId, returned to clients as a string `id`.
-- Time: store dates in UTC and return ISO 8601; each airport has an IANA `time_zone` (`CAI` is `Africa/Cairo`).
+- Time: store dates in UTC and return ISO 8601; each airport has an IANA `timeZone` (`CAI` is `Africa/Cairo`).
 - Money: store as Decimal128 and return as a string (`"199.99"`). Convert it to a string in the response DTO mapping, not in a schema transform, because lean queries (`paginateQuery`) skip document transforms. Do arithmetic with a decimal library (decimal.js, not installed yet; the first module that needs money arithmetic adds it), never `Number()`. Convert to integer minor units only when calling Stripe.
 - Currency: PAY-04 requires one platform currency; the team chose USD. Flight and hotel prices, payments and refunds are always USD and are never converted. Itinerary budgets may use any seeded currency (EGP, AED, GBP, USD, EUR, JPY, SAR); conversion applies to budgets only.
 - Swagger: every endpoint has `@ApiTags`, a summary, `@ApiOkResponse` or `@ApiPaginatedResponse`, error responses using `ErrorResponseDto`, and `@ApiCookieAuth` when it is protected.
 - Errors and lists: throw Nest exceptions with an error code (see "API error format"); every list endpoint uses `PaginationQueryDto` (see "Pagination (GEN-05)").
 
 Shared helpers are in `src/common/`, and the requirements sheet in `docs/requirements/` is the authoritative source for business rules.
+
+## Reference data (GEN-12)
+
+The seed loads countries, cities, airports (with IANA time zone), attractions and the supported currencies. It keeps the ids from the provided dataset (`cairo`, `EG`, `CAI`, `att-1`), because the same records and identifiers are used in the final evaluation.
+
+The seed reads `MONGODB_URI` from `backend/.env`:
+
+~~~
+cd backend
+npm run seed
+~~~
+
+| Collection | `_id` example | Fields |
+| --- | --- | --- |
+| `currencies` | `USD` | None besides `_id` |
+| `countries` | `EG` | `name`, `currency` |
+| `cities` | `new_york` | `name`, `countryId` |
+| `airports` | `CAI` | `name`, `cityId`, `countryId`, `timeZone` |
+| `attractions` | `att-1` | `name`, `cityId` |
+
+A run validates all the data first and writes no documents if any check fails. It then upserts by `_id` with `replaceOne`, in the order of the table above, and never deletes. A second run with the same data changes nothing, which shows that it is safe to re-run:
+
+~~~
+currencies: total=7 upserted=0 modified=0 matched=7
+countries: total=8 upserted=0 modified=0 matched=8
+cities: total=8 upserted=0 modified=0 matched=8
+airports: total=8 upserted=0 modified=0 matched=8
+attractions: total=8 upserted=0 modified=0 matched=8
+~~~
+
+Rules:
+
+- `docs/requirements/Mock_Data.xlsx` is the source. Each sheet is converted to one JSON file in `src/common/reference-data/data/` with the same column names (snake_case), the same row order and the values unchanged; `currencies.json` holds the distinct values of the Countries `currency` column in order of first appearance. The seed maps these names to the camelCase schema fields and validates the result. Any change to the workbook regenerates the JSON in the same pull request.
+- Do not edit seeded documents by hand: the next seed run resets them to the dataset. Extra documents with other ids are left untouched.
+- Tell the team before running the seed against the shared database for the first time with changed data.
+- Validation and id formats live in `src/common/reference-data/` (`reference-data.patterns.ts`); other modules reuse those patterns instead of writing their own.
+
+The module and schemas are in `src/common/reference-data/`, and the validation, mapping and entry point are in its `seed/` folder.
 
 ## Team workflow
 
