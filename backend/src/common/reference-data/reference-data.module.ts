@@ -5,6 +5,7 @@ import { Attraction, AttractionSchema } from './schemas/attraction.schema';
 import { City, CitySchema } from './schemas/city.schema';
 import { Country, CountrySchema } from './schemas/country.schema';
 import { Currency, CurrencySchema } from './schemas/currency.schema';
+import { ReferenceDataSeeder } from './seed/reference-data-seeder.service';
 
 @Module({
   imports: [
@@ -16,5 +17,6 @@ import { Currency, CurrencySchema } from './schemas/currency.schema';
       { name: Currency.name, schema: CurrencySchema },
     ]),
   ],
+  providers: [ReferenceDataSeeder],
 })
 export class ReferenceDataModule {}
