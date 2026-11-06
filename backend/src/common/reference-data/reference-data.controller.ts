@@ -31,7 +31,7 @@ export class ReferenceDataController {
   }
 
   @Get('countries')
-  @ApiOperation({ summary: 'List seeded countries (FLT-02)' })
+  @ApiOperation({ summary: 'List seeded countries (ITN-01, HTL-01)' })
   @ApiPaginatedResponse(CountryDto)
   listCountries(
     @Query() query: PaginationQueryDto,
@@ -40,7 +40,7 @@ export class ReferenceDataController {
   }
 
   @Get('cities')
-  @ApiOperation({ summary: 'List seeded cities (FLT-02)' })
+  @ApiOperation({ summary: 'List seeded cities (ITN-05, ITN-16, HTL-01)' })
   @ApiPaginatedResponse(CityDto)
   listCities(@Query() query: CitiesQueryDto): Promise<PageDto<CityDto>> {
     const { page, countryId } = query;
@@ -48,7 +48,7 @@ export class ReferenceDataController {
   }
 
   @Get('currencies')
-  @ApiOperation({ summary: 'List seeded currencies (FLT-02)' })
+  @ApiOperation({ summary: 'List seeded currencies (ACC-09, ITN-18)' })
   @ApiPaginatedResponse(CurrencyDto)
   listCurrencies(
     @Query() query: PaginationQueryDto,
