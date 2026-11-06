@@ -135,3 +135,23 @@ In steps: convert the mock data sheets to JSON with the original column names; a
 How the output was used:
 Reviewed every step's report and diff before committing it separately. Claude Code confirmed the JSON files are copied to dist after the build, that the seed exits with code 1 when it cannot connect, and that the existing e2e tests still pass after the tsconfig change. Build, lint and 57 unit tests were run by Claude Code; I ran the seed against Atlas myself. Noted for later: seed.ts boots the full AppModule, so it should move to a dedicated module once scheduled jobs exist.
 ================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: FLT-02, ITN-01, ITN-05, ACC-09
+Prompt:
+Design the read-only reference data endpoints: which paths the project PDF requires, which extra lists the requirements imply, pagination, the response id, and an exported service with checks that other modules call. Asked for decisions on 400 vs 404, malformed ids, and whether e2e tests should run against the seeded Atlas data.
+How the output was used:
+Kept GET /api/airports from the PDF and added countries, cities and currencies because ITN-01, ITN-05, HTL-01 and ACC-09 select from predefined lists. Chose 400 for unknown references in a request, a format check inside the service as defense in depth, and read-only e2e tests against the seeded data, which I ran myself (14/14). Matched the requirement ids in Swagger and the README.
+================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: FLT-02, ITN-01, ITN-05, ACC-09
+Prompt:
+In steps: ReferenceDataService with paginated lists and exported checks (getAirportOrThrow, assertCityExists, assertCountriesExist, assertSupportedCurrency) with unit tests; then the controller with Swagger and a read-only e2e test; then the README. Follow-ups: reject malformed ids without a query, doc comments, remove a brittle test, and requirement ids in the Swagger summaries.
+How the output was used:
+Reviewed each report and diff before committing each step separately. Claude Code verified the routes, validation and Swagger with a fake service before any database run, and found that Express 5's simple query parser turns cityId[$ne] into an unknown parameter. Build, lint and 91 unit tests were run by Claude Code; I ran the e2e test against Atlas (14 passed).
+================================================
