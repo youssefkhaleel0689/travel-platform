@@ -105,3 +105,13 @@ Add a "Module structure and conventions" section to README.md between "Paginatio
 How the output was used:
 Claude Code verified the four names in the code and reported four statements not backed by the code or requirements; three were reworded and time_zone was kept because the updated mock data has it. Reviewed git diff: 47 added lines, none removed. Staged README.md by name so the replaced Excel files stay out of this PR.
 ================================================
+================================================
+Date: 2026-11-06
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: FLT-02, GEN-12
+Prompt:
+Read-only comparison of the updated docs/requirements/Mock_Data.xlsx with the committed version: columns and rows added, removed or changed per sheet, and confirmation that every existing id is unchanged.
+How the output was used:
+Confirmed the update only adds the airport time_zone column (FLT-02) and the rows FRA, frankfurt and att-8, with all existing ids and values unchanged. Used the result in the pull request description. Cross-sheet references (att-8 to frankfurt) were not checked; the GEN-12 seed script will reject rows that point to a missing city or country.
+================================================
