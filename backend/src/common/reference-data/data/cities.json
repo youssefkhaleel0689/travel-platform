@@ -1,0 +1,42 @@
+[
+  {
+    "city_id": "cairo",
+    "name": "Cairo",
+    "country_code": "EG"
+  },
+  {
+    "city_id": "dubai",
+    "name": "Dubai",
+    "country_code": "AE"
+  },
+  {
+    "city_id": "london",
+    "name": "London",
+    "country_code": "GB"
+  },
+  {
+    "city_id": "new_york",
+    "name": "New York",
+    "country_code": "US"
+  },
+  {
+    "city_id": "paris",
+    "name": "Paris",
+    "country_code": "FR"
+  },
+  {
+    "city_id": "tokyo",
+    "name": "Tokyo",
+    "country_code": "JP"
+  },
+  {
+    "city_id": "riyadh",
+    "name": "Riyadh",
+    "country_code": "SA"
+  },
+  {
+    "city_id": "frankfurt",
+    "name": "Frankfurt",
+    "country_code": "DE"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "attraction_id": "att-1",
+    "name": "Giza Pyramids and Sphinx",
+    "city_id": "cairo"
+  },
+  {
+    "attraction_id": "att-2",
+    "name": "Burj Khalifa Observation Deck",
+    "city_id": "dubai"
+  },
+  {
+    "attraction_id": "att-3",
+    "name": "British Museum",
+    "city_id": "london"
+  },
+  {
+    "attraction_id": "att-4",
+    "name": "Central Park",
+    "city_id": "new_york"
+  },
+  {
+    "attraction_id": "att-5",
+    "name": "Louvre Museum",
+    "city_id": "paris"
+  },
+  {
+    "attraction_id": "att-6",
+    "name": "Senso-ji Temple",
+    "city_id": "tokyo"
+  },
+  {
+    "attraction_id": "att-7",
+    "name": "Kingdom Centre Tower (Sky Bridge)",
+    "city_id": "riyadh"
+  },
+  {
+    "attraction_id": "att-8",
+    "name": "Römerberg",
+    "city_id": "frankfurt"
+  }
+]

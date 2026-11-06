@@ -1,0 +1,42 @@
+[
+  {
+    "code": "EG",
+    "name": "Egypt",
+    "currency": "EGP"
+  },
+  {
+    "code": "AE",
+    "name": "United Arab Emirates",
+    "currency": "AED"
+  },
+  {
+    "code": "GB",
+    "name": "United Kingdom",
+    "currency": "GBP"
+  },
+  {
+    "code": "US",
+    "name": "United States",
+    "currency": "USD"
+  },
+  {
+    "code": "FR",
+    "name": "France",
+    "currency": "EUR"
+  },
+  {
+    "code": "DE",
+    "name": "Germany",
+    "currency": "EUR"
+  },
+  {
+    "code": "JP",
+    "name": "Japan",
+    "currency": "JPY"
+  },
+  {
+    "code": "SA",
+    "name": "Saudi Arabia",
+    "currency": "SAR"
+  }
+]
