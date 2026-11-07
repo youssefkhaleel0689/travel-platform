@@ -18,6 +18,15 @@ export interface HotelBrief {
   ratingCount?: number;
 }
 
+export interface UserBrief {
+  _id: Types.ObjectId;
+  name?: string;
+  email?: string;
+  status?: string;
+}
+
+type ExternalDoc = Record<string, unknown>;
+
 /**
  * Thin read/write access to models owned by other modules (Hotel, HotelModeratorAssignment, User, City, Country).
  * It uses the shared Mongoose connection, so B2 never registers a second (conflicting) schema for them.
@@ -26,7 +35,7 @@ export interface HotelBrief {
 export class ExternalModelsService {
   constructor(@InjectConnection() private readonly connection: Connection) {}
 
-  model(name: string): Model<any> {
+  model(name: string): Model<ExternalDoc> {
     const m = this.connection.models[name];
     if (!m) {
       throw new InternalServerErrorException(
@@ -68,22 +77,22 @@ export class ExternalModelsService {
     await this.model(EXTERNAL_MODELS.HOTEL).updateOne({ _id: hotelId }, { $set: { ratingAverage, ratingCount } }).exec();
   }
 
-  async hotelBriefs(ids: Types.ObjectId[]): Promise<Map<string, any>> {
+  async hotelBriefs(ids: Types.ObjectId[]): Promise<Map<string, HotelBrief>> {
     if (!ids.length) return new Map();
     const rows = await this.model(EXTERNAL_MODELS.HOTEL)
       .find({ _id: { $in: ids } }, { name: 1, address: 1, cityId: 1, countryId: 1, starClass: 1 })
-      .lean()
+      .lean<HotelBrief[]>()
       .exec();
-    return new Map(rows.map((r: any) => [String(r._id), r]));
+    return new Map(rows.map((r) => [String(r._id), r]));
   }
 
-  async userBriefs(ids: Types.ObjectId[]): Promise<Map<string, any>> {
+  async userBriefs(ids: Types.ObjectId[]): Promise<Map<string, UserBrief>> {
     if (!ids.length) return new Map();
     const rows = await this.model(EXTERNAL_MODELS.USER)
       .find({ _id: { $in: ids } }, { name: 1, email: 1, status: 1 })
-      .lean()
+      .lean<UserBrief[]>()
       .exec();
-    return new Map(rows.map((r: any) => [String(r._id), r]));
+    return new Map(rows.map((r) => [String(r._id), r]));
   }
 
   /** Resolves a destination to seeded city/country ids by EXACT name (case-insensitive) (HTL-11). */
@@ -91,9 +100,9 @@ export class ExternalModelsService {
     const escaped = destination.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const exact = new RegExp(`^${escaped}$`, 'i');
     const [cities, countries] = await Promise.all([
-      this.model(EXTERNAL_MODELS.CITY).find({ name: exact }, { _id: 1 }).lean().exec(),
-      this.model(EXTERNAL_MODELS.COUNTRY).find({ name: exact }, { _id: 1 }).lean().exec(),
+      this.model(EXTERNAL_MODELS.CITY).find({ name: exact }, { _id: 1 }).lean<{ _id: string }[]>().exec(),
+      this.model(EXTERNAL_MODELS.COUNTRY).find({ name: exact }, { _id: 1 }).lean<{ _id: string }[]>().exec(),
     ]);
-    return { cityIds: cities.map((c: any) => c._id), countryIds: countries.map((c: any) => c._id) };
+    return { cityIds: cities.map((c) => c._id), countryIds: countries.map((c) => c._id) };
   }
 }

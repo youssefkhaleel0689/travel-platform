@@ -13,7 +13,7 @@ import {
 } from './dto/hotel-booking.dto';
 import { InventoryService } from '../inventory/inventory.service';
 import { HotelPoliciesService } from '../hotel-policies/hotel-policies.service';
-import { ExternalModelsService } from '../common/external-models.service';
+import { ExternalModelsService, HotelBrief } from '../common/external-models.service';
 import { AuthUser } from '../common/auth/auth-user';
 import { HOLD_MINUTES, PLATFORM_CURRENCY, Role } from '../common/constants';
 import { parseStay, todayUtc, DAY_MS } from '../common/dates';
@@ -303,7 +303,7 @@ export class HotelBookingsService {
   }
 
   /** Booking JSON (Decimal128 already converted to strings by the schema) plus the hotel's name/address. */
-  private withHotel(b: HotelBookingDocument, hotels: Map<string, any>) {
+  private withHotel(b: HotelBookingDocument, hotels: Map<string, HotelBrief>) {
     const h = hotels.get(String(b.hotelId));
     return { ...b.toJSON(), hotel: h ? { id: h._id, name: h.name, address: h.address } : undefined };
   }

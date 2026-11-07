@@ -1,14 +1,29 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Room, RoomDocument } from '../rooms/schemas/room.schema';
 import { InventoryService } from '../inventory/inventory.service';
-import { ExternalModelsService } from '../common/external-models.service';
+import { ExternalModelsService, HotelBrief } from '../common/external-models.service';
 import { HotelSearchDto, HotelSortBy, SortOrder } from './dto/hotel-search.dto';
 import { parseStay } from '../common/dates';
 import { centsToString, toCents } from '../common/money';
 import { paginateArray } from '../common/pagination/paginate';
 import { EXTERNAL_MODELS } from '../common/constants';
+
+export interface HotelResult {
+  hotelId: Types.ObjectId;
+  name: string;
+  address?: string;
+  cityId?: string;
+  countryId?: string;
+  starClass?: number;
+  photo?: unknown;
+  ratingAverage: number | null;
+  ratingCount: number;
+  pricePerNight: string;
+  freeRoomCount: number;
+  _cents: bigint;
+}
 
 @Injectable()
 export class HotelSearchService {
@@ -34,11 +49,11 @@ export class HotelSearchService {
 
     const hotels = await this.external.model(EXTERNAL_MODELS.HOTEL)
       .find({ status: 'ACTIVE', $or: [{ cityId: { $in: cityIds } }, { countryId: { $in: countryIds } }] })
-      .lean().exec();
+      .lean<HotelBrief[]>().exec();
     if (!hotels.length) return { nights, ...paginateArray([], dto.page) };
 
     // 2. active rooms of those hotels that are free for the WHOLE stay
-    const rooms = await this.roomModel.find({ hotelId: { $in: hotels.map((h: any) => h._id) }, isActive: true }).lean().exec();
+    const rooms = await this.roomModel.find({ hotelId: { $in: hotels.map((h) => h._id) }, isActive: true }).lean().exec();
     const status = await this.inventory.evaluateRooms(rooms.map((r) => r._id), checkIn, checkOut);
 
     const freeByHotel = new Map<string, typeof rooms>();
@@ -49,8 +64,8 @@ export class HotelSearchService {
     }
 
     // 3. qualify: enough free rooms AND combined max occupancy of the best `roomCount` rooms covers the guests
-    const results: any[] = [];
-    for (const h of hotels as any[]) {
+    const results: HotelResult[] = [];
+    for (const h of hotels) {
       const free = freeByHotel.get(String(h._id)) ?? [];
       if (free.length < dto.roomCount) continue;
       const capacity = [...free].sort((a, b) => b.maxOccupancy - a.maxOccupancy)
@@ -62,12 +77,13 @@ export class HotelSearchService {
       if (maxCents !== undefined && cheapest > maxCents) continue;
 
       const rated = (h.ratingCount ?? 0) > 0;
-      if (dto.minAverageRating !== undefined && !(rated && h.ratingAverage >= dto.minAverageRating)) continue; // unrated excluded
+      const average = h.ratingAverage ?? 0;
+      if (dto.minAverageRating !== undefined && !(rated && average >= dto.minAverageRating)) continue; // unrated excluded
 
       results.push({
         hotelId: h._id, name: h.name, address: h.address, cityId: h.cityId, countryId: h.countryId, starClass: h.starClass,
         photo: Array.isArray(h.photos) ? h.photos[0] : undefined,
-        ratingAverage: rated ? h.ratingAverage : null,
+        ratingAverage: rated ? average : null,
         ratingCount: h.ratingCount ?? 0,
         pricePerNight: centsToString(cheapest),
         freeRoomCount: free.length,

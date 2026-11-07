@@ -14,6 +14,15 @@ import { MAX_STATUS_VIEW_NIGHTS } from '../common/constants';
 
 type Range = { startDate: Date; endDate: Date };
 
+export interface RoomSegment {
+  status: string;
+  startDate: Date;
+  endDate: Date;
+  bookingId?: string;
+  bookingReference?: string | null;
+  bookingStatus?: string;
+}
+
 @Injectable()
 export class AvailabilityService {
   constructor(
@@ -176,7 +185,7 @@ export class AvailabilityService {
         const myRanges = ranges.filter((r) => String(r.roomId) === key);
         const myBookings = bookings.filter((b) => b.roomsSnapshot.some((s) => String(s.roomId) === key));
 
-        const segments: any[] = [];
+        const segments: RoomSegment[] = [];
         for (let d = from; d < to; d = addDays(d, 1)) {
           let status: string | null = null;
           let booking: (typeof myBookings)[number] | undefined;
