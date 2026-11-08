@@ -10,7 +10,20 @@ import { BookingStatus, BookingType, ProviderType } from './booking-status';
 describe('BookingPaymentGateway (GEN-11)', () => {
   const BOOKING_ID = new Types.ObjectId().toString();
 
-  function portStub(): jest.Mocked<BookingPaymentPort> {
+  // A plain record of jest mocks rather than jest.Mocked<BookingPaymentPort>:
+  // reading an interface method off a typed mock trips the unbound-method lint
+  // rule on every assertion, and the cast at the call site costs nothing.
+  interface PortStub {
+    findPayable: jest.Mock;
+    findPolicies: jest.Mock;
+    confirmAfterPayment: jest.Mock;
+    releaseHold: jest.Mock;
+  }
+
+  const asPort = (stub: PortStub): BookingPaymentPort =>
+    stub as unknown as BookingPaymentPort;
+
+  function portStub(): PortStub {
     return {
       findPayable: jest.fn().mockResolvedValue({
         bookingId: BOOKING_ID,
@@ -66,12 +79,12 @@ describe('BookingPaymentGateway (GEN-11)', () => {
   });
 
   describe('with only the hotels module wired in', () => {
-    let hotelPort: jest.Mocked<BookingPaymentPort>;
+    let hotelPort: PortStub;
     let gateway: BookingPaymentGateway;
 
     beforeEach(() => {
       hotelPort = portStub();
-      gateway = new BookingPaymentGateway(undefined, hotelPort);
+      gateway = new BookingPaymentGateway(undefined, asPort(hotelPort));
     });
 
     it('supports hotels and not flights', () => {
@@ -138,7 +151,10 @@ describe('BookingPaymentGateway (GEN-11)', () => {
     it('keeps the two types apart', async () => {
       const flightPort = portStub();
       const hotelPort = portStub();
-      const gateway = new BookingPaymentGateway(flightPort, hotelPort);
+      const gateway = new BookingPaymentGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
 
       await gateway.getPayableOrThrow(BookingType.FLIGHT, BOOKING_ID);
 
