@@ -212,7 +212,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/` and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Layout of one module:
 
@@ -233,7 +233,7 @@ Rules:
 - Controllers validate and delegate, services hold the business rules, schemas define the data shape.
 - A module uses another module through its exported service, never through its Mongoose model.
 - IDs: reference data keeps the given string ids (`cairo`, `EG`, `CAI`, `att-1`); all other documents use ObjectId, returned to clients as a string `id`.
-- Time: store dates in UTC and return ISO 8601; each airport has an IANA `timeZone` (`CAI` is `Africa/Cairo`).
+- Time: store dates in UTC and return ISO 8601; flight times are returned in the airport's local time with its offset (see "Airport time zones (GEN-06)"); each airport has an IANA `timeZone` (`CAI` is `Africa/Cairo`).
 - Money: store as Decimal128 and return as a string (`"199.99"`). Convert it to a string in the response DTO mapping, not in a schema transform, because lean queries (`paginateQuery`) skip document transforms. Do arithmetic with a decimal library (decimal.js, not installed yet; the first module that needs money arithmetic adds it), never `Number()`. Convert to integer minor units only when calling Stripe.
 - Currency: PAY-04 requires one platform currency; the team chose USD. Flight and hotel prices, payments and refunds are always USD and are never converted. Itinerary budgets may use any seeded currency (EGP, AED, GBP, USD, EUR, JPY, SAR); conversion applies to budgets only.
 - Swagger: every endpoint has `@ApiTags`, a summary, `@ApiOkResponse` or `@ApiPaginatedResponse`, error responses using `ErrorResponseDto`, and `@ApiCookieAuth` when it is protected.
@@ -316,6 +316,56 @@ Rules:
 - `test/reference-data.e2e-spec.ts` reads the seeded data on the shared database; run `npm run seed` first.
 
 The module and schemas are in `src/common/reference-data/`, and the validation, mapping and entry point are in its `seed/` folder.
+
+## Airport time zones (GEN-06)
+
+Flight times are stored as UTC instants and shown in each airport's local time. Clients send local times without an offset (`2026-11-20T08:30`), and the airport's IANA `timeZone` supplies the zone. The helpers live in `src/common/time/` and use the built-in `Intl` API, so there is no date library.
+
+| Function or decorator | Returns | Used by |
+| --- | --- | --- |
+| `toUtcFromAirportLocal(localDateTime, timeZone, field?)` | UTC `Date` | FLT-03, FLT-05 (departure and arrival times) |
+| `toAirportLocalDateKey(instant, timeZone)` | `"2026-11-20"` | FLT-03 (`departureDateKey`), FLT-11 (today at the departure airport) |
+| `toAirportLocalIso(instant, timeZone)` | `"2026-11-20T08:30:00+02:00"` | FLT-11, FLT-17 (local times in responses) |
+| `@IsLocalDate()` | | FLT-11 (search dates) |
+| `@IsLocalDateTime()` | | FLT-03, FLT-05 (request bodies) |
+
+DTO:
+
+~~~
+@IsLocalDateTime()
+departureLocal: string;
+~~~
+
+Service:
+
+~~~
+const airport = await this.referenceData.getAirportOrThrow(dto.departureAirportId);
+const departureAtUtc = toUtcFromAirportLocal(dto.departureLocal, airport.timeZone, 'departureLocal');
+const departureDateKey = toAirportLocalDateKey(departureAtUtc, airport.timeZone);
+
+// In a response:
+departureLocal: toAirportLocalIso(flight.departureAtUtc, airport.timeZone),
+~~~
+
+Some airports change their clocks for daylight saving time, so a local time can be skipped or repeated. In 2026, Cairo skips 24 April 00:00 to 00:59 and repeats 29 October 23:00 to 23:59.
+
+| Case | Result |
+| --- | --- |
+| Bad format or a value that does not exist (`2026-02-30`, `24:00`) in a DTO | 400 `VALIDATION_FAILED` with a field error |
+| The same value passed to `toUtcFromAirportLocal` directly | 400 `INVALID_LOCAL_DATE_TIME` |
+| A time skipped by a DST change (Cairo `2026-04-24T00:30`) | 400 `NONEXISTENT_LOCAL_TIME` on the field named by `field` |
+| A time that happens twice (Cairo `2026-10-29T23:30`) | Accepted as the earlier instant (`+03:00`) |
+| A time zone that `Intl` does not know | `RangeError`, returned as 500 (zones come from the validated seed) |
+
+Rules:
+
+- Always take `timeZone` from `getAirportOrThrow`; never accept a zone or an offset from the client.
+- Never use `new Date('YYYY-MM-DD')`: it means midnight UTC, not midnight at the airport.
+- Never add 24 hours to reach the next day: a day with a DST change has 23 or 25 hours. Compare `departureDateKey` values instead.
+- Store and compare UTC instants (`departureAtUtc`, `arrivalAtUtc`); compute duration as `arrivalAtUtc - departureAtUtc`, never from local times.
+- `departureDateKey` is the departure airport's local date, so a Tokyo flight at `2026-11-19T23:30Z` has the key `2026-11-20`.
+
+The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
 
 ## Team workflow
 
