@@ -127,3 +127,34 @@ export function toUtcFromAirportLocal(
   }
   return new Date(matches[0]);
 }
+
+function pad(value: number, length = 2): string {
+  return String(value).padStart(length, '0');
+}
+
+// 120 -> "+02:00", -240 -> "-04:00", 330 -> "+05:30".
+function formatOffset(minutes: number): string {
+  const sign = minutes < 0 ? '-' : '+';
+  const absolute = Math.abs(minutes);
+  return `${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`;
+}
+
+function formatDate(wall: WallClock): string {
+  return `${pad(wall.year, 4)}-${pad(wall.month)}-${pad(wall.day)}`;
+}
+
+/** The airport's local calendar date at an instant, as "YYYY-MM-DD" (departureDateKey). */
+export function toAirportLocalDateKey(instant: Date, timeZone: string): string {
+  return formatDate(wallClockAt(instant, timeZone));
+}
+
+/**
+ * The instant in ISO 8601 as the airport's clock shows it, with the offset in effect,
+ * e.g. "2026-11-20T08:30:00+02:00". Milliseconds are dropped.
+ */
+export function toAirportLocalIso(instant: Date, timeZone: string): string {
+  const wall = wallClockAt(instant, timeZone);
+  const time = `${pad(wall.hour)}:${pad(wall.minute)}:${pad(wall.second)}`;
+  const offset = formatOffset(offsetMinutesAt(instant, timeZone));
+  return `${formatDate(wall)}T${time}${offset}`;
+}

@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { toUtcFromAirportLocal } from './airport-time';
+import {
+  toAirportLocalDateKey,
+  toAirportLocalIso,
+  toUtcFromAirportLocal,
+} from './airport-time';
 
 // Returns the response body of the BadRequestException thrown by run.
 function badRequestBody(run: () => unknown): unknown {
@@ -127,6 +131,131 @@ describe('toUtcFromAirportLocal', () => {
   it('throws a RangeError for an unknown time zone', () => {
     expect(() =>
       toUtcFromAirportLocal('2026-11-20T08:30', 'Mars/Olympus'),
+    ).toThrow(RangeError);
+  });
+});
+
+describe('toAirportLocalDateKey', () => {
+  it.each([
+    [
+      'Cairo, one second before local midnight',
+      '2026-11-19T21:59:59Z',
+      'Africa/Cairo',
+      '2026-11-19',
+    ],
+    [
+      'Cairo, at local midnight',
+      '2026-11-19T22:00:00Z',
+      'Africa/Cairo',
+      '2026-11-20',
+    ],
+    [
+      'Cairo in summer, at local midnight',
+      '2026-07-19T21:00:00Z',
+      'Africa/Cairo',
+      '2026-07-20',
+    ],
+    [
+      'Tokyo, one minute before local midnight',
+      '2026-11-19T14:59:00Z',
+      'Asia/Tokyo',
+      '2026-11-19',
+    ],
+    [
+      'Tokyo, at local midnight',
+      '2026-11-19T15:00:00Z',
+      'Asia/Tokyo',
+      '2026-11-20',
+    ],
+    [
+      'New York, before local midnight on the next UTC day',
+      '2026-11-21T04:59:00Z',
+      'America/New_York',
+      '2026-11-20',
+    ],
+    [
+      'New York, at local midnight',
+      '2026-11-21T05:00:00Z',
+      'America/New_York',
+      '2026-11-21',
+    ],
+  ])('%s', (_case, utc, timeZone, key) => {
+    expect(toAirportLocalDateKey(new Date(utc), timeZone)).toBe(key);
+  });
+});
+
+describe('toAirportLocalIso', () => {
+  it.each([
+    [
+      'Cairo in winter',
+      '2026-11-20T06:30:00Z',
+      'Africa/Cairo',
+      '2026-11-20T08:30:00+02:00',
+    ],
+    [
+      'Cairo in summer',
+      '2026-07-20T05:30:00Z',
+      'Africa/Cairo',
+      '2026-07-20T08:30:00+03:00',
+    ],
+    [
+      'London in winter',
+      '2026-01-10T12:00:00Z',
+      'Europe/London',
+      '2026-01-10T12:00:00+00:00',
+    ],
+    [
+      'London in summer',
+      '2026-07-10T12:00:00Z',
+      'Europe/London',
+      '2026-07-10T13:00:00+01:00',
+    ],
+    [
+      'New York in winter',
+      '2026-11-20T13:00:00Z',
+      'America/New_York',
+      '2026-11-20T08:00:00-05:00',
+    ],
+    [
+      'New York in summer',
+      '2026-07-10T12:00:00Z',
+      'America/New_York',
+      '2026-07-10T08:00:00-04:00',
+    ],
+    [
+      'a half-hour offset (Kolkata)',
+      '2026-11-20T03:00:00Z',
+      'Asia/Kolkata',
+      '2026-11-20T08:30:00+05:30',
+    ],
+  ])('formats %s', (_case, utc, timeZone, iso) => {
+    expect(toAirportLocalIso(new Date(utc), timeZone)).toBe(iso);
+  });
+
+  it('keeps seconds and drops milliseconds', () => {
+    const instant = new Date('2026-11-20T06:30:45.678Z');
+    expect(toAirportLocalIso(instant, 'Africa/Cairo')).toBe(
+      '2026-11-20T08:30:45+02:00',
+    );
+  });
+
+  it('names the same instant, so it can be parsed back', () => {
+    const instant = new Date('2026-11-19T23:30:00Z');
+    const iso = toAirportLocalIso(instant, 'Asia/Tokyo');
+    expect(iso).toBe('2026-11-20T08:30:00+09:00');
+    expect(new Date(iso).getTime()).toBe(instant.getTime());
+  });
+
+  it('shows which instant an overlap resolved to', () => {
+    const instant = toUtcFromAirportLocal('2026-10-29T23:30', 'Africa/Cairo');
+    expect(toAirportLocalIso(instant, 'Africa/Cairo')).toBe(
+      '2026-10-29T23:30:00+03:00',
+    );
+  });
+
+  it('throws a RangeError for an invalid Date', () => {
+    expect(() =>
+      toAirportLocalIso(new Date('not a date'), 'Africa/Cairo'),
     ).toThrow(RangeError);
   });
 });
