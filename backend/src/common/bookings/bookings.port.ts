@@ -37,16 +37,24 @@ export interface PayableBooking {
   providerId: string;
 }
 
-/** What the provider's terms say at this moment (PAY-02). */
+/**
+ * The provider terms that apply to one booking (PAY-02).
+ *
+ * These are the terms the booking itself carries - the snapshot taken when it
+ * was created (HTL-09, FLT-09) - not the provider's latest ones. That is what
+ * makes acceptance stable: a provider editing its policy during the 10-minute
+ * hold cannot invalidate an acceptance the user has already given, and a later
+ * edit never changes what an existing booking agreed to.
+ */
 export interface BookingPolicies {
   bookingId: string;
   bookingType: BookingType;
   providerType: ProviderType;
   providerId: string;
-  /** Increments whenever the provider edits its policy (FLT-09, HTL-09). */
+  /** The version this booking is on; the provider increments its own on edit. */
   policyVersion: number;
   /**
-   * The exact terms shown to the user and stored with the acceptance. Its
+   * The exact terms, as shown to the user and stored with the acceptance. Its
    * shape is the provider's: baggage plus cancellation tiers for an airline,
    * cancellation tiers plus check-in and check-out times for a hotel.
    */
