@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 
 @Module({
@@ -15,6 +16,7 @@ import { ReferenceDataModule } from './common/reference-data/reference-data.modu
       }),
     }),
     ReferenceDataModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
