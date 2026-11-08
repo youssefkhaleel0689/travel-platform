@@ -1,16 +1,16 @@
 import { NotFoundException, NotImplementedException } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { BookingPaymentGateway } from './booking-payment.gateway';
+import { BookingsGateway } from './bookings.gateway';
 import {
-  BookingPaymentPort,
+  BookingsPort,
   HoldReleaseReason,
-} from './booking-payment.port';
+} from './bookings.port';
 import { BookingStatus, BookingType, ProviderType } from './booking-status';
 
-describe('BookingPaymentGateway (GEN-11)', () => {
+describe('BookingsGateway (GEN-11)', () => {
   const BOOKING_ID = new Types.ObjectId().toString();
 
-  // A plain record of jest mocks rather than jest.Mocked<BookingPaymentPort>:
+  // A plain record of jest mocks rather than jest.Mocked<BookingsPort>:
   // reading an interface method off a typed mock trips the unbound-method lint
   // rule on every assertion, and the cast at the call site costs nothing.
   interface PortStub {
@@ -18,10 +18,11 @@ describe('BookingPaymentGateway (GEN-11)', () => {
     findPolicies: jest.Mock;
     confirmAfterPayment: jest.Mock;
     releaseHold: jest.Mock;
+    hasUpcomingConfirmedBookings: jest.Mock;
   }
 
-  const asPort = (stub: PortStub): BookingPaymentPort =>
-    stub as unknown as BookingPaymentPort;
+  const asPort = (stub: PortStub): BookingsPort =>
+    stub as unknown as BookingsPort;
 
   function portStub(): PortStub {
     return {
@@ -51,11 +52,19 @@ describe('BookingPaymentGateway (GEN-11)', () => {
         bookingReference: 'NILE-4821',
       }),
       releaseHold: jest.fn().mockResolvedValue(undefined),
+      hasUpcomingConfirmedBookings: jest.fn().mockResolvedValue(false),
     };
   }
 
   describe('with no booking module wired in', () => {
-    const gateway = new BookingPaymentGateway();
+    const gateway = new BookingsGateway();
+
+    // ACC-12 must not become impossible because a module is still being built.
+    it('reports no upcoming bookings when nothing is wired in', async () => {
+      await expect(
+        gateway.hasUpcomingConfirmedBookings('6720f1c2a1b2c3d4e5f60001'),
+      ).resolves.toBe(false);
+    });
 
     it('reports both types as unsupported', () => {
       expect(gateway.supports(BookingType.FLIGHT)).toBe(false);
@@ -80,11 +89,11 @@ describe('BookingPaymentGateway (GEN-11)', () => {
 
   describe('with only the hotels module wired in', () => {
     let hotelPort: PortStub;
-    let gateway: BookingPaymentGateway;
+    let gateway: BookingsGateway;
 
     beforeEach(() => {
       hotelPort = portStub();
-      gateway = new BookingPaymentGateway(undefined, asPort(hotelPort));
+      gateway = new BookingsGateway(undefined, asPort(hotelPort));
     });
 
     it('supports hotels and not flights', () => {
@@ -139,6 +148,17 @@ describe('BookingPaymentGateway (GEN-11)', () => {
       expect(hotelPort.findPolicies).not.toHaveBeenCalled();
     });
 
+    it('asks the wired module about upcoming bookings (ACC-12)', async () => {
+      hotelPort.hasUpcomingConfirmedBookings.mockResolvedValue(true);
+
+      await expect(
+        gateway.hasUpcomingConfirmedBookings('6720f1c2a1b2c3d4e5f60001'),
+      ).resolves.toBe(true);
+      expect(hotelPort.hasUpcomingConfirmedBookings).toHaveBeenCalledWith(
+        '6720f1c2a1b2c3d4e5f60001',
+      );
+    });
+
     it('still answers 501 for a flight booking', async () => {
       await expect(
         gateway.getPayableOrThrow(BookingType.FLIGHT, BOOKING_ID),
@@ -151,7 +171,7 @@ describe('BookingPaymentGateway (GEN-11)', () => {
     it('keeps the two types apart', async () => {
       const flightPort = portStub();
       const hotelPort = portStub();
-      const gateway = new BookingPaymentGateway(
+      const gateway = new BookingsGateway(
         asPort(flightPort),
         asPort(hotelPort),
       );
@@ -160,6 +180,25 @@ describe('BookingPaymentGateway (GEN-11)', () => {
 
       expect(flightPort.findPayable).toHaveBeenCalledTimes(1);
       expect(hotelPort.findPayable).not.toHaveBeenCalled();
+    });
+
+    // One upcoming booking anywhere is enough to block a deactivation.
+    it('blocks deactivation when either module says yes (ACC-12)', async () => {
+      const flightPort = portStub();
+      const hotelPort = portStub();
+      flightPort.hasUpcomingConfirmedBookings.mockResolvedValue(false);
+      hotelPort.hasUpcomingConfirmedBookings.mockResolvedValue(true);
+      const gateway = new BookingsGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
+
+      await expect(
+        gateway.hasUpcomingConfirmedBookings('6720f1c2a1b2c3d4e5f60001'),
+      ).resolves.toBe(true);
+      // Both are asked, in parallel, not short-circuited by order.
+      expect(flightPort.hasUpcomingConfirmedBookings).toHaveBeenCalled();
+      expect(hotelPort.hasUpcomingConfirmedBookings).toHaveBeenCalled();
     });
   });
 });

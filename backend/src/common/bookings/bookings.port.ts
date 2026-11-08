@@ -1,17 +1,17 @@
 import { BookingStatus, BookingType, ProviderType } from './booking-status';
 
 /**
- * The contract between the payments module (C2) and the two booking modules
- * (flights, A1; hotels, B2). Payments never reads or writes a booking
- * collection: it asks the owning module through this port.
+ * The contract between the platform modules (payments and accounts, C2) and
+ * the two booking modules (flights, A1; hotels, B2). Nothing outside a booking
+ * module reads or writes its booking collection: it asks through this port.
  *
- * That is what lets payments be built and tested before the booking
- * collections exist, and it keeps the inventory rules - how seats and rooms
- * are held and released - inside the module that owns them.
+ * That is what lets payments and account deactivation be built and tested
+ * before the booking collections exist, and it keeps the inventory rules - how
+ * seats and rooms are held and released - inside the module that owns them.
  *
- * To plug a module in: implement BookingPaymentPort, then provide it in that
- * module under FLIGHT_BOOKING_PAYMENT_PORT or HOTEL_BOOKING_PAYMENT_PORT and
- * export the token. Nothing in payments changes.
+ * To plug a module in: implement BookingsPort in one class, then provide it in
+ * that module under FLIGHT_BOOKINGS_PORT or HOTEL_BOOKINGS_PORT and export the
+ * token. Nothing in payments or accounts changes.
  */
 
 /** The booking facts payments needs. A snapshot; payments never mutates it. */
@@ -68,7 +68,7 @@ export enum HoldReleaseReason {
   PAYMENT_FAILED = 'PAYMENT_FAILED',
 }
 
-export interface BookingPaymentPort {
+export interface BookingsPort {
   /**
    * The booking as it stands, or null when there is no such booking. Payments
    * checks ownership and state itself, so this must not filter by user.
@@ -98,10 +98,21 @@ export interface BookingPaymentPort {
    * it is called: the expiry job and a failed-payment webhook can both arrive.
    */
   releaseHold(bookingId: string, reason: HoldReleaseReason): Promise<void>;
+
+  /**
+   * ACC-12: whether this account has a CONFIRMED booking whose travel or stay
+   * has not happened yet. Deactivation is blocked while it has one, because a
+   * deactivated account cannot log in to manage or cancel it.
+   *
+   * "Upcoming" is the booking module's own test: for a flight, a segment that
+   * has not departed; for a hotel, a stay whose check-out has not passed.
+   * Bookings in any other state do not count.
+   */
+  hasUpcomingConfirmedBookings(userId: string): Promise<boolean>;
 }
 
 /** Provided by the flights module (A1) once flight bookings exist. */
-export const FLIGHT_BOOKING_PAYMENT_PORT = 'FLIGHT_BOOKING_PAYMENT_PORT';
+export const FLIGHT_BOOKINGS_PORT = 'FLIGHT_BOOKINGS_PORT';
 
 /** Provided by the hotels module (B2) once hotel reservations exist. */
-export const HOTEL_BOOKING_PAYMENT_PORT = 'HOTEL_BOOKING_PAYMENT_PORT';
+export const HOTEL_BOOKINGS_PORT = 'HOTEL_BOOKINGS_PORT';

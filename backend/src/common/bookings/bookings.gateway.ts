@@ -7,18 +7,18 @@ import {
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import {
-  FLIGHT_BOOKING_PAYMENT_PORT,
+  FLIGHT_BOOKINGS_PORT,
   HoldReleaseReason,
-  HOTEL_BOOKING_PAYMENT_PORT,
-} from './booking-payment.port';
+  HOTEL_BOOKINGS_PORT,
+} from './bookings.port';
 // Types only: a type in a decorated constructor signature has to be imported
 // this way while isolatedModules and emitDecoratorMetadata are both on.
 import type {
   BookingConfirmation,
-  BookingPaymentPort,
+  BookingsPort,
   BookingPolicies,
   PayableBooking,
-} from './booking-payment.port';
+} from './bookings.port';
 import { BookingType } from './booking-status';
 
 /**
@@ -30,14 +30,14 @@ import { BookingType } from './booking-status';
  * to start or, worse, a 500 that looks like a bug in payments.
  */
 @Injectable()
-export class BookingPaymentGateway {
+export class BookingsGateway {
   constructor(
     @Optional()
-    @Inject(FLIGHT_BOOKING_PAYMENT_PORT)
-    private readonly flightPort?: BookingPaymentPort,
+    @Inject(FLIGHT_BOOKINGS_PORT)
+    private readonly flightPort?: BookingsPort,
     @Optional()
-    @Inject(HOTEL_BOOKING_PAYMENT_PORT)
-    private readonly hotelPort?: BookingPaymentPort,
+    @Inject(HOTEL_BOOKINGS_PORT)
+    private readonly hotelPort?: BookingsPort,
   ) {}
 
   /** True when the module that owns this booking type is wired in. */
@@ -97,13 +97,31 @@ export class BookingPaymentGateway {
     return this.portOrThrow(bookingType).releaseHold(bookingId, reason);
   }
 
-  private port(bookingType: BookingType): BookingPaymentPort | undefined {
+  /**
+   * ACC-12: true when any wired booking module reports an upcoming CONFIRMED
+   * booking for this account.
+   *
+   * A booking type that is not wired in yet cannot report one, so it is
+   * skipped rather than throwing: deactivation must not be impossible just
+   * because a module is still being built. Both modules are asked in parallel.
+   */
+  async hasUpcomingConfirmedBookings(userId: string): Promise<boolean> {
+    const ports = [this.flightPort, this.hotelPort].filter(
+      (port): port is BookingsPort => port !== undefined,
+    );
+    const answers = await Promise.all(
+      ports.map((port) => port.hasUpcomingConfirmedBookings(userId)),
+    );
+    return answers.some(Boolean);
+  }
+
+  private port(bookingType: BookingType): BookingsPort | undefined {
     return bookingType === BookingType.FLIGHT
       ? this.flightPort
       : this.hotelPort;
   }
 
-  private portOrThrow(bookingType: BookingType): BookingPaymentPort {
+  private portOrThrow(bookingType: BookingType): BookingsPort {
     const port = this.port(bookingType);
     if (!port) {
       throw new NotImplementedException({
