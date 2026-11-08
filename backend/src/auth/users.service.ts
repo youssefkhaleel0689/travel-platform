@@ -5,7 +5,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, QueryFilter, Types } from 'mongoose';
+import { PageDto } from '../common/pagination/dto/page.dto';
+import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import {
   CURRENT_TERMS_VERSION,
@@ -36,6 +38,22 @@ export interface ProfileUpdateInput {
   name?: string;
   phone?: string | null;
   preferredCurrency?: string | null;
+}
+
+export interface AccountListFilters {
+  /** Case-insensitive partial match on the name or the email (ACC-14). */
+  search?: string;
+  role?: Role;
+  status?: UserStatus;
+}
+
+/**
+ * Escapes every regular-expression metacharacter, so a search term is matched
+ * literally. Without this, a term such as "(.*)+$" would be compiled as a
+ * pattern and could be used to stall the server.
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -271,6 +289,35 @@ export class UsersService {
       user.preferredCurrency = input.preferredCurrency;
     }
     return user.save();
+  }
+
+  /**
+   * ACC-14: one page of accounts for the admin list, newest registration
+   * first, optionally narrowed by a name or email fragment, a role and a
+   * status.
+   *
+   * Returns lean documents; AdminAccountDto decides which fields reach the
+   * client, so the password hash cannot travel with them.
+   */
+  async listAccounts(
+    page: number,
+    filters: AccountListFilters = {},
+  ): Promise<PageDto<LeanDoc<User>>> {
+    const filter: QueryFilter<User> = {};
+    if (filters.role) {
+      filter.role = filters.role;
+    }
+    if (filters.status) {
+      filter.status = filters.status;
+    }
+    if (filters.search) {
+      const term = new RegExp(escapeRegExp(filters.search.trim()), 'i');
+      filter.$or = [{ name: term }, { email: term }];
+    }
+    return paginateQuery(this.userModel, filter, {
+      page,
+      sort: { createdAt: -1, _id: -1 },
+    });
   }
 
   /**
