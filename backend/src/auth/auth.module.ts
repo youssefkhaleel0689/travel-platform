@@ -12,6 +12,7 @@ import { PasswordService } from './password.service';
 import { Session, SessionSchema } from './schemas/session.schema';
 import { User, UserSchema } from './schemas/user.schema';
 import { SessionsService } from './sessions.service';
+import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
 /**
@@ -37,7 +38,7 @@ import { UsersService } from './users.service';
     }),
     ReferenceDataModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, UsersController],
   providers: [
     PasswordService,
     AuthTokensService,
