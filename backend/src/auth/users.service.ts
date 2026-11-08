@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, QueryFilter, Types } from 'mongoose';
+import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
@@ -69,6 +71,7 @@ export class UsersService {
     private readonly passwords: PasswordService,
     private readonly sessions: SessionsService,
     private readonly referenceData: ReferenceDataService,
+    private readonly bookings: BookingsGateway,
   ) {}
 
   /**
@@ -289,6 +292,47 @@ export class UsersService {
       user.preferredCurrency = input.preferredCurrency;
     }
     return user.save();
+  }
+
+  /**
+   * ACC-12: the owner deactivates their own account.
+   *
+   * Blocked while the account has an upcoming CONFIRMED booking, because a
+   * deactivated account cannot sign in to manage or cancel it. The check asks
+   * the flights and hotels modules through BookingsGateway, so this service
+   * never reaches into a booking collection.
+   *
+   * What deactivation does and does not do:
+   *  - the account cannot sign in, and its open sessions end at once;
+   *  - its posts and public itineraries are hidden, and its comments and
+   *    reviews read as "Deleted user". Those are derived from this status by
+   *    the blog and itinerary modules, never copied, so nothing has to be
+   *    rewritten here or undone later;
+   *  - no row is deleted: past bookings, payments and refunds stay as they are.
+   */
+  async deactivateOwnAccount(userId: string): Promise<UserDocument> {
+    const user = await this.findByIdOrThrow(userId);
+
+    if (user.status === UserStatus.DEACTIVATED) {
+      throw new ConflictException({
+        code: 'ALREADY_DEACTIVATED',
+        message: 'This account is already deactivated',
+      });
+    }
+
+    if (await this.bookings.hasUpcomingConfirmedBookings(userId)) {
+      throw new ConflictException({
+        code: 'UPCOMING_BOOKINGS_EXIST',
+        message:
+          'You still have upcoming confirmed bookings. Cancel them or wait ' +
+          'until they are completed before deactivating your account.',
+      });
+    }
+
+    const deactivated = await this.setStatus(userId, UserStatus.DEACTIVATED);
+    // setStatus returns null only when the status already matched, which the
+    // check above has ruled out.
+    return deactivated ?? user;
   }
 
   /**

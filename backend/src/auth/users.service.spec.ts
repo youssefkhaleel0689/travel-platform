@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
+import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { MAX_FAILED_LOGIN_ATTEMPTS } from './auth.constants';
 import { Role } from './enums/role.enum';
@@ -35,6 +36,7 @@ describe('UsersService', () => {
   let referenceData: jest.Mocked<
     Pick<ReferenceDataService, 'assertSupportedCurrency'>
   >;
+  let bookings: { hasUpcomingConfirmedBookings: jest.Mock };
   let service: UsersService;
 
   const exec = (value: unknown) => ({
@@ -78,12 +80,14 @@ describe('UsersService', () => {
     };
     sessions = { revokeAllForUser: jest.fn().mockResolvedValue(2) };
     referenceData = { assertSupportedCurrency: jest.fn().mockResolvedValue(undefined) };
+    bookings = { hasUpcomingConfirmedBookings: jest.fn().mockResolvedValue(false) };
 
     service = new UsersService(
       model as unknown as import('mongoose').Model<User>,
       passwords as unknown as PasswordService,
       sessions as unknown as SessionsService,
       referenceData as unknown as ReferenceDataService,
+      bookings as unknown as BookingsGateway,
     );
   });
 
@@ -346,6 +350,65 @@ describe('UsersService', () => {
         service.updateProfile(USER_ID, { preferredCurrency: 'XXX' }),
       ).rejects.toThrow(BadRequestException);
       expect(model.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deactivateOwnAccount (ACC-12)', () => {
+    it('deactivates, stamps the date and ends every session', async () => {
+      const doc = userDoc();
+      model.findById.mockReturnValue(exec(doc));
+
+      const result = await service.deactivateOwnAccount(USER_ID);
+
+      expect(result.status).toBe(UserStatus.DEACTIVATED);
+      expect(doc.deactivatedAt).toBeInstanceOf(Date);
+      expect(sessions.revokeAllForUser).toHaveBeenCalled();
+    });
+
+    // The whole point of the requirement: a deactivated account cannot sign in
+    // to manage or cancel a booking, so it must not leave one behind.
+    it('refuses while an upcoming confirmed booking exists (409)', async () => {
+      const doc = userDoc();
+      model.findById.mockReturnValue(exec(doc));
+      bookings.hasUpcomingConfirmedBookings.mockResolvedValue(true);
+
+      await expect(
+        service.deactivateOwnAccount(USER_ID),
+      ).rejects.toMatchObject({
+        response: { code: 'UPCOMING_BOOKINGS_EXIST' },
+      });
+      expect(doc.save).not.toHaveBeenCalled();
+      expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+    });
+
+    it('asks the booking modules about this account only', async () => {
+      model.findById.mockReturnValue(exec(userDoc()));
+
+      await service.deactivateOwnAccount(USER_ID);
+
+      expect(bookings.hasUpcomingConfirmedBookings).toHaveBeenCalledWith(
+        USER_ID,
+      );
+    });
+
+    it('refuses an account that is already deactivated (409)', async () => {
+      model.findById.mockReturnValue(
+        exec(userDoc({ status: UserStatus.DEACTIVATED })),
+      );
+
+      await expect(
+        service.deactivateOwnAccount(USER_ID),
+      ).rejects.toMatchObject({ response: { code: 'ALREADY_DEACTIVATED' } });
+      // The booking check is skipped: the state alone settles it.
+      expect(bookings.hasUpcomingConfirmedBookings).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound for an unknown account', async () => {
+      model.findById.mockReturnValue(exec(null));
+
+      await expect(service.deactivateOwnAccount(USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

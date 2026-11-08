@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BookingsModule } from '../common/bookings/bookings.module';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { AuthController } from './auth.controller';
 import { AuthCookiesService } from './auth-cookies.service';
@@ -37,6 +38,7 @@ import { UsersService } from './users.service';
       }),
     }),
     ReferenceDataModule,
+    BookingsModule,
   ],
   controllers: [AuthController, UsersController],
   providers: [

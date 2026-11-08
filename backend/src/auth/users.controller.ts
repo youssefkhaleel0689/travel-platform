@@ -1,6 +1,16 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiForbiddenResponse,
   ApiOkResponse,
@@ -10,6 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { DeactivateAccountDto } from './dto/deactivate-account.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { AuthenticatedGuard } from './guards/authenticated.guard';
@@ -71,5 +82,36 @@ export class UsersController {
   ): Promise<UserProfileDto> {
     const updated = await this.users.updateProfile(user.id, dto);
     return UserProfileDto.fromDocument(updated);
+  }
+
+  @Delete('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Deactivate your own account (ACC-12)',
+    description:
+      'Needs confirm: true in the body. Blocked while the account still has ' +
+      'an upcoming confirmed booking, because a deactivated account cannot ' +
+      'sign in to manage or cancel one. Afterwards the account cannot sign ' +
+      'in, its open sessions end at once, its posts and public itineraries ' +
+      'are hidden and its comments and reviews read as "Deleted user". ' +
+      'Nothing is deleted: past bookings, payments and refunds stay as they ' +
+      'are, and only an administrator can undo the status.',
+  })
+  @ApiOkResponse({ type: UserProfileDto })
+  @ApiBadRequestResponse({
+    type: ErrorResponseDto,
+    description: 'confirm was missing or not true',
+  })
+  @ApiConflictResponse({
+    type: ErrorResponseDto,
+    description:
+      'UPCOMING_BOOKINGS_EXIST, or the account is already deactivated',
+  })
+  async deactivate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() _dto: DeactivateAccountDto,
+  ): Promise<UserProfileDto> {
+    const deactivated = await this.users.deactivateOwnAccount(user.id);
+    return UserProfileDto.fromDocument(deactivated);
   }
 }
