@@ -10,7 +10,10 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentsWebhookService } from './payments-webhook.service';
 import { PolicyAcceptancesService } from './policy-acceptances.service';
+import { RefundsController } from './refunds.controller';
+import { RefundsService } from './refunds.service';
 import { Payment, PaymentSchema } from './schemas/payment.schema';
+import { Refund, RefundSchema } from './schemas/refund.schema';
 import {
   PolicyAcceptance,
   PolicyAcceptanceSchema,
@@ -24,9 +27,9 @@ import { StripeService } from './stripe.service';
 /**
  * Payments, policy acceptances and refunds (PAY-01 to PAY-04).
  *
- * It owns the payments, policyAcceptances and stripeWebhookEvents collections
- * and reads bookings only through BookingsGateway, so the flights and hotels
- * modules keep their own inventory rules.
+ * It owns the payments, refunds, policyAcceptances and stripeWebhookEvents
+ * collections and reads bookings only through BookingsGateway, so the flights
+ * and hotels modules keep their own inventory rules.
  *
  * ScheduleModule.forRoot is registered here because this is the first module
  * that needs a scheduled job (the hold-expiry sweep). Calling it again in
@@ -37,6 +40,7 @@ import { StripeService } from './stripe.service';
   imports: [
     MongooseModule.forFeature([
       { name: Payment.name, schema: PaymentSchema },
+      { name: Refund.name, schema: RefundSchema },
       { name: PolicyAcceptance.name, schema: PolicyAcceptanceSchema },
       { name: StripeWebhookEvent.name, schema: StripeWebhookEventSchema },
     ]),
@@ -45,19 +49,25 @@ import { StripeService } from './stripe.service';
     BookingsModule,
     NotificationsModule,
   ],
-  controllers: [BookingPoliciesController, PaymentsController],
+  controllers: [
+    BookingPoliciesController,
+    PaymentsController,
+    RefundsController,
+  ],
   providers: [
     StripeService,
     PolicyAcceptancesService,
     PaymentsService,
     PaymentsWebhookService,
     PaymentExpiryService,
+    RefundsService,
   ],
   exports: [
     StripeService,
     PolicyAcceptancesService,
     PaymentsService,
     PaymentExpiryService,
+    RefundsService,
   ],
 })
 export class PaymentsModule {}
