@@ -165,3 +165,23 @@ Enable typescript/no-explicit-any as an error in the oxlint config and fix any v
 How the output was used:
 Claude Code found no violations and proved the rule is active by linting a throwaway file with an explicit any (exit 1). It checked README, .gitignore, docs/ and backend/ before deleting the root .env.example with git rm. Reviewed the diff; build, lint and 91 unit tests pass.
 ================================================
+================================================
+Date: 2026-11-08
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: GEN-06 (used by FLT-03, FLT-05, FLT-11, FLT-17)
+Prompt:
+Design the shared airport time zone helper in src/common/time/: Intl or Luxon, the functions and signatures A1 and A2 need, how to handle a local time that does not exist (DST gap) or happens twice (DST overlap) with error codes, and a unit test plan.
+How the output was used:
+Chose Intl over Luxon: no new package, and Luxon moves a non-existent time forward by default. Decided on plain functions, 400 NONEXISTENT_LOCAL_TIME for a DST gap and the earlier instant for an overlap. The 2026 transitions in Cairo, London and New York became the test cases.
+================================================
+================================================
+Date: 2026-11-08
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: GEN-06 (used by FLT-03, FLT-05, FLT-11, FLT-17)
+Prompt:
+In steps: the LOCAL_DATE and LOCAL_DATE_TIME formats with a strict parser in src/common/time/local-date-time.ts; IsLocalDate and IsLocalDateTime class-validator decorators that reuse it; toUtcFromAirportLocal in airport-time.ts, rejecting DST gaps and choosing the earlier instant in overlaps; toAirportLocalDateKey and toAirportLocalIso for the local date key and ISO output with the offset; unit tests for each step; a README section with usage, error codes and DST rules.
+How the output was used:
+Reviewed each step before committing it. Claude ran Prettier, the compiler and the new tests; I ran build, lint and all unit tests myself (169 passed). Leap years are computed by hand because Date maps years 0 to 99 to 1900 to 1999. The tests use the real 2026 DST transitions, including the minutes around the Cairo gap, and check the exact GEN-02 field errors. The README check also updated the Time convention and the src/common/ list.
+================================================
