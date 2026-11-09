@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
+import { FlightsModule } from './flights/flights.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ReferenceDataModule } from './common/reference-data/reference-data.modu
       }),
     }),
     ReferenceDataModule,
+    FlightsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
