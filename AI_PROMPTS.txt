@@ -313,3 +313,19 @@ Document the new modules in the README: the cookie and guard design with the err
 How the output was used:
 Read the whole section and corrected the emphasis in a few places. It is written for my teammates rather than as a summary of the code: the BookingsPort table says what each method must guarantee, the notification section says not to wrap notify() in try/catch and why, and the money section gives the real double values that explain why the helpers exist. Also added the new environment variables and two troubleshooting rows.
 ================================================
+================================================
+Date: 2026-11-10
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Manual testing of ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, PAY-01 to PAY-04
+Prompt:
+"i want to manually test each endpoint via postman so i need you to guide me through setup and protocol", and to log this in AI_PROMPTS.txt on the docs branch.
+How the output was used:
+Claude Code first proposed a backend/src/auth/dev/dev-signin.ts script that minted an access-token cookie from the command line, because without ACC-04 there is no way to get a cookie into Postman. It built it, wired an npm run dev:signin script, ran it, and proved the cookie worked on the live API. I stopped it there and told it to delete the script: I am waiting for my teammate to implement ACC-04 (login) and I do not want a second way of creating sessions in the repository that we would then have to remember to remove. Claude Code reverted the script and the npm entry, and deleted the three test_c2_ accounts, their 5 sessions and 1 notification that it had created on the shared Atlas database while testing it.
+What I kept is the Postman collection and the protocol document, rewritten to use the real login endpoint: Postman has a cookie jar, so once POST /api/auth/login exists it stores the httpOnly cookie and sends it automatically, and no token is ever copied by hand. Each folder starts with its own sign-in request so folders can be run on their own.
+Decisions I made during this:
+ - folder 60 (deactivation) gets its own throwaway account. The first run of the collection failed four assertions because folder 50's admin password reset revokes the target account's sessions, which killed the cookie folder 60 needed. That is a real ordering problem, not a test bug, so the folder now documents that deactivation is destructive and needs a disposable account.
+ - folder 30 changes the password and changes it back, so it can be run more than once against the same account.
+ - the collection asserts the 501 BOOKING_TYPE_UNAVAILABLE that folders 70 to 90 return today, rather than pretending they work, and each request says what to change when A1 or B2 wires its BookingsPort in.
+I also corrected a claim Claude Code had written: it described the validation cases in folders 70 and 80 as "fully testable today". Running them showed 401, not 400, because AuthenticatedGuard runs before the validation pipe. The collection and the document now list the exact 7 requests and 12 assertions that pass with no sign-in at all - the public currency list, the two guard refusals, the two webhook refusals and the non-existent refund route - and say plainly that everything else waits on ACC-04. Verified against a running server with newman: folder 00 is 5/5, the two webhook requests are 5/5, POST /refunds is 2/2.
+================================================

@@ -1,0 +1,2400 @@
+{
+  "info": {
+    "name": "Travel Platform - C2 (accounts, notifications, payments)",
+    "description": "Manual test collection for the C2 endpoints: ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11, PAY-01 to PAY-04.\n\nHOW AUTHENTICATION WORKS HERE\nThe API keeps its tokens in httpOnly cookies (ACC-19), and Postman has a cookie jar, so no token is ever copied by hand: run a sign-in request and Postman stores the cookie and sends it automatically on every later request to the same host. Each folder that needs a particular role starts with its own sign-in request, so folders are self-contained.\n\nWHAT WORKS TODAY, WITH NO SIGN-IN (7 requests, all verified against a running server)\n  00/01  GET /currencies                      200\n  00/02  GET /currencies?limit=50             400 VALIDATION_FAILED\n  10/01  GET /users/me with no cookie         401 UNAUTHORIZED\n  10/02  GET /users/me with a bad cookie      401 INVALID_TOKEN\n  80/05  POST /payments/webhook, no signature 400 MISSING_WEBHOOK_SIGNATURE\n  80/06  POST /payments/webhook, forged sig   401 INVALID_WEBHOOK_SIGNATURE\n  90/02  POST /refunds                        404, the route does not exist by design\n\nWHAT NEEDS ACC-04 (POST /api/auth/login), WHICH IS NOT MERGED YET\nEverything else. AuthenticatedGuard runs before the validation pipe, so even the deliberately invalid requests in folders 70 and 80 answer 401 rather than 400 until you can sign in. Expect folders 20 to 90 to be red today; that is the guard working, not a broken collection. The sign-in bodies follow ACC-01 and ACC-04 as the requirements describe them, so if the implemented DTO uses different field names, fix them in the sign-in requests only.\n\nWHAT NEEDS A BOOKING MODULE\nFolders 70 to 90 call through BookingsPort, which no module provides yet, so once you can sign in they answer 501 BOOKING_TYPE_UNAVAILABLE. Their tests assert that 501 on purpose; each request says what to change when the flights or hotels module is wired in.\n\nSee docs/api/POSTMAN.md for the protocol and the troubleshooting table.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api",
+      "description": "No trailing slash. Change the port if the server runs on another one."
+    },
+    {
+      "key": "userEmail",
+      "value": "test_c2_user@example.com",
+      "description": "A registered USER account. The test_c2_ prefix is required by the shared-database rules."
+    },
+    {
+      "key": "userPassword",
+      "value": "ManualTest123",
+      "description": "At least 8 characters with a letter and a digit (ACC-01)."
+    },
+    {
+      "key": "adminEmail",
+      "value": "",
+      "description": "A seeded ADMIN account (ACC-18). Admins cannot self-register, so this comes from the admin seed."
+    },
+    {
+      "key": "adminPassword",
+      "value": "",
+      "description": "From the admin seed."
+    },
+    {
+      "key": "throwawayEmail",
+      "value": "test_c2_throwaway@example.com",
+      "description": "Used only by folder 60, which deactivates it permanently. Change the address each time."
+    },
+    {
+      "key": "throwawayPassword",
+      "value": "ManualTest123"
+    },
+    {
+      "key": "revokedToken",
+      "value": "",
+      "description": "For folder 10 request 03. See that request's description."
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "description": "Filled in by 20/02."
+    },
+    {
+      "key": "adminUserId",
+      "value": "",
+      "description": "Filled in by 50/02."
+    },
+    {
+      "key": "secondUserId",
+      "value": "",
+      "description": "Filled in by 50/02."
+    },
+    {
+      "key": "notificationId",
+      "value": "",
+      "description": "Filled in by 40/03."
+    },
+    {
+      "key": "bookingId",
+      "value": "6720f1c2a1b2c3d4e5f60718",
+      "description": "Any well-formed ObjectId. No booking exists yet, so these routes answer 501."
+    },
+    {
+      "key": "paymentId",
+      "value": "6720f1c2a1b2c3d4e5f60910"
+    },
+    {
+      "key": "refundId",
+      "value": "6720f1c2a1b2c3d4e5f60920"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Public reference data (no sign-in)",
+      "description": "Proves the server is up and that public routes need no authentication. Run `npm run seed` first.",
+      "item": [
+        {
+          "name": "01 GET /currencies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/currencies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "currencies"
+              ]
+            },
+            "description": "ACC-09, ITN-18. The seeded currency list that PATCH /users/me validates against."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('paginated shape, page size 10 (GEN-05)', () => {",
+                  "  pm.expect(body).to.have.property('items');",
+                  "  pm.expect(body.meta.pageSize).to.eql(10);",
+                  "});",
+                  "pm.test('7 seeded currencies', () => pm.expect(body.meta.totalItems).to.eql(7));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /currencies?limit=50 - limit is rejected",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/currencies?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "currencies"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "GEN-05 fixes the page size at 10, so there is no limit parameter and sending one is a validation error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('VALIDATION_FAILED on the limit field', () => {",
+                  "  pm.expect(body.code).to.eql('VALIDATION_FAILED');",
+                  "  pm.expect(body.errors[0].field).to.eql('limit');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 Auth guard behaviour (ACC-06, ACC-19)",
+      "description": "Run this folder BEFORE signing in, or clear Postman's cookies first (the Cookies link under the Send button), otherwise a stored cookie makes request 01 pass.",
+      "item": [
+        {
+          "name": "01 No cookie at all -> 401 UNAUTHORIZED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "Needs an empty cookie jar for this host."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('code UNAUTHORIZED', () => pm.expect(body.code).to.eql('UNAUTHORIZED'));",
+                  "pm.test('shared error shape (GEN-02)', () => {",
+                  "  ['statusCode', 'code', 'error', 'message', 'path', 'timestamp'].forEach((f) =>",
+                  "    pm.expect(body).to.have.property(f));",
+                  "});",
+                  "pm.test('the requested URL is not echoed back', () =>",
+                  "  pm.expect(body.message).to.not.include('users/me'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Malformed token -> 401 INVALID_TOKEN",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "access_token=not.a.jwt"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "An explicit Cookie header overrides the jar, so this works whether or not you are signed in."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('code INVALID_TOKEN', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Log out, then reuse the old cookie -> 401 SESSION_EXPIRED",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "access_token={{revokedToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "The check that makes logout and the 30-minute inactivity rule real (ACC-06): the JWT is still cryptographically valid, but its session is gone, so the request is refused.\n\nTo produce it once ACC-04 and ACC-06 exist: sign in, copy the access_token value out of Postman's cookie jar into the revokedToken variable, call POST /api/auth/logout, then send this request.\n\nA password change (folder 30) does the same thing to the account's OTHER sessions."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('revokedToken')) {",
+                  "  pm.test.skip('set revokedToken first - see the request description');",
+                  "} else {",
+                  "  pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "  pm.test('code SESSION_EXPIRED', () =>",
+                  "    pm.expect(pm.response.json().code).to.eql('SESSION_EXPIRED'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "20 Own profile (ACC-09, ACC-11)",
+      "description": "Starts by signing in, so the folder can be run on its own.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "ACC-04. Postman stores the httpOnly access_token and refresh_token cookies and sends them automatically from here on.\n\nRegister the account first if it does not exist: POST /api/auth/register with name, email, password and the terms consent (ACC-01).\n\nA 404 here means ACC-04 is not merged yet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "    pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "  pm.test('no token is returned in the body (ACC-19)', () =>",
+                  "    pm.expect(pm.response.text()).to.not.include('eyJ'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /users/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "ACC-11. The account behind the cookie. There is no id in the route, so this can only ever return your own profile."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('userId', body.id);",
+                  "pm.test('no credential or lockout field is returned (GEN-13)', () => {",
+                  "  ['passwordHash', 'password', 'failedLoginAttempts', 'lockedUntil',",
+                  "   'temporaryPasswordIssuedAt', '_id', '__v'].forEach((f) =>",
+                  "    pm.expect(body).to.not.have.property(f));",
+                  "});",
+                  "pm.test('documented fields are present', () => {",
+                  "  ['id', 'name', 'email', 'phone', 'preferredCurrency', 'role', 'status',",
+                  "   'mustChangePassword', 'createdAt'].forEach((f) =>",
+                  "    pm.expect(body).to.have.property(f));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 PATCH /users/me - all three fields",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"  Taher Khalaf  \",\n  \"phone\": \"+20 (123) 456-7890\",\n  \"preferredCurrency\": \"egp\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "ACC-09. The name is trimmed, the phone is stripped of spaces and punctuation, and the currency is upper-cased, so what is stored is normalised whatever the client sends."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('name trimmed', () => pm.expect(body.name).to.eql('Taher Khalaf'));",
+                  "pm.test('phone normalised', () => pm.expect(body.phone).to.eql('+201234567890'));",
+                  "pm.test('currency upper-cased', () =>",
+                  "  pm.expect(body.preferredCurrency).to.eql('EGP'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 PATCH /users/me - partial update leaves the rest alone",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Only The Name\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('name changed', () => pm.expect(body.name).to.eql('Only The Name'));",
+                  "pm.test('phone kept from the previous request', () =>",
+                  "  pm.expect(body.phone).to.eql('+201234567890'));",
+                  "pm.test('currency kept', () => pm.expect(body.preferredCurrency).to.eql('EGP'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 PATCH /users/me - null clears a field",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": null,\n  \"preferredCurrency\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('phone cleared', () => pm.expect(body.phone).to.be.null);",
+                  "pm.test('currency cleared', () => pm.expect(body.preferredCurrency).to.be.null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 PATCH /users/me - every invalid field is reported (GEN-02)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"phone\": \"123\",\n  \"preferredCurrency\": \"EG\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "GEN-02 wants a message per field, not the first error only."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('VALIDATION_FAILED', () =>",
+                  "  pm.expect(body.code).to.eql('VALIDATION_FAILED'));",
+                  "pm.test('all three fields reported', () => {",
+                  "  const fields = body.errors.map((e) => e.field).sort();",
+                  "  pm.expect(fields).to.eql(['name', 'phone', 'preferredCurrency']);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 PATCH /users/me - role is refused, not ignored",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"ADMIN\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "A privilege-escalation attempt. The global pipe runs forbidNonWhitelisted, so an unknown field is a 400 rather than one that is silently dropped. Try email and status too."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the role field is named in the error', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('role'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 PATCH /users/me - unseeded currency is refused",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"preferredCurrency\": \"XYZ\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "XYZ is a well-formed code, so the DTO accepts it; the service then checks it against the seeded currencies (GEN-12)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('code UNSUPPORTED_CURRENCY', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('UNSUPPORTED_CURRENCY'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "30 Change password (ACC-08)",
+      "description": "Requests 04 to 06 change the password and change it back, so the folder is safe to run repeatedly on the same account.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Wrong current password -> 401",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"WrongPass123\",\n  \"newPassword\": \"BrandNew123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "ACC-08 requires the current password, so a stolen cookie on its own cannot take over the account."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('code INVALID_CURRENT_PASSWORD', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_CURRENT_PASSWORD'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 New password breaks the rules -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{userPassword}}\",\n  \"newPassword\": \"short\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "ACC-01's rule, enforced again here: at least 8 characters with at least one letter and one digit. Try 'nodigitshere' and '123456789' as well."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('newPassword is named with a readable rule', () => {",
+                  "  pm.expect(body.errors[0].field).to.eql('newPassword');",
+                  "  pm.expect(body.errors[0].messages[0]).to.include('at least 8 characters');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Change it",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{userPassword}}\",\n  \"newPassword\": \"BrandNew123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "On success every OTHER session of the account is revoked and this one survives, so the cookie Postman holds still works. Prove it by sending GET /users/me next: still 200."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('message', () =>",
+                  "  pm.expect(pm.response.json().message).to.eql('Password changed'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Reusing the same password -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"BrandNew123\",\n  \"newPassword\": \"BrandNew123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('code PASSWORD_UNCHANGED', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('PASSWORD_UNCHANGED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Change it back, so the folder can be run again",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"BrandNew123\",\n  \"newPassword\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "description": "Without this, request 03 would fail the second time because the current password had changed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the account is back to its original password', () =>",
+                  "  pm.expect(pm.response.json().message).to.eql('Password changed'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "40 Notifications (GEN-01)",
+      "description": "To see a real notification: have an admin suspend this account (folder 50) and then reactivate it, and sign in again here. The suspension leaves an ACCOUNT_SUSPENDED notification behind. A confirmed payment or a refund also creates one, once a booking module exists.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /notifications/unread-count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "The number behind the bell icon."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('unreadCount is a number', () =>",
+                  "  pm.expect(pm.response.json().unreadCount).to.be.a('number'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 GET /notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ]
+            },
+            "description": "Newest first, 10 per page (GEN-05). Saves the first id into notificationId for request 06."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('paginated shape', () => pm.expect(body.meta.pageSize).to.eql(10));",
+                  "if (body.items.length > 0) {",
+                  "  pm.collectionVariables.set('notificationId', body.items[0].id);",
+                  "  pm.test('item shape without _id or __v', () => {",
+                  "    ['id', 'type', 'title', 'message', 'resourceType', 'resourceId',",
+                  "     'read', 'readAt', 'createdAt'].forEach((f) =>",
+                  "      pm.expect(body.items[0]).to.have.property(f));",
+                  "    pm.expect(body.items[0]).to.not.have.property('_id');",
+                  "  });",
+                  "} else {",
+                  "  console.log('No notifications yet - see the folder description.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 GET /notifications?unreadOnly=true",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications?unreadOnly=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('every item is unread', () =>",
+                  "  pm.response.json().items.forEach((i) => pm.expect(i.read).to.be.false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 GET /notifications?unreadOnly=yes -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications?unreadOnly=yes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "unreadOnly",
+                  "value": "yes"
+                }
+              ]
+            },
+            "description": "Only the strings true and false are accepted; anything else is a field error rather than being read as truthy."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('unreadOnly is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('unreadOnly'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 PATCH /notifications/{{notificationId}}/read",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/{{notificationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": "204 with no body. Send it twice: it succeeds both times and keeps the first read time, so a double click is harmless."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('notificationId')) {",
+                  "  pm.test.skip('no notificationId yet - see the folder description');",
+                  "} else {",
+                  "  pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "  pm.test('empty body', () => pm.expect(pm.response.text()).to.eql(''));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 PATCH /notifications/{unknown}/read -> 404",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/6720f1c2a1b2c3d4e5f60999/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "6720f1c2a1b2c3d4e5f60999",
+                "read"
+              ]
+            },
+            "description": "Another account's notification answers exactly this, so ids cannot be probed for which ones are real (ACC-11). A malformed id such as 'abc' is also 404, not 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 PATCH /notifications/read-all",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "Succeeds even when nothing was unread."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "50 Admin accounts (ACC-07a, ACC-14, ACC-16)",
+      "description": "Needs an ADMIN account. Admins cannot self-register (ACC-18), so this comes from the admin seed - set adminEmail and adminPassword to its credentials.\n\nSigning in here replaces the cookie in Postman's jar, so sign in again as the test user before going back to folders 20 to 40.",
+      "item": [
+        {
+          "name": "01 Sign in as an admin (needs ACC-04 and the ACC-18 seed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminEmail')) {",
+                  "  pm.test.skip('set adminEmail and adminPassword from the admin seed (ACC-18)');",
+                  "} else if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /admin/accounts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ]
+            },
+            "description": "ACC-14. Paginated, newest registration first. Saves the admin's own id and a non-admin account id for the requests below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('row shape', () => {",
+                  "  if (body.items.length === 0) return;",
+                  "  ['id', 'name', 'email', 'role', 'status', 'createdAt',",
+                  "   'mustChangePassword', 'suspendedAt', 'deactivatedAt'].forEach((f) =>",
+                  "    pm.expect(body.items[0]).to.have.property(f));",
+                  "});",
+                  "pm.test('no credential field in any row', () => {",
+                  "  body.items.forEach((row) => {",
+                  "    ['passwordHash', 'failedLoginAttempts', 'lockedUntil'].forEach((f) =>",
+                  "      pm.expect(row).to.not.have.property(f));",
+                  "  });",
+                  "});",
+                  "const admin = body.items.find((r) => r.email === pm.variables.get('adminEmail'));",
+                  "if (admin) pm.collectionVariables.set('adminUserId', admin.id);",
+                  "const target = body.items.find((r) => r.role === 'USER' && r.status === 'ACTIVE');",
+                  "if (target) pm.collectionVariables.set('secondUserId', target.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 GET /admin/accounts - search, role and status filters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts?search=test_c2&role=USER&status=ACTIVE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "test_c2"
+                },
+                {
+                  "key": "role",
+                  "value": "USER"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                }
+              ]
+            },
+            "description": "search matches a fragment of the name or the email, case-insensitively."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('every row matches the filters', () => {",
+                  "  pm.response.json().items.forEach((r) => {",
+                  "    pm.expect(r.role).to.eql('USER');",
+                  "    pm.expect(r.status).to.eql('ACTIVE');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 GET /admin/accounts?search=.* - a regex is matched literally",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts?search=.*",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": ".*"
+                }
+              ]
+            },
+            "description": "The term is escaped before it becomes a regular expression. If this returned every account the search would be injectable, and a term like (.*)+$ could stall the server."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('no account literally contains \".*\"', () =>",
+                  "  pm.expect(pm.response.json().meta.totalItems).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Invalid role -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts?role=MODERATOR",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "MODERATOR"
+                }
+              ]
+            },
+            "description": "The role must be one of USER, ADMIN, AIRLINE_MODERATOR, HOTEL_MODERATOR. Try status=BANNED and an empty search= too."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('role is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('role'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 PATCH /admin/accounts/{{secondUserId}}/suspend",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts/{{secondUserId}}/suspend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts",
+                "{{secondUserId}}",
+                "suspend"
+              ]
+            },
+            "description": "ACC-16. The account's sessions end at once, its bookings stay valid, and it gets an in-app notification. Send it twice: the second call also answers 200 and changes nothing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('secondUserId')) {",
+                  "  pm.test.skip('run 02 first, so a target account id is known');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status SUSPENDED with a date', () => {",
+                  "    pm.expect(body.status).to.eql('SUSPENDED');",
+                  "    pm.expect(body.suspendedAt).to.be.a('string');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 PATCH /admin/accounts/{{secondUserId}}/reactivate",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts/{{secondUserId}}/reactivate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts",
+                "{{secondUserId}}",
+                "reactivate"
+              ]
+            },
+            "description": "Also clears any login lockout. Afterwards, sign in as that account and run folder 40 to see the suspension notification."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('secondUserId')) {",
+                  "  pm.test.skip('run 02 first');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  const body = pm.response.json();",
+                  "  pm.test('status ACTIVE and the suspension date cleared', () => {",
+                  "    pm.expect(body.status).to.eql('ACTIVE');",
+                  "    pm.expect(body.suspendedAt).to.be.null;",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Suspend own account -> 400 CANNOT_TARGET_SELF",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts/{{adminUserId}}/suspend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts",
+                "{{adminUserId}}",
+                "suspend"
+              ]
+            },
+            "description": "An admin suspending themselves would lock the platform out of its own administration, and admin accounts are seeded (ACC-18) so there is no way back through the API. Suspending ANOTHER admin answers 403 CANNOT_TARGET_ADMIN for the same reason."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminUserId')) {",
+                  "  pm.test.skip('run 02 first');",
+                  "} else {",
+                  "  pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "  pm.test('code CANNOT_TARGET_SELF', () =>",
+                  "    pm.expect(pm.response.json().code).to.eql('CANNOT_TARGET_SELF'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Suspend an unknown id -> 404",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts/6720f1c2a1b2c3d4e5f60999/suspend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts",
+                "6720f1c2a1b2c3d4e5f60999",
+                "suspend"
+              ]
+            },
+            "description": "A malformed id is also 404."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 POST /admin/users/{{secondUserId}}/reset-password",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{secondUserId}}/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{secondUserId}}",
+                "reset-password"
+              ]
+            },
+            "description": "ACC-07a. 200, not 201: nothing is created. The temporary password is shown once and stored only as a hash.\n\nSIDE EFFECT: every session of the target account is revoked, so run this AFTER requests 06 and 07. Until it sets its own password the only endpoint that account can reach is PATCH /api/auth/change-password - prove that by signing in as it and calling GET /users/me, which answers 403 PASSWORD_CHANGE_REQUIRED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('secondUserId')) {",
+                  "  pm.test.skip('run 02 first');",
+                  "} else {",
+                  "  pm.test('200 OK, not 201', () => pm.response.to.have.status(200));",
+                  "  const body = pm.response.json();",
+                  "  pm.test('a usable temporary password is returned once', () => {",
+                  "    pm.expect(body.temporaryPassword).to.match(/^Tmp[0-9a-f]{10}9$/);",
+                  "    pm.expect(body.message).to.include('cannot be shown again');",
+                  "  });",
+                  "  console.log('Temporary password: ' + body.temporaryPassword);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 A non-admin cannot reach these -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "access_token=not.a.real.token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ]
+            },
+            "description": "With a real USER cookie this answers 403 FORBIDDEN_ROLE, which is RolesGuard doing its job; the role is read from the database on every request, never from the token, so an old cookie cannot claim ADMIN.\n\nThis request sends a nonsense cookie instead so it can run without signing out of the admin account, and therefore answers 401. To see the 403, sign in as the test user and delete the Cookie header here."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('refused: 401 with a bad cookie, 403 with a real USER cookie', () =>",
+                  "  pm.expect([401, 403]).to.include(pm.response.code));",
+                  "pm.test('a specific reason is given', () =>",
+                  "  pm.expect(['INVALID_TOKEN', 'UNAUTHORIZED', 'FORBIDDEN_ROLE'])",
+                  "    .to.include(pm.response.json().code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "60 Account deactivation (ACC-12)",
+      "description": "RUN THIS LAST, and on a THROWAWAY account. Deactivation cannot be undone by an admin, so register an account just for it and set throwawayEmail to that address. Change the address each time you run the folder.",
+      "item": [
+        {
+          "name": "01 Sign in as the throwaway account (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{throwawayEmail}}\",\n  \"password\": \"{{throwawayPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Register it first with POST /api/auth/register (ACC-01) if it does not exist."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 DELETE /users/me without confirm -> 400",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "ACC-12 says 'after confirmation'. The backend does not read an empty DELETE as consent just because a frontend showed a dialog (GEN-13). Try confirm: false and confirm: 'yes' as well."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('confirm is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('confirm'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 DELETE /users/me with confirm: true",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"confirm\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "No row is deleted: the account keeps its data with a deactivatedAt date, so past bookings and payments still point at a real account. Only the status changes, and the blog and itinerary modules derive 'hidden' and 'Deleted user' from it.\n\nIf the account had an upcoming confirmed booking this would be 409 UPCOMING_BOOKINGS_EXIST, because a deactivated account cannot sign in to manage or cancel one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('status DEACTIVATED', () =>",
+                  "  pm.expect(body.status).to.eql('DEACTIVATED'));",
+                  "pm.test('a deactivation date is recorded', () =>",
+                  "  pm.expect(body.deactivatedAt).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 The cookie is dead afterwards -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "The sessions were revoked, so the cookie Postman still holds no longer works. Signing in again is refused too, which is ACC-12's 'a deactivated user cannot log in'."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "pm.test('the session was revoked', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('SESSION_EXPIRED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "70 Policies before payment (PAY-02)",
+      "description": "Requests 02 and 05 answer 501 until the flights or hotels module provides a BookingsPort; that 501 is the designed behaviour, not a bug. Requests 03, 04 and 06 check the path and body validation, which happens after the guard - so all of them need a cookie, and all of them answer 401 until ACC-04 is merged.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Needed even for the deliberately invalid requests below: AuthenticatedGuard runs before the validation pipe, so without a cookie they answer 401 instead of 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /bookings/hotel/{{bookingId}}/policies -> 501 today",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/hotel/{{bookingId}}/policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "hotel",
+                "{{bookingId}}",
+                "policies"
+              ]
+            },
+            "description": "PAY-02. Once B2 wires the hotel port in, this returns the booking's cancellation tiers, check-in and check-out times, its policyVersion and whether they are already accepted. Change the expected status to 200 then."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
+                  "  pm.response.to.have.status(501));",
+                  "pm.test('code BOOKING_TYPE_UNAVAILABLE', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('BOOKING_TYPE_UNAVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Bad booking type -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/cruise/{{bookingId}}/policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "cruise",
+                "{{bookingId}}",
+                "policies"
+              ]
+            },
+            "description": "Testable today. 'hotel', 'HOTEL' and 'Hotel' are all accepted; 'cruise' is not."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('type is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('type'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Malformed booking id -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/hotel/not-an-id/policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "hotel",
+                "not-an-id",
+                "policies"
+              ]
+            },
+            "description": "Testable today."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('id is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 POST /bookings/hotel/{{bookingId}}/accept-policies -> 501 today",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accepted\": true,\n  \"policyVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/hotel/{{bookingId}}/accept-policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "hotel",
+                "{{bookingId}}",
+                "accept-policies"
+              ]
+            },
+            "description": "policyVersion must match the value the policies endpoint returned, so acceptance can only be given for terms that were really shown; a stale value is 409 POLICY_VERSION_MISMATCH. Sending it twice returns the first acceptance with its original timestamp."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
+                  "  pm.response.to.have.status(501));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 accepted: false -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accepted\": false,\n  \"policyVersion\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/hotel/{{bookingId}}/accept-policies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bookings",
+                "hotel",
+                "{{bookingId}}",
+                "accept-policies"
+              ]
+            },
+            "description": "Testable today. Omitting policyVersion is also a 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('accepted is named', () =>",
+                  "  pm.expect(pm.response.json().errors.map((e) => e.field)).to.include('accepted'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "80 Payments (PAY-01)",
+      "description": "Request 02 needs a booking, so it answers 501 once you can sign in. Requests 03 to 05 need a cookie. Requests 06 and 07 are the webhook: they need no cookie, work today, and are the most important things in this collection to demonstrate.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Needed even for the deliberately invalid requests below: AuthenticatedGuard runs before the validation pipe, so without a cookie they answer 401 instead of 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 POST /payments -> 501 today",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"HOTEL\",\n  \"bookingId\": \"{{bookingId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Once a booking module is wired in this returns 201 with the payment and its clientSecret. Note there is no amount in the request: it comes from the booking, so a client cannot choose what to pay."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
+                  "  pm.response.to.have.status(501));",
+                  "pm.test('code BOOKING_TYPE_UNAVAILABLE', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('BOOKING_TYPE_UNAVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 POST /payments with an amount -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"HOTEL\",\n  \"bookingId\": \"{{bookingId}}\",\n  \"amount\": \"1.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Testable today, and worth demonstrating: trying to dictate the amount is refused outright rather than ignored."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('amount is rejected as an unknown field', () =>",
+                  "  pm.expect(pm.response.json().errors.map((e) => e.field)).to.include('amount'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 POST /payments with a bad bookingType -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"CRUISE\",\n  \"bookingId\": \"{{bookingId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments"
+              ]
+            },
+            "description": "Testable today."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('bookingType is named', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('bookingType'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 GET /payments/{unknown} -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "{{paymentId}}"
+              ]
+            },
+            "description": "Testable today. Another account's payment answers the same 404, so payment ids cannot be probed (ACC-11). A malformed id is also 404, not 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Webhook with no signature -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_forged\",\n  \"type\": \"payment_intent.succeeded\",\n  \"data\": { \"object\": { \"id\": \"pi_forged\" } }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "webhook"
+              ]
+            },
+            "description": "Testable today, and the single most important thing here to demonstrate: anyone can POST a body claiming a payment succeeded, and it is refused. No cookie is involved - Stripe has none - so the signature is the only authentication, which is why a booking is confirmed from the webhook and never from the browser saying it paid."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('code MISSING_WEBHOOK_SIGNATURE', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('MISSING_WEBHOOK_SIGNATURE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Webhook with a forged signature -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "stripe-signature",
+                "value": "t=1,v1=deadbeef"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_forged\",\n  \"type\": \"payment_intent.succeeded\",\n  \"data\": { \"object\": { \"id\": \"pi_forged\" } }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "webhook"
+              ]
+            },
+            "description": "A guessed signature is refused with a deliberately vague message, so nothing is learned about the secret. A genuine delivery can only come from Stripe, or locally from the Stripe CLI:\n\n  stripe listen --forward-to localhost:3000/api/payments/webhook"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test('code INVALID_WEBHOOK_SIGNATURE', () =>",
+                  "  pm.expect(body.code).to.eql('INVALID_WEBHOOK_SIGNATURE'));",
+                  "pm.test('the message gives nothing away', () =>",
+                  "  pm.expect(body.message).to.eql('Invalid webhook signature'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "90 Refunds (PAY-03)",
+      "description": "There is no endpoint to create a refund: one only ever follows a cancellation, so a create endpoint would be a way to get money back without cancelling anything. The flights and hotels modules call RefundsService instead.\n\nRequest 02 needs a cookie; request 03 needs none.",
+      "item": [
+        {
+          "name": "01 Sign in as the test user (needs ACC-04)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Needed even for the deliberately invalid requests below: AuthenticatedGuard runs before the validation pipe, so without a cookie they answer 401 instead of 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 404) {",
+                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 GET /refunds/{unknown} -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/refunds/{{refundId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "refunds",
+                "{{refundId}}"
+              ]
+            },
+            "description": "Testable today. Once a cancellation has produced a refund, this returns its amount, the tier applied, the terms it came from and PENDING, REFUNDED or FAILED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 POST /refunds -> 404, the route does not exist by design",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingId\": \"{{bookingId}}\",\n  \"amount\": \"420.00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/refunds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "refunds"
+              ]
+            },
+            "description": "Worth demonstrating: there is deliberately no way to ask the API for money back.\n\nNEEDS NO COOKIE: the router rejects an unknown route before any guard runs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found - the route does not exist', () =>",
+                  "  pm.response.to.have.status(404));",
+                  "pm.test('the requested URL is not echoed back', () =>",
+                  "  pm.expect(pm.response.json().message).to.eql('Route not found'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
