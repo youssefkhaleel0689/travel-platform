@@ -42,7 +42,19 @@ const SLOW_MS = 30_000;
 
 const PROVIDER_ID = '6720f1c2a1b2c3d4e5f60800';
 const POLICY_SNAPSHOT = { checkInTime: '14:00', checkOutTime: '12:00' };
-const WEBHOOK_SECRET = 'whsec_localtestsecretforsignatureverification';
+// Signed with whatever the application verifies against, so these tests work
+// with any teammate's STRIPE_WEBHOOK_SECRET rather than one hard-coded here.
+// ConfigModule loads backend/.env, so the value is there by the time this runs.
+function webhookSecret(): string {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    throw new Error(
+      'STRIPE_WEBHOOK_SECRET is not set: copy backend/.env.example to .env ' +
+        'and give it any whsec_ value to run the webhook tests.',
+    );
+  }
+  return secret;
+}
 
 describe('Payments (e2e)', () => {
   let app: INestApplication<App>;
@@ -187,7 +199,7 @@ describe('Payments (e2e)', () => {
     });
     const signature = stripeSigner.webhooks.generateTestHeaderString({
       payload: body,
-      secret: options.secret ?? WEBHOOK_SECRET,
+      secret: options.secret ?? webhookSecret(),
     });
     const sent = options.tamper ? body.replace(paymentIntentId, 'pi_other') : body;
 

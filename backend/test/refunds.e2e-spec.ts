@@ -36,7 +36,19 @@ import {
 const CONNECT_TIMEOUT_MS = 30_000;
 const SLOW_MS = 30_000;
 const PROVIDER_ID = '6720f1c2a1b2c3d4e5f60800';
-const WEBHOOK_SECRET = 'whsec_localtestsecretforsignatureverification';
+// Signed with whatever the application verifies against, so these tests work
+// with any teammate's STRIPE_WEBHOOK_SECRET rather than one hard-coded here.
+// ConfigModule loads backend/.env, so the value is there by the time this runs.
+function webhookSecret(): string {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
+    throw new Error(
+      'STRIPE_WEBHOOK_SECRET is not set: copy backend/.env.example to .env ' +
+        'and give it any whsec_ value to run the webhook tests.',
+    );
+  }
+  return secret;
+}
 const CANCELLATION_TIERS = {
   cancellationTiers: [
     { daysBeforeCheckIn: 7, refundPercentage: 100 },
@@ -156,7 +168,7 @@ describe('Refunds (e2e)', () => {
         'stripe-signature',
         stripeSigner.webhooks.generateTestHeaderString({
           payload: body,
-          secret: WEBHOOK_SECRET,
+          secret: webhookSecret(),
         }),
       )
       .set('Content-Type', 'application/json')

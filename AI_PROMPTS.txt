@@ -165,3 +165,151 @@ Enable typescript/no-explicit-any as an error in the oxlint config and fix any v
 How the output was used:
 Claude Code found no violations and proved the rule is active by linting a throwaway file with an explicit any (exit 1). It checked README, .gitignore, docs/ and backend/ before deleting the root .env.example with git rm. Reviewed the diff; build, lint and 91 unit tests pass.
 ================================================
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
+Prompt:
+Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
+How the output was used:
+Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
+ - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
+ - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
+Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: ACC-08, ACC-19, GEN-13 (branch feature/ACC-08-account-core)
+Prompt:
+Implement the account core: the users and sessions schemas from the schema PDF, bcrypt password hashing, access and refresh tokens as httpOnly cookies, AuthenticatedGuard and RolesGuard with @CurrentUser and @Roles, and PATCH /api/auth/change-password. Do not add registration or login; export the services those will need.
+How the output was used:
+Reviewed every file. Points I checked and can explain:
+ - passwordHash and refreshTokenHash both use select: false, so an ordinary query cannot return them.
+ - the refresh token is 32 random bytes hashed with SHA-256, not bcrypt. I asked why and accepted the answer: the token is 256 bits of randomness, so there is nothing to brute-force, unlike a password.
+ - the guard reloads the session and the user on every request instead of trusting the token's claims, so a suspension or a role change takes effect at once. A unit test proves a token claiming ADMIN does not grant the admin role.
+ - @CurrentUser throws instead of returning undefined when the guard is missing, which would otherwise look like "no user" and skip an ownership check.
+Claude Code ran build, lint, 60 unit tests and 17 e2e tests against Atlas. I read the e2e test list and checked the 401/403 codes myself on the running server.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: ACC-09, ACC-11 (branch feature/ACC-09-profile-management)
+Prompt:
+Add GET /api/users/me and PATCH /api/users/me for name, phone and preferred currency, with field-level validation, the seeded-currency check through ReferenceDataService, and e2e tests.
+How the output was used:
+Reviewed the diff. The response mapping is in one place (UserProfileDto.fromDocument), which is what keeps the password hash and the lockout fields out of the response; an e2e test asserts each of those field names is absent. Sending email, role or status is a 400 rather than a silently ignored field, because the global pipe runs forbidNonWhitelisted, and a test covers each one. Build, lint, 76 unit tests and 15 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: GEN-01 (branch feature/GEN-01-notifications)
+Prompt:
+Implement the in-app notification service and its endpoints: unread count, paginated list with an unreadOnly filter, mark one as read, mark all as read. It has to be callable by every other module.
+How the output was used:
+Two decisions I had to agree to before the code was committed:
+ - the README planned notifications for src/common/, but the three endpoints need AuthenticatedGuard and common/ must not import a feature module, so it became the feature module src/notifications/ and I noted the deviation in the README.
+ - notify() swallows and logs a database failure instead of throwing. I pushed back and then accepted: a missed notification must not be the reason a confirmed payment reports an error.
+The e2e suite found two real bugs before review, which is the main reason I am keeping e2e tests on every module: Mongoose 9 rejects an aggregation-pipeline update without updatePipeline: true, and the list came back oldest first whenever several rows shared a createdAt, which is exactly what happens when one flight cancellation notifies every passenger. Fixed by sorting on _id descending as well. 11 unit and 19 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: ACC-07a, ACC-14, ACC-16 (branch feature/ACC-14-admin-account-administration)
+Prompt:
+Add the admin account endpoints: the paginated searchable account list, suspend and reactivate, and the temporary-password reset. Use the notification service for the suspension notice.
+How the output was used:
+Reviewed the diff and asked about three things:
+ - the search term is escaped before it becomes a regular expression. I checked this matters: without it a term like (.*)+$ is compiled as a pattern and can stall the server. An e2e test sends ".*" and expects zero results.
+ - the service refuses to act on an admin account or on the admin's own account. I agreed to add it: admin accounts are seeded (ACC-18) and there is no way to re-enable one from inside the API, so either would lock the platform out of its own administration.
+ - the reset endpoint returns 200, not Nest's default 201, because nothing is created. The e2e test caught the 201 first.
+The temporary password is returned once and stored only as a bcrypt hash, and every session of the account is revoked. Build, lint, 88 unit tests and 21 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude (chat)
+Related Requirement: GEN-11, PAY-01 (design discussion before coding)
+Prompt:
+Payments (PAY-01 to PAY-03) all act on a flight booking or a hotel reservation, and neither collection exists yet because they belong to A1 and B2. Discuss the options for building payments now without taking over their collections, and what the integration contract should contain.
+How the output was used:
+Took the "port" option: payments defines one interface per booking module and the flights and hotels modules provide an implementation under a DI token. This is the handshake the playbook asks for in week 1. I decided the five methods myself from what my own requirements need (findPayable, findPolicies, confirmAfterPayment, releaseHold for PAY-01 and PAY-02, hasUpcomingConfirmedBookings for ACC-12) and documented them in the README so A1 and B2 can implement against them. I also decided findPolicies must return the booking's own policy snapshot rather than the provider's latest, so a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user already gave.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: GEN-11, PAY-04 (branch feature/GEN-11-booking-lifecycle)
+Prompt:
+Implement the GEN-11 booking lifecycle as one shared table of allowed transitions, the BookingsPort interface and its gateway with optional ports, and the money helpers for the single platform currency including the Stripe minor-unit conversion.
+How the output was used:
+Reviewed the diff. Two things I want to be able to explain at the demo:
+ - a transition from a state to itself is refused, not allowed. A caller that can run twice (a webhook Stripe retried, the expiry sweep racing a payment) has to notice the work is already done rather than repeat its side effects. The unit test walks all 25 state pairs and asserts only the four GEN-11 transitions pass.
+ - the money helpers are not ceremony. The test pins the real double values: 19.99 * 100 is 1998.9999999999998 and 1.13 * 100 is 112.99999999999999, so Number(amount) * 100 is wrong for ordinary prices. Only toMinorUnits turns an amount into a native number, and only for Stripe.
+Later in the same session I renamed BookingPaymentPort to BookingsPort and added hasUpcomingConfirmedBookings, because ACC-12 needs the same question answered by both booking modules and one interface is less for A1 and B2 to implement than two. 103 unit tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: ACC-12 (branch feature/ACC-12-account-deactivation)
+Prompt:
+Add DELETE /api/users/me. It must require an explicit confirmation, be blocked while the account has an upcoming confirmed booking, revoke the sessions and not delete any row.
+How the output was used:
+Reviewed the diff. The confirmation is a required confirm: true field rather than an empty DELETE, because GEN-13 says the backend enforces the rule regardless of what the frontend does, and ACC-12 says "after confirmation". Deactivation only changes the status: the blog and itinerary modules derive "hidden" and "Deleted user" from it, so nothing has to be rewritten now or undone later, and past bookings, payments and refunds keep pointing at a real account. The upcoming-booking check goes through the gateway, so a booking module that is not connected yet simply reports none and deactivation is not impossible. 81 unit and 9 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: PAY-02 (branch feature/PAY-02-policy-acceptance)
+Prompt:
+Implement the policy endpoints: show the provider's terms for a booking and record the acceptance with a timestamp, owner-only, and block it once the booking is no longer awaiting payment.
+How the output was used:
+Reviewed the diff. I asked for the policyVersion to be required in the acceptance body so acceptance can only be given for terms that were really displayed; a stale value is a 409 rather than silent agreement to different terms. One acceptance per booking per version is a unique index, so a double click returns the first acceptance with its original timestamp instead of writing a second row, and a race ends as the same answer for both requests. Another account's booking answers 404 rather than 403, so booking ids cannot be probed; ACC-11 allows either and I chose to use 404 everywhere. 17 unit and 26 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude (chat)
+Related Requirement: PAY-01 (learning, before coding)
+Prompt:
+Explain Stripe PaymentIntents in test mode, webhooks and signature verification, and idempotency, then quiz me: why confirm a booking from the verified webhook instead of when the browser says it paid, and what happens if the webhook arrives twice.
+How the output was used:
+Used as the tutorial the playbook asks for, not as code. The two answers I had to be able to give before writing anything: the browser can lie, can be closed before it reports and cannot be trusted about money, while Stripe signs its events; and a repeated webhook must be made a no-op, because Stripe retries until it gets a 2xx and can deliver the same event twice regardless. That is where the stripeWebhookEvents collection and the conditional status update in the implementation come from.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: PAY-01, PAY-04, GEN-11 (branch feature/PAY-01-stripe-payments)
+Prompt:
+Implement PAY-01 in steps: the payments and stripeWebhookEvents schemas, a StripeService wrapper, POST /api/payments, POST /api/payments/:id/retry, GET /api/payments/:id, the signature-verified webhook that confirms the booking, and the sweep that cancels the PaymentIntent when the hold expires.
+How the output was used:
+Reviewed each step. What I checked and can explain:
+ - the amount is read from the booking, never from the request, and a unit test asserts it.
+ - the webhook reads req.rawBody and binds no body DTO, because re-serialising the JSON changes the bytes Stripe signed. main.ts now creates the app with rawBody: true.
+ - exactly-once handling has two independent guards, the claimed event id and the conditional status update, and tests prove that neither the same event twice nor two different success events confirms a booking twice.
+ - the expiry sweep cancels at Stripe before writing the status, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction. A unit test asserts that order.
+ - an unknown Stripe status maps to FAILED, never to SUCCEEDED, so a booking is never confirmed without money.
+The e2e suite found a real bug in my retry endpoint: it handed back a usable client secret without re-checking the hold, so a user could have paid for inventory that had already been released. The fix moves the hold check before the shortcut. A second finding changed the design: a declined card does not finish a PaymentIntent, Stripe puts it back to requires_payment_method, so a retry reuses the same intent instead of opening a new one.
+Signature verification is tested for real, offline, with Stripe's own generateTestHeaderString, including a body changed after signing. Stripe's HTTP API is mocked, so no Stripe account or network call was used; the live Stripe demo still has to be run with a real test key before the deadline. 112 unit and 41 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: PAY-03 (branch feature/PAY-03-refunds)
+Prompt:
+Implement refunds: a service the flights and hotels modules call when they cancel a booking, with the provider's tier for a user cancellation and 100% for a provider cancellation, plus GET /api/refunds/:id. Record the status and notify the user.
+How the output was used:
+Reviewed the diff and made three calls:
+ - the caller passes the tier, because the tiers belong to the provider, but a PROVIDER cancellation is forced to 100% in the service so a mistake on the calling side cannot short-change a traveller.
+ - a Stripe failure is recorded as FAILED and not thrown. The cancellation has already happened, so an error would make a completed cancellation look broken; the refund shows on the booking details and can be retried instead.
+ - there is no endpoint to create a refund, only to read one. A refund only ever follows a cancellation, so a create endpoint would be a way to get money back without cancelling anything.
+The e2e suite found another real bug: the unique index on stripeRefundId was sparse, but a sparse index only skips documents where the field is absent, and the field has an explicit null default, so the second refund waiting on Stripe was rejected. Changed to a partial index on string values. I dropped the old index from the shared Atlas database myself and confirmed the new one; the refunds collection was empty, so no teammate's data was touched.
+Also reviewed and accepted that the unreachable "total refunds exceed the captured amount" branch is kept as a documented backstop rather than being presented as a live check. 137 unit and 13 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: C2 (Platform & Money)
+Tool: Claude Code
+Related Requirement: Documentation for ACC-*, PAY-*, GEN-01, GEN-11 (branch docs/account-payments-modules)
+Prompt:
+Document the new modules in the README: the cookie and guard design with the error codes, the account endpoints, the notification service, the BookingsPort contract that A1 and B2 have to implement, the money rules, and the payment, policy and refund flow including how to demonstrate a payment with the Stripe CLI.
+How the output was used:
+Read the whole section and corrected the emphasis in a few places. It is written for my teammates rather than as a summary of the code: the BookingsPort table says what each method must guarantee, the notification section says not to wrap notify() in try/catch and why, and the money section gives the real double values that explain why the helpers exist. Also added the new environment variables and two troubleshooting rows.
+================================================
