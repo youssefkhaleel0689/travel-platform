@@ -66,6 +66,27 @@ describe('CreateAirlineDto (FLT-01)', () => {
   });
 });
 
+describe('null is not "left out" (FLT-01)', () => {
+  it.each([CreateAirlineDto, UpdateAirlineDto])(
+    'rejects icaoCode: null in %p',
+    async (type) => {
+      expect(
+        await errorFields(type, {
+          name: 'EgyptAir',
+          iataCode: 'MS',
+          icaoCode: null,
+        }),
+      ).toEqual(['icaoCode']);
+    },
+  );
+
+  it('rejects null name and iataCode on PATCH', async () => {
+    expect(
+      await errorFields(UpdateAirlineDto, { name: null, iataCode: null }),
+    ).toEqual(['iataCode', 'name']);
+  });
+});
+
 describe('UpdateAirlineDto (FLT-01)', () => {
   it('makes every field optional but still validates the ones sent', async () => {
     expect(await errorFields(UpdateAirlineDto, {})).toEqual([]);
@@ -75,6 +96,15 @@ describe('UpdateAirlineDto (FLT-01)', () => {
     expect(
       await errorFields(UpdateAirlineDto, { iataCode: 'TOOLONG' }),
     ).toEqual(['iataCode']);
+  });
+
+  it('trims and upper-cases the codes like the create body', async () => {
+    const dto = plainToInstance(UpdateAirlineDto, {
+      iataCode: ' ms ',
+      icaoCode: 'msr',
+    });
+    expect(await validate(dto)).toHaveLength(0);
+    expect(dto).toMatchObject({ iataCode: 'MS', icaoCode: 'MSR' });
   });
 });
 

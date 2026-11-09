@@ -2,10 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsNotEmpty,
-  IsOptional,
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   AIRLINE_ICAO_CODE,
@@ -18,6 +18,11 @@ export const trimText = ({ value }: { value: unknown }): unknown =>
 
 export const trimUpper = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
+
+// Optional means "may be left out", not "may be null": null must still fail validation,
+// which @IsOptional() would skip.
+export const isSent = (_object: object, value: unknown): boolean =>
+  value !== undefined;
 
 // Body of POST /airlines (FLT-01). The logo is not accepted here: it is uploaded
 // through the image-upload endpoint (GEN-08), added in a later PR.
@@ -45,7 +50,7 @@ export class CreateAirlineDto {
     description: 'ICAO airline code: 3 letters. Unique when present.',
   })
   @Transform(trimUpper)
-  @IsOptional()
+  @ValidateIf(isSent)
   @IsString()
   @Matches(AIRLINE_ICAO_CODE, {
     message: 'icaoCode must be 3 letters (for example MSR)',

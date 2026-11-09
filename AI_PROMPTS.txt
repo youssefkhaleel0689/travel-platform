@@ -195,3 +195,14 @@ Read CLAUDE.md and docs/requirements/, then do PR #2 (FLT-01) end to end: check 
 How the output was used:
 The files (flights module, airline and airlineModeratorAssignment schemas, POST/GET/PATCH /airlines, DTOs, unit and e2e tests) were first drafted in a Claude chat session. Claude Code applied them to the branch, compared them with the schema PDF and FLT-01, and ran prettier, build, lint, 195 unit tests and the 9 airlines e2e tests (fake service, no database). I reviewed the diff before approving the commit. The endpoints were not run against Atlas. Auth is not merged yet, so the write endpoints use a placeholder admin marked TODO(ACC-04); logo upload (GEN-08) and status changes (ACC-15) are left to later PRs.
 ================================================
+
+================================================
+Date: 2026-11-09
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-01
+Prompt:
+After review of PR #18, fix the airline DTOs so null is rejected for name, iataCode and icaoCode (a field may be left out but never null), keep the Co-Authored-By line, and tell me how to run the Swagger smoke test against Atlas myself.
+How the output was used:
+Reproduced the problem first: IsOptional lets null through, and PartialType in the update body does the same. Replaced it with ValidateIf(value !== undefined) and wrote UpdateAirlineDto out by hand. Added 4 unit tests; prettier, build, lint, 199 unit tests and the airlines e2e tests pass. The Atlas smoke test was run by me, not by Claude Code.
+================================================
