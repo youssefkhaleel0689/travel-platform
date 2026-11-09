@@ -168,6 +168,19 @@ export class PaymentsService {
     return this.paymentModel.findOne({ stripePaymentIntentId }).exec();
   }
 
+  /**
+   * By id, with no ownership check: for other services in this module, such as
+   * refunds resolving who paid. A route must use getOwn instead.
+   */
+  async findById(
+    paymentId: string | Types.ObjectId,
+  ): Promise<PaymentDocument | null> {
+    if (typeof paymentId === 'string' && !Types.ObjectId.isValid(paymentId)) {
+      return null;
+    }
+    return this.paymentModel.findById(paymentId).exec();
+  }
+
   /** The succeeded payment of a booking, which is what a refund needs. */
   async findSucceededForBooking(
     bookingType: BookingType,
