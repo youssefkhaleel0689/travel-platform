@@ -167,7 +167,7 @@ Claude Code found no violations and proved the rule is active by linting a throw
 ================================================
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
 Prompt:
@@ -179,7 +179,7 @@ Claude Code read all four documents and the existing repository first and then s
 Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: ACC-08, ACC-19, GEN-13 (branch feature/ACC-08-account-core)
 Prompt:
@@ -193,7 +193,7 @@ Reviewed every file. Points I checked and can explain:
 Claude Code ran build, lint, 60 unit tests and 17 e2e tests against Atlas. I read the e2e test list and checked the 401/403 codes myself on the running server.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: ACC-09, ACC-11 (branch feature/ACC-09-profile-management)
 Prompt:
@@ -202,7 +202,7 @@ How the output was used:
 Reviewed the diff. The response mapping is in one place (UserProfileDto.fromDocument), which is what keeps the password hash and the lockout fields out of the response; an e2e test asserts each of those field names is absent. Sending email, role or status is a 400 rather than a silently ignored field, because the global pipe runs forbidNonWhitelisted, and a test covers each one. Build, lint, 76 unit tests and 15 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: GEN-01 (branch feature/GEN-01-notifications)
 Prompt:
@@ -214,7 +214,7 @@ Two decisions I had to agree to before the code was committed:
 The e2e suite found two real bugs before review, which is the main reason I am keeping e2e tests on every module: Mongoose 9 rejects an aggregation-pipeline update without updatePipeline: true, and the list came back oldest first whenever several rows shared a createdAt, which is exactly what happens when one flight cancellation notifies every passenger. Fixed by sorting on _id descending as well. 11 unit and 19 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: ACC-07a, ACC-14, ACC-16 (branch feature/ACC-14-admin-account-administration)
 Prompt:
@@ -227,7 +227,7 @@ Reviewed the diff and asked about three things:
 The temporary password is returned once and stored only as a bcrypt hash, and every session of the account is revoked. Build, lint, 88 unit tests and 21 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude (chat)
 Related Requirement: GEN-11, PAY-01 (design discussion before coding)
 Prompt:
@@ -236,7 +236,7 @@ How the output was used:
 Took the "port" option: payments defines one interface per booking module and the flights and hotels modules provide an implementation under a DI token. This is the handshake the playbook asks for in week 1. I decided the five methods myself from what my own requirements need (findPayable, findPolicies, confirmAfterPayment, releaseHold for PAY-01 and PAY-02, hasUpcomingConfirmedBookings for ACC-12) and documented them in the README so A1 and B2 can implement against them. I also decided findPolicies must return the booking's own policy snapshot rather than the provider's latest, so a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user already gave.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: GEN-11, PAY-04 (branch feature/GEN-11-booking-lifecycle)
 Prompt:
@@ -248,7 +248,7 @@ Reviewed the diff. Two things I want to be able to explain at the demo:
 Later in the same session I renamed BookingPaymentPort to BookingsPort and added hasUpcomingConfirmedBookings, because ACC-12 needs the same question answered by both booking modules and one interface is less for A1 and B2 to implement than two. 103 unit tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: ACC-12 (branch feature/ACC-12-account-deactivation)
 Prompt:
@@ -257,7 +257,7 @@ How the output was used:
 Reviewed the diff. The confirmation is a required confirm: true field rather than an empty DELETE, because GEN-13 says the backend enforces the rule regardless of what the frontend does, and ACC-12 says "after confirmation". Deactivation only changes the status: the blog and itinerary modules derive "hidden" and "Deleted user" from it, so nothing has to be rewritten now or undone later, and past bookings, payments and refunds keep pointing at a real account. The upcoming-booking check goes through the gateway, so a booking module that is not connected yet simply reports none and deactivation is not impossible. 81 unit and 9 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: PAY-02 (branch feature/PAY-02-policy-acceptance)
 Prompt:
@@ -266,7 +266,7 @@ How the output was used:
 Reviewed the diff. I asked for the policyVersion to be required in the acceptance body so acceptance can only be given for terms that were really displayed; a stale value is a 409 rather than silent agreement to different terms. One acceptance per booking per version is a unique index, so a double click returns the first acceptance with its original timestamp instead of writing a second row, and a race ends as the same answer for both requests. Another account's booking answers 404 rather than 403, so booking ids cannot be probed; ACC-11 allows either and I chose to use 404 everywhere. 17 unit and 26 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude (chat)
 Related Requirement: PAY-01 (learning, before coding)
 Prompt:
@@ -275,7 +275,7 @@ How the output was used:
 Used as the tutorial the playbook asks for, not as code. The two answers I had to be able to give before writing anything: the browser can lie, can be closed before it reports and cannot be trusted about money, while Stripe signs its events; and a repeated webhook must be made a no-op, because Stripe retries until it gets a 2xx and can deliver the same event twice regardless. That is where the stripeWebhookEvents collection and the conditional status update in the implementation come from.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: PAY-01, PAY-04, GEN-11 (branch feature/PAY-01-stripe-payments)
 Prompt:
@@ -291,7 +291,7 @@ The e2e suite found a real bug in my retry endpoint: it handed back a usable cli
 Signature verification is tested for real, offline, with Stripe's own generateTestHeaderString, including a body changed after signing. Stripe's HTTP API is mocked, so no Stripe account or network call was used; the live Stripe demo still has to be run with a real test key before the deadline. 112 unit and 41 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: PAY-03 (branch feature/PAY-03-refunds)
 Prompt:
@@ -305,7 +305,7 @@ The e2e suite found another real bug: the unique index on stripeRefundId was spa
 Also reviewed and accepted that the unreachable "total refunds exceed the captured amount" branch is kept as a documented backstop rather than being presented as a live check. 137 unit and 13 e2e tests pass.
 ================================================
 Date: 2026-11-09
-Student: C2 (Platform & Money)
+Student: Taher Khalaf
 Tool: Claude Code
 Related Requirement: Documentation for ACC-*, PAY-*, GEN-01, GEN-11 (branch docs/account-payments-modules)
 Prompt:
