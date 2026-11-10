@@ -17,6 +17,9 @@ export interface SeatChange {
   seats: number;
 }
 
+// The two counters that releases and conversions move seats between.
+type Counter = 'heldSeats' | 'bookedSeats';
+
 // A wrong count is a bug in the caller, not bad user input: the DTOs validate passengers.
 function assertSeats(seats: number): void {
   if (!Number.isInteger(seats) || seats < 1) {
@@ -92,31 +95,64 @@ export class SeatInventoryService {
    * Gives held seats back: the hold expired, the payment failed or the flight was
    * cancelled (FLT-22, FLT-06). Works on any flight status.
    */
-  async releaseHeld(
+  releaseHeld(change: SeatChange, session?: ClientSession): Promise<void> {
+    return this.moveSeats(change, 'heldSeats', null, session);
+  }
+
+  /** Turns held seats into booked seats after a verified payment (FLT-23). */
+  convertHeldToBooked(
     change: SeatChange,
+    session?: ClientSession,
+  ): Promise<void> {
+    return this.moveSeats(change, 'heldSeats', 'bookedSeats', session);
+  }
+
+  /**
+   * Gives booked seats back when a confirmed booking is cancelled by the user (FLT-26)
+   * or with its flight (FLT-06). Works on any flight status.
+   */
+  releaseBooked(change: SeatChange, session?: ClientSession): Promise<void> {
+    return this.moveSeats(change, 'bookedSeats', null, session);
+  }
+
+  // One update that takes `seats` from the `from` counter (and adds them to `to`, if
+  // given). It only matches while the cabin has at least `seats` in `from`, so no
+  // counter can go below 0, and booked + held never grows.
+  private async moveSeats(
+    change: SeatChange,
+    from: Counter,
+    to: Counter | null,
     session?: ClientSession,
   ): Promise<void> {
     assertSeats(change.seats);
     const { flightId, category, seats } = change;
+
+    const inc: Record<string, number> = {
+      [`cabinInventory.$.${from}`]: -seats,
+    };
+    if (to) {
+      inc[`cabinInventory.$.${to}`] = seats;
+    }
 
     const result = await this.flightModel
       .updateOne(
         {
           _id: flightId,
           cabinInventory: {
-            $elemMatch: { category, heldSeats: { $gte: seats } },
+            $elemMatch: { category, [from]: { $gte: seats } },
           },
         },
-        { $inc: { 'cabinInventory.$.heldSeats': -seats } },
+        { $inc: inc },
         { session },
       )
       .exec();
 
     if (result.modifiedCount !== 1) {
-      // Fewer held seats than this booking holds: a release ran twice or a count is
-      // wrong. That is our bug, so it is a 500 and it aborts the caller's transaction.
+      // The cabin has fewer seats in `from` than this booking accounts for: an update
+      // ran twice or a count is wrong. That is our bug, so it is a 500 and it aborts
+      // the caller's transaction.
       throw new Error(
-        `Seat counters out of sync: cannot release ${seats} held ${category} seat(s) on flight ${flightId.toString()}`,
+        `Seat counters out of sync: cannot take ${seats} ${from} from ${category} on flight ${flightId.toString()}`,
       );
     }
   }

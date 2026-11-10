@@ -208,35 +208,57 @@ describe('SeatInventoryService.hold', () => {
   );
 });
 
-describe('SeatInventoryService.releaseHeld', () => {
-  it('sends one conditional update that never lets heldSeats go below 0', async () => {
-    const { service, calls } = setup({ modifiedCount: 1 });
-    await service.releaseHeld(change(), SESSION);
+describe('SeatInventoryService releases and conversion', () => {
+  type Method = 'releaseHeld' | 'convertHeldToBooked' | 'releaseBooked';
 
-    expect(calls.update).toEqual({
-      filter: {
-        _id: FLIGHT_ID,
-        cabinInventory: {
-          $elemMatch: { category: 'ECONOMY', heldSeats: { $gte: 2 } },
-        },
-      },
-      update: { $inc: { 'cabinInventory.$.heldSeats': -2 } },
-      options: { session: SESSION },
-    });
-  });
+  it.each<[Method, Record<string, unknown>, Record<string, number>]>([
+    [
+      'releaseHeld',
+      { category: 'ECONOMY', heldSeats: { $gte: 2 } },
+      { 'cabinInventory.$.heldSeats': -2 },
+    ],
+    [
+      'convertHeldToBooked',
+      { category: 'ECONOMY', heldSeats: { $gte: 2 } },
+      { 'cabinInventory.$.heldSeats': -2, 'cabinInventory.$.bookedSeats': 2 },
+    ],
+    [
+      'releaseBooked',
+      { category: 'ECONOMY', bookedSeats: { $gte: 2 } },
+      { 'cabinInventory.$.bookedSeats': -2 },
+    ],
+  ])(
+    '%s sends one update that never lets a counter go below 0',
+    async (method, elemMatch, inc) => {
+      const { service, calls } = setup({ modifiedCount: 1 });
+      await service[method](change(), SESSION);
 
-  it('throws a non-HTTP error (500) when fewer seats are held', async () => {
-    const { service } = setup({ modifiedCount: 0 });
-    const result = service.releaseHeld(change());
-    await expect(result).rejects.toThrow('Seat counters out of sync');
-    await expect(result).rejects.not.toBeInstanceOf(HttpException);
-  });
+      expect(calls.update).toEqual({
+        filter: { _id: FLIGHT_ID, cabinInventory: { $elemMatch: elemMatch } },
+        update: { $inc: inc },
+        options: { session: SESSION },
+      });
+    },
+  );
 
-  it('throws for an invalid seat count without touching the database', async () => {
-    const { service, flightModel } = setup({ modifiedCount: 1 });
-    await expect(service.releaseHeld(change({ seats: 0 }))).rejects.toThrow(
-      'seats must be a whole number >= 1',
-    );
-    expect(flightModel.updateOne).not.toHaveBeenCalled();
-  });
+  it.each<Method>(['releaseHeld', 'convertHeldToBooked', 'releaseBooked'])(
+    '%s throws a non-HTTP error (500) when the counter is too low',
+    async (method) => {
+      const { service } = setup({ modifiedCount: 0 });
+      const result = service[method](change());
+      await expect(result).rejects.toThrow('Seat counters out of sync');
+      await expect(result).rejects.not.toBeInstanceOf(HttpException);
+    },
+  );
+
+  it.each<Method>(['releaseHeld', 'convertHeldToBooked', 'releaseBooked'])(
+    '%s throws for an invalid seat count without touching the database',
+    async (method) => {
+      const { service, flightModel } = setup({ modifiedCount: 1 });
+      await expect(service[method](change({ seats: 0 }))).rejects.toThrow(
+        'seats must be a whole number >= 1',
+      );
+      expect(flightModel.updateOne).not.toHaveBeenCalled();
+    },
+  );
 });
