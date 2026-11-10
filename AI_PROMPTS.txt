@@ -206,3 +206,14 @@ After review of PR #18, fix the airline DTOs so null is rejected for name, iataC
 How the output was used:
 Reproduced the problem first: IsOptional lets null through, and PartialType in the update body does the same. Replaced it with ValidateIf(value !== undefined) and wrote UpdateAirlineDto out by hand. Added 4 unit tests; prettier, build, lint, 199 unit tests and the airlines e2e tests pass. The Atlas smoke test was run by me, not by Claude Code.
 ================================================
+
+================================================
+Date: 2026-11-10
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (flight schema), FLT-04 (cabin rules), FLT-30 (status values)
+Prompt:
+Start FLT-03 (PR #3 in flights-pr-order.xlsx) from the latest develop: build flight.schema.ts for the flights collection with the embedded cabinInventory[] (each category once, whole totalSeats > 0, Decimal128 price > 0, the bookedSeats and heldSeats counters), the search index and the unique airline + flight number + departure date index, following the schema PDF and the FLT-03 and FLT-04 rows. Register the model in the flights module, add tests, show the real build, lint and test results, and wait for my approval before committing or pushing. Do not run anything against the shared database and do not read .env.
+How the output was used:
+I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
+================================================
