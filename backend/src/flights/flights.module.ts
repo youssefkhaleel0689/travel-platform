@@ -8,6 +8,7 @@ import {
 } from './schemas/airline-moderator-assignment.schema';
 import { Airline, AirlineSchema } from './schemas/airline.schema';
 import { Flight, FlightSchema } from './schemas/flight.schema';
+import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
 // Flights feature module. FLT-01 adds airlines and FLT-03 the flight model; later PRs add
 // the flight, cabin and policy endpoints here.
@@ -23,7 +24,7 @@ import { Flight, FlightSchema } from './schemas/flight.schema';
     ]),
   ],
   controllers: [AirlinesController],
-  providers: [AirlinesService],
-  exports: [AirlinesService],
+  providers: [AirlinesService, SeatInventoryService],
+  exports: [AirlinesService, SeatInventoryService],
 })
 export class FlightsModule {}
