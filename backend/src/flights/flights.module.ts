@@ -7,6 +7,10 @@ import {
   AirlineModeratorAssignmentSchema,
 } from './schemas/airline-moderator-assignment.schema';
 import { Airline, AirlineSchema } from './schemas/airline.schema';
+import {
+  FlightBooking,
+  FlightBookingSchema,
+} from './schemas/flight-booking.schema';
 import { Flight, FlightSchema } from './schemas/flight.schema';
 import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
@@ -17,6 +21,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
       { name: Flight.name, schema: FlightSchema },
+      { name: FlightBooking.name, schema: FlightBookingSchema },
       {
         name: AirlineModeratorAssignment.name,
         schema: AirlineModeratorAssignmentSchema,
