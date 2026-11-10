@@ -217,3 +217,23 @@ Start FLT-03 (PR #3 in flights-pr-order.xlsx) from the latest develop: build fli
 How the output was used:
 I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
 ================================================
+================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+Design SeatInventoryService and the flightBookings schema on the merged flight schema (no stored availableSeats): method names and signatures, the conditional update and 409 code for each method, an all-or-nothing round-trip hold, the order of POST /flight-bookings and POST /flight-bookings/hold without a draft status, and a concurrency test on the shared database.
+How the output was used:
+Chose four counter methods with an optional session, and one transaction that holds every segment and inserts the booking, so a full return flight or a crash leaves nothing held. POST /flight-bookings returns the summary without storing anything; the hold creates the PENDING_PAYMENT booking. Claude ran the queries on a local MongoDB 8 replica set: 50 concurrent holds for the last seat gave one winner.
+================================================
+================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+In steps, following the agreed design: SeatInventoryService with hold (option A filter, then a read that explains a failure as 404, 409 or 400) and releaseHeld (500 when counters are out of sync); convertHeldToBooked and releaseBooked through one guarded update; unit tests on a fake model; an e2e concurrency test on the shared database; the flightBookings schema with validators and indexes; a README section.
+How the output was used:
+Reviewed each step before committing it. Claude ran Prettier, the compiler, lint and the unit suite; I ran lint, all unit tests (294 passed) and the e2e test on Atlas (7 passed). Claude also ran it against a deliberate read-then-write hold, where it failed: 18 of 20 requests got the last seat. The bookingReference index is partial, so unpaid bookings do not collide. The README check also updated the module table and where bookings live.
+================================================
