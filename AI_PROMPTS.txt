@@ -302,3 +302,14 @@ One prompt per step: (B) read JWT_SECRET with a fail-fast check that never print
 How the output was used:
 I chose the packages (@nestjs/jwt and cookie-parser, no Passport), the 30-minute token, SameSite=Lax and the database check on every request, and generated my own JWT_SECRET without sharing it. Claude chat reviewed each step. Before the guard step we read airline-actor.ts and confirmed the placeholder admin is only used when request.user is missing; an e2e test proves a logged-in USER gets 403 on POST /api/airlines. The teardown warning came from background Mongoose index builds and was fixed in the swagger-docs test; I ran the e2e suite three times to confirm. I ran every check myself (unit 413, e2e 10 suites and 91 tests) and tested in Swagger UI: login, /auth/me, /users/me, the 403 on POST /api/airlines and the 401 for a wrong password.
 ================================================
+
+================================================
+Date: 2026-11-12
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (create flight), FLT-02, GEN-06
+Prompt:
+Build POST /api/flights on feature/FLT-03-create-flight for an airline moderator: a CreateFlightDto with the local departure and arrival date-times, a FlightDto with the computed duration, and a FlightsService that takes the airline from airlineModeratorAssignment (never from the body), accepts only seeded airports through ReferenceDataService, converts both local times to UTC and computes departureDateKey with the GEN-06 helpers, rejects identical airports, a departure in the past, an arrival not after the departure in UTC and a duplicate flight number on the same departure date, and creates the flight SCHEDULED with no cabins. Use @Roles, @CurrentUser, @ApiCookieAuth and @ApiErrorResponse, register everything in FlightsModule, and add unit tests and a fake-service e2e test. Do not run the e2e tests that need Atlas and do not commit.
+How the output was used:
+I chose to make the endpoint moderator-only and to take the airline from the assignment so a moderator cannot create a flight for another airline. I read the generated files against FLT-03 and the schema, checked the UTC conversion and the local departureDateKey with my own examples (Cairo and Dubai in December, a flight after midnight in Cairo, a time skipped by the Egypt clock change), and ran prettier, the build, the linter and the unit tests (results in the PR). I tested nothing against Atlas yet because no moderator account or assignment exists in develop (ACC-13 and ACC-18 are missing). Cabins (FLT-04), editing (FLT-05) and cancelling (FLT-06) are left for later PRs.
+================================================
