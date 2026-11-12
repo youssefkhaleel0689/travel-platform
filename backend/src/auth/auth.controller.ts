@@ -1,13 +1,11 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiBody,
-  ApiConflictResponse,
   ApiCreatedResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
@@ -28,14 +26,30 @@ export class AuthController {
   })
   @ApiBody({ type: RegisterDto })
   @ApiCreatedResponse({ type: UserResponseDto })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description:
       'Validation failed (field-level errors), including unknown fields such as role',
+    examples: [
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        path: '/api/auth/register',
+        errors: [{ field: 'email', messages: ['email must be an email'] }],
+      },
+    ],
   })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 409,
     description: 'Email already registered (EMAIL_ALREADY_REGISTERED)',
+    examples: [
+      {
+        code: 'EMAIL_ALREADY_REGISTERED',
+        message: 'email is already registered',
+        path: '/api/auth/register',
+        errors: [{ field: 'email', messages: ['email is already registered'] }],
+      },
+    ],
   })
   async register(@Body() dto: RegisterDto): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.register(dto));
