@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 import { jwtModuleOptions, readJwtSecret } from './jwt-secret';
 import { PasswordService } from './password/password.service';
 import { User, UserSchema } from './schemas/user.schema';
@@ -22,7 +25,15 @@ import { UsersService } from './users/users.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [PasswordService, UsersService, AuthService, AccessTokenService],
+  providers: [
+    PasswordService,
+    UsersService,
+    AuthService,
+    AccessTokenService,
+    // Global guards for every route of the app, in this order: authenticate, then roles.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
   exports: [UsersService, PasswordService],
 })
 export class AuthModule {}
