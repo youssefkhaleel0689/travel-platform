@@ -10,6 +10,7 @@ import { RolesGuard } from './guards/roles.guard';
 import { jwtModuleOptions, readJwtSecret } from './jwt-secret';
 import { PasswordService } from './password/password.service';
 import { User, UserSchema } from './schemas/user.schema';
+import { AdminSeeder } from './seed/admin-seeder.service';
 import { AccessTokenService } from './tokens/access-token.service';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
@@ -31,6 +32,8 @@ import { UsersService } from './users/users.service';
     UsersService,
     AuthService,
     AccessTokenService,
+    // Used only by the seed:admin script (ACC-18); not exported.
+    AdminSeeder,
     // Global guards for every route of the app, in this order: authenticate, then roles.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

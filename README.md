@@ -66,6 +66,9 @@ Check that it works:
 | `PORT` | No | Server port, defaults to 3000 |
 | `BCRYPT_COST` | No | bcrypt cost for password hashes, defaults to 12. Must be a whole number from 4 to 15; any other value (including an empty `BCRYPT_COST=`) stops the app at startup |
 | `JWT_SECRET` | Yes | Secret that signs the access tokens (HS256). At least 32 characters; the app refuses to start when it is missing, empty or shorter. Every developer generates their own and keeps it only in `backend/.env` |
+| `ADMIN_EMAIL` | Only for `npm run seed:admin` | Email of the admin account the seed creates (see "Admin account (ACC-18)"). Not needed to start the app |
+| `ADMIN_PASSWORD` | Only for `npm run seed:admin` | Password of that admin; it must pass the password rules. Not needed to start the app |
+| `ADMIN_NAME` | No | Name of that admin; empty or unset means `Platform Admin`; at most 100 characters |
 
 Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
 
@@ -74,6 +77,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ~~~
 
 **Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it ends every existing session on your machine (requests get 401 until you log in again).
+
+**Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -84,6 +89,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run start:dev` | Run in watch mode (needs `.env`) |
 | `npm run build` | Compile and catch TypeScript errors |
 | `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
+| `npm run seed:admin` | Build, then create the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (it boots the app, so it also needs `MONGODB_URI` and `JWT_SECRET`). Safe to run again: an existing admin is left unchanged |
 
 ### Troubleshooting
 
@@ -92,6 +98,11 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `Configuration key "MONGODB_URI" does not exist` | `.env` is missing, empty (check its size), not saved, or the key name is misspelled |
 | `JWT_SECRET is required` | `JWT_SECRET` is missing from `backend/.env` or empty: generate one with the command in "Environment variables" and add it to `backend/.env` |
 | `JWT_SECRET must be at least 32 characters` | The value is too short: generate one with the command in "Environment variables" and put it in `backend/.env` instead |
+| `ADMIN_EMAIL is required` (from `npm run seed:admin`) | `ADMIN_EMAIL` is missing from `backend/.env` or empty |
+| `ADMIN_EMAIL: must be a valid email` or `ADMIN_EMAIL: must be at most 254 characters` | Fix the value of `ADMIN_EMAIL` |
+| `ADMIN_PASSWORD is required` | `ADMIN_PASSWORD` is missing from `backend/.env` or empty |
+| `ADMIN_PASSWORD: password must ...` (for example `ADMIN_PASSWORD: password must contain at least one digit`) | The password breaks the rule named after the colon (see the password rules in "Accounts and authentication"); the value itself is never printed |
+| `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `Cannot GET /` | Expected: all routes start with `/api` |
@@ -452,7 +463,7 @@ Register request body:
 | An unknown field, such as `role` | 400 `VALIDATION_FAILED`: it is rejected, not ignored |
 | The email is already registered (in any case, with or without spaces) | 409 `EMAIL_ALREADY_REGISTERED` with a field error on `email` |
 
-The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (ACC-18; the admin seed is not written yet), and moderators are created by an admin (ACC-13).
+The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (see "Admin account (ACC-18)" below), and moderators are created by an admin (ACC-13).
 
 Login request body: `email` (valid email, trimmed and lower-cased, at most 254 characters) and `password` (a non-empty string, used exactly as sent). The login DTO does not apply the password rules: login must not reveal them, and old passwords keep working if the rules change.
 
@@ -543,6 +554,41 @@ Rules:
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
 - Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), and `/api/auth/me` and `/api/users/me` return the logged-in user. Still to come: account lockout after failed logins (ACC-05, PR 3); refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
 - `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts` and `auth-me.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-` or `e2e-me-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
+
+### Admin account (ACC-18)
+
+There is no admin self-registration: `POST /api/auth/register` always creates a `USER`, and an `ADMIN` account comes only from the seed (`src/auth/seed/`).
+
+To seed the admin (inside `backend/`):
+
+1. Put `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (and optionally `ADMIN_NAME`). The password rules apply. To generate a password that passes them (the `7a` suffix guarantees a digit and a letter):
+
+   ~~~
+   node -e "console.log(require('crypto').randomBytes(18).toString('base64url') + '7a')"
+   ~~~
+
+2. Run `npm run seed:admin`.
+3. Expect the log line `Admin account created for <email>`. On failure the script prints `Admin seed failed: <reason>` and exits with code 1 (see "Troubleshooting").
+
+Behaviour:
+
+- Idempotent: when an admin with that email already exists it logs `Admin account <email> already exists` and changes nothing, not even the password.
+- It never promotes an existing account: if the email belongs to a `USER` or a moderator, it stops with an error.
+- All variables are checked before the database is touched.
+- The admin is created `ACTIVE`, with `mustChangePassword` set to `false` and no `termsAcceptedAt`.
+- The password is never logged or included in an error message.
+
+Shared database: the admin is seeded once for the whole team. Teammates get the admin credentials privately from the team leader, never through Git or chat tools.
+
+The curl preview in Swagger UI shows the request body, including the password, after a login. Crop it out of any screenshot.
+
+Rotating the admin password:
+
+1. Delete the `ADMIN` user in Atlas (collection `users`).
+2. Put the new `ADMIN_PASSWORD` in `backend/.env`.
+3. Run `npm run seed:admin` again.
+
+Old admin sessions stop working at once: the guard loads the user by id on every request, and the new admin has a new id.
 
 ### Protecting your endpoints
 

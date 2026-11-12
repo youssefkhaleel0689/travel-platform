@@ -302,3 +302,13 @@ One prompt per step: (B) read JWT_SECRET with a fail-fast check that never print
 How the output was used:
 I chose the packages (@nestjs/jwt and cookie-parser, no Passport), the 30-minute token, SameSite=Lax and the database check on every request, and generated my own JWT_SECRET without sharing it. Claude chat reviewed each step. Before the guard step we read airline-actor.ts and confirmed the placeholder admin is only used when request.user is missing; an e2e test proves a logged-in USER gets 403 on POST /api/airlines. The teardown warning came from background Mongoose index builds and was fixed in the swagger-docs test; I ran the e2e suite three times to confirm. I ran every check myself (unit 413, e2e 10 suites and 91 tests) and tested in Swagger UI: login, /auth/me, /users/me, the 403 on POST /api/airlines and the 401 for a wrong password.
 ================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-18 (admin accounts created by seeding)
+Prompt:
+Add an AdminSeeder in src/auth/seed/ and a standalone `npm run seed:admin` entry point modelled on the reference data seed. Read ADMIN_EMAIL, ADMIN_PASSWORD and ADMIN_NAME from backend/.env and check them (password rules included) before any database query, never printing the password; create the admin with UsersService.create and role ADMIN; leave an existing ADMIN unchanged; refuse to promote a non-admin account; handle two simultaneous seeds through the unique email index. Add unit tests and an e2e test that logs in as the seeded admin. Follow-up prompt: document the seed in the README.
+How the output was used:
+I took ACC-18 over from B1 and chose to keep the admin credentials only in .env. Claude Code wrote the seeder (19 unit tests), the entry point, the npm script and an e2e test. I ran the unit tests and the e2e suite (11 suites, 95 tests), then seeded the shared Atlas database myself: the first run created the admin and the second reported "already exists". I logged in as the admin in Swagger and /auth/me returned role ADMIN. A screenshot of that login showed the password in Swagger's curl preview, so I rotated it (deleted the admin, new password, seeded again) and confirmed the old password is rejected. I reviewed the README section before committing.
+================================================
