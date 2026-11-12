@@ -115,6 +115,33 @@ export class UsersService {
     return user ? this.toUserProfile(user) : null;
   }
 
+  /**
+   * Login check (ACC-04): the profile when the email and password match, otherwise null.
+   * Returns the profile whatever its status; the caller decides what a status means. The
+   * hash never leaves this method.
+   */
+  async verifyCredentials(
+    email: string,
+    password: string,
+  ): Promise<{ profile: UserProfile } | null> {
+    const user = await this.userModel
+      .findOne({ email: normalizeEmail(email) })
+      .select('+passwordHash')
+      .lean<User>()
+      .exec();
+    if (!user) {
+      // Same bcrypt work as a known email, so timing does not reveal registered emails.
+      await this.passwordService.verifyDummy(password);
+      return null;
+    }
+    // TODO(ACC-05, PR 3): the lockout check (lockedUntil, failedLoginAttempts) goes here,
+    // before the password is compared, and a wrong password increments the counter.
+    if (!(await this.passwordService.verify(password, user.passwordHash))) {
+      return null;
+    }
+    return { profile: this.toUserProfile(user) };
+  }
+
   // select:false only affects queries; create() returns the document with passwordHash,
   // so every result goes through this mapper. Fields are listed one by one.
   private toUserProfile(user: User): UserProfile {

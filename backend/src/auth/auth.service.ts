@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Response } from 'express';
-import { Role } from '../common/auth/auth.enums';
+import { Role, UserStatus } from '../common/auth/auth.enums';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AccessTokenService } from './tokens/access-token.service';
 import { setAccessTokenCookie } from './tokens/auth-cookie';
@@ -25,6 +30,39 @@ export class AuthService {
       role: Role.USER,
       termsAcceptedAt: new Date(),
     });
+    return this.startSession(res, profile);
+  }
+
+  /**
+   * ACC-04: logs a user in with email and password and sets the access token cookie.
+   *
+   * The status is checked only after the password matches, so a wrong password never
+   * reveals whether an account exists or is suspended: it is always 401 INVALID_CREDENTIALS.
+   */
+  async login(dto: LoginDto, res: Response): Promise<UserProfile> {
+    const verified = await this.users.verifyCredentials(
+      dto.email,
+      dto.password,
+    );
+    if (!verified) {
+      throw new UnauthorizedException({
+        code: 'INVALID_CREDENTIALS',
+        message: 'invalid email or password',
+      });
+    }
+    const { profile } = verified;
+    if (profile.status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException({
+        code: 'ACCOUNT_SUSPENDED',
+        message: 'account suspended',
+      });
+    }
+    if (profile.status === UserStatus.DEACTIVATED) {
+      throw new ForbiddenException({
+        code: 'ACCOUNT_DEACTIVATED',
+        message: 'account deactivated',
+      });
+    }
     return this.startSession(res, profile);
   }
 
