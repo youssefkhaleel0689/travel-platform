@@ -64,6 +64,7 @@ Check that it works:
 | --- | --- | --- |
 | `MONGODB_URI` | Yes | Shared MongoDB Atlas connection string, including the database name (`/travel-platform`) |
 | `PORT` | No | Server port, defaults to 3000 |
+| `BCRYPT_COST` | No | bcrypt cost for password hashes, defaults to 12. Must be a whole number from 4 to 15; any other value (including an empty `BCRYPT_COST=`) stops the app at startup |
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -212,7 +213,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums; `@Roles`, `@Public` and `@CurrentUser` will be added in PR 2), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Layout of one module:
 
@@ -366,6 +367,111 @@ Rules:
 - `departureDateKey` is the departure airport's local date, so a Tokyo flight at `2026-11-19T23:30Z` has the key `2026-11-20`.
 
 The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
+
+## Accounts and passwords (ACC-01, GEN-13)
+
+A traveller creates an account with `POST /api/auth/register`. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
+
+| Endpoint | Requirement | Access |
+| --- | --- | --- |
+| `POST /api/auth/register` | ACC-01, GEN-13 | Public |
+
+Request body:
+
+| Field | Rules |
+| --- | --- |
+| `name` | String, trimmed, not empty, at most 100 characters |
+| `email` | Valid email, trimmed and lower-cased, at most 254 characters, not registered yet |
+| `password` | The password rules below; used exactly as sent (not trimmed) |
+| `acceptTerms` | Must be the boolean `true` (terms and privacy consent); `false`, a missing value or `"true"` fails with `acceptTerms must be true to register` |
+
+~~~
+{ "name": "Sara Ahmed", "email": "sara@example.com", "password": "Travel2026", "acceptTerms": true }
+~~~
+
+201 response (`UserResponseDto`, never `passwordHash`):
+
+~~~
+{
+  "id": "6720f1c2a1b2c3d4e5f60718",
+  "name": "Sara Ahmed",
+  "email": "sara@example.com",
+  "phone": null,
+  "preferredCurrency": null,
+  "role": "USER",
+  "status": "ACTIVE",
+  "mustChangePassword": false,
+  "createdAt": "2026-11-12T10:00:00.000Z"
+}
+~~~
+
+| Case | Result |
+| --- | --- |
+| A field breaks a rule | 400 `VALIDATION_FAILED` with a field error per invalid field |
+| An unknown field, such as `role` | 400 `VALIDATION_FAILED`: it is rejected, not ignored |
+| The email is already registered (in any case, with or without spaces) | 409 `EMAIL_ALREADY_REGISTERED` with a field error on `email` |
+
+The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (ACC-18; the admin seed is not written yet), and moderators are created by an admin (ACC-13).
+
+Password rules (`src/common/validation/password.ts`), checked in this order; the field error is the message of the first rule broken:
+
+| Rule | Message |
+| --- | --- |
+| A string | `password must be a string` |
+| At least 8 characters (Unicode code points, so an emoji counts as one) | `password must be at least 8 characters` |
+| At least one letter (any alphabet, so `كلمةسر12` is valid) | `password must contain at least one letter` |
+| At least one digit | `password must contain at least one digit` |
+| At most 72 bytes in UTF-8 | `password must be at most 72 bytes` |
+
+bcrypt reads only the first 72 bytes of a password and ignores the rest, so a longer password would be silently cut. The cap is in bytes, not characters: an Arabic letter takes 2 bytes, so 40 Arabic letters plus a digit (41 characters, 81 bytes) is too long. `PasswordService` also refuses to hash more than 72 bytes, and its `verify()` returns `false` for a longer input, so "the 72 stored bytes plus anything" never matches.
+
+Using the rules in your DTO (every DTO that accepts a new password: ACC-07a, ACC-08, ACC-13):
+
+~~~
+// No @Transform: never trim or change a password.
+@IsValidPassword()
+newPassword: string;
+~~~
+
+Creating and finding users from another module (illustration only: the administration module does not exist yet):
+
+~~~
+// administration.module.ts
+@Module({ imports: [AuthModule], providers: [ModeratorsService] })
+export class AdministrationModule {}
+
+// moderators.service.ts
+constructor(private readonly users: UsersService) {}
+
+const profile = await this.users.create({
+  name: dto.name,
+  email: dto.email,
+  password: dto.password,
+  role: Role.AIRLINE_MODERATOR,
+  mustChangePassword: true,
+});
+~~~
+
+| `UsersService` method | Returns | Notes |
+| --- | --- | --- |
+| `create(input)` | `UserProfile` | Takes the plain password and hashes it; trims and lower-cases the email; 409 `EMAIL_ALREADY_REGISTERED` on a duplicate email. `termsAcceptedAt` defaults to `null`, `mustChangePassword` to `false` |
+| `findById(id)` | `UserProfile` or `null` | `null` for an id that is not 24 hex characters, without querying |
+| `findByEmail(email)` | `UserProfile` or `null` | Trims and lower-cases the email before the query |
+
+`UserProfile` has `id`, `name`, `email`, `phone`, `preferredCurrency`, `role`, `status`, `mustChangePassword` and `createdAt`; it never contains `passwordHash` or the lockout fields.
+
+Rules:
+
+- Never call bcrypt yourself and never store a hash you computed: create users with `UsersService.create()`, which hashes. `PasswordService` is the only file that calls bcrypt.
+- Never inject the `User` model outside `src/auth/`; import `AuthModule` and use `UsersService` (see "Module structure and conventions").
+- `passwordHash` has `select: false`, so normal queries never load it. Only login (PR 2) will select it explicitly.
+- Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
+- `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
+- `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
+- Not available yet: login, cookies, guards and `/auth/me` come in PR 2 (ACC-04, ACC-19). Until then, protected endpoints keep their placeholders (for example the placeholder admin in `airline-actor.ts`).
+- `test/auth-register.e2e-spec.ts` registers real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-<timestamp>-`), and the test deletes those users when it finishes.
+
+The endpoint, `UsersService`, `PasswordService` and the `User` schema are in `src/auth/`; the enums are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
 
 ## Team workflow
 
