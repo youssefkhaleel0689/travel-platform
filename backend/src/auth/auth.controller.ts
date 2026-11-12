@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -8,12 +9,15 @@ import {
 } from '@nestjs/common';
 import {
   ApiBody,
+  ApiCookieAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { CurrentUser } from '../common/auth/current-user.decorator';
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
@@ -21,7 +25,8 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
-// Account endpoints: register (ACC-01) and login (ACC-04); the rest come in later PRs.
+// Account endpoints: register (ACC-01), login (ACC-04) and me (ACC-04, ACC-19); the rest
+// come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -134,5 +139,30 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.login(dto, res));
+  }
+
+  @Get('me')
+  @ApiCookieAuth('access_token')
+  @ApiOperation({
+    summary: 'Who is logged in (ACC-04, ACC-19)',
+    description:
+      'The frontend calls this to learn who is logged in: the token is in an httpOnly ' +
+      'cookie that page scripts cannot read. Returns the profile of the logged-in user.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'Not logged in, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/auth/me',
+      },
+    ],
+  })
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.currentProfile(user.userId));
   }
 }

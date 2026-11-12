@@ -7,6 +7,7 @@ import type { Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { unauthenticated } from './guards/jwt-auth.guard';
 import { AccessTokenService } from './tokens/access-token.service';
 import { setAccessTokenCookie } from './tokens/auth-cookie';
 import { UserProfile, UsersService } from './users/users.service';
@@ -64,6 +65,19 @@ export class AuthService {
       });
     }
     return this.startSession(res, profile);
+  }
+
+  /**
+   * ACC-04, ACC-11, ACC-19: the logged-in user's profile, for GET /auth/me and /users/me.
+   * The guard has just loaded the user, but it can be deleted between the guard and this
+   * call; that is the same 401 as a missing session, never a 500.
+   */
+  async currentProfile(userId: string): Promise<UserProfile> {
+    const profile = await this.users.findById(userId);
+    if (!profile) {
+      throw unauthenticated();
+    }
+    return profile;
   }
 
   /**

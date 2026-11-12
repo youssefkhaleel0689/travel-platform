@@ -11,6 +11,7 @@ import { jwtModuleOptions, readJwtSecret } from './jwt-secret';
 import { PasswordService } from './password/password.service';
 import { User, UserSchema } from './schemas/user.schema';
 import { AccessTokenService } from './tokens/access-token.service';
+import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
 
 // Auth feature module (ACC-01). Other modules use UsersService, never the User model.
@@ -24,7 +25,7 @@ import { UsersService } from './users/users.service';
         jwtModuleOptions(readJwtSecret(config)),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, UsersController],
   providers: [
     PasswordService,
     UsersService,

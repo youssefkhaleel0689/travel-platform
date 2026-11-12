@@ -46,6 +46,9 @@ function setup(
     verifyCredentials: jest.fn((_email: string, _password: string) =>
       Promise.resolve(credentials),
     ),
+    findById: jest.fn((_id: string): Promise<UserProfile | null> =>
+      Promise.resolve(PROFILE),
+    ),
   };
   const accessTokens = {
     sign: jest.fn((_userId: string) => Promise.resolve(TOKEN)),
@@ -201,4 +204,24 @@ describe('AuthService.login (ACC-04)', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('AuthService.currentProfile (ACC-04, ACC-19)', () => {
+  it('returns the profile of the logged-in user', async () => {
+    const { service, users } = setup();
+    await expect(service.currentProfile(PROFILE.id)).resolves.toBe(PROFILE);
+    expect(users.findById).toHaveBeenCalledWith(PROFILE.id);
+  });
+
+  it('gives 401 UNAUTHENTICATED when the user no longer exists', async () => {
+    const { service, users } = setup();
+    users.findById.mockResolvedValueOnce(null);
+
+    const error = await rejection(service.currentProfile(PROFILE.id));
+    expect(error.getStatus()).toBe(401);
+    expect(error.getResponse()).toEqual({
+      code: 'UNAUTHENTICATED',
+      message: 'Authentication required',
+    });
+  });
 });
