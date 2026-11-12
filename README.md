@@ -134,7 +134,34 @@ throw new NotFoundException('Flight not found');
 throw new ConflictException({ code: 'SEAT_UNAVAILABLE', message: 'Only 1 seat left' });
 ~~~
 
-Document error responses in Swagger with `ErrorResponseDto` from `src/common/dto/error-response.dto.ts`, for example `@ApiBadRequestResponse({ type: ErrorResponseDto })`. The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
+Document error responses in Swagger with `@ApiErrorResponse` (see "Documenting errors in Swagger" below). The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
+
+### Documenting errors in Swagger
+
+Use `@ApiErrorResponse({ status, description, examples: [...] })` from `src/common/swagger/api-error-response.decorator.ts` for every error response. Never write `type: ErrorResponseDto` in an `@Api...Response` decorator.
+
+Why: the examples on `ErrorResponseDto` are shared by every response that uses it, so every error showed the same 400 `VALIDATION_FAILED` body. `ApiErrorResponse` attaches each response's own example; the schema is still `ErrorResponseDto`. Each example only needs `code`, `message`, `path` and, when there are field errors, `errors`; `statusCode`, `error` (the reason phrase, as the filter sets it) and `timestamp` are filled in for you.
+
+~~~
+@ApiErrorResponse({
+  status: 404,
+  description: 'No such airline (AIRLINE_NOT_FOUND)',
+  examples: [
+    {
+      code: 'AIRLINE_NOT_FOUND',
+      message: 'Airline not found',
+      path: '/api/airlines/6720f1c2a1b2c3d4e5f60718',
+    },
+  ],
+})
+~~~
+
+Rules:
+
+- Use codes and messages the endpoint really returns (read your service and the filter), and the endpoint's real path with an example id.
+- When one status can return several codes, give one example per code; Swagger UI shows them in a dropdown named by code. Two examples with the same code in one response are refused.
+- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, so it needs `MONGODB_URI`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`.
+- Branches that already document errors with `type: ErrorResponseDto` must switch to `ApiErrorResponse` after merging `develop`.
 
 ## Pagination (GEN-05)
 
@@ -213,7 +240,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums; `@Roles`, `@Public` and `@CurrentUser` will be added in PR 2), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums; `@Roles`, `@Public` and `@CurrentUser` will be added in PR 2), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Layout of one module:
 

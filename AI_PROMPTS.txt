@@ -282,3 +282,13 @@ Update README.md only: add BCRYPT_COST under "Environment variables" and a new s
 How the output was used:
 I reviewed the README diff against the code before committing. I wrote these AI_PROMPTS.txt entries with Claude (chat) and added them myself.
 ================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: Swagger documentation of error responses (ACC-01, FLT-01 and GEN-12 endpoints)
+Prompt:
+Add an ApiErrorResponse decorator in src/common/swagger/ that attaches each error response's own example (named examples when one status has several codes) while keeping ErrorResponseDto as the schema. Check the installed @nestjs/swagger 12.1.0 type definitions first. Use it for every error response in the auth, airlines and reference-data controllers with codes the code really returns, and add a unit spec and an e2e guard that fails when an error response has no matching example. Follow-up prompt: document the rule in the README.
+How the output was used:
+The cause came from reading the DTO: its property examples were shared by every response, so the 403, 404 and 409 responses showed the 400 example. Claude Code wrote the decorator (10 unit tests), the guard test, and new examples for 12 error responses. I ran the unit tests and the e2e suite (7 suites, 56 tests), temporarily restored the old auth controller to confirm the guard fails on exactly its two responses, and checked register, PATCH and GET airline in Swagger UI. I reviewed the README change, including one existing sentence it corrected because it contradicted the new rule.
+================================================
