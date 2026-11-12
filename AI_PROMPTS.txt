@@ -217,3 +217,68 @@ Start FLT-03 (PR #3 in flights-pr-order.xlsx) from the latest develop: build fli
 How the output was used:
 I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
 ================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: ACC-01, GEN-13 (design also covers ACC-04, ACC-05, ACC-06, ACC-11, ACC-19)
+Prompt:
+Read the project description, the requirements workbook and the team Playbook, explain the identity requirements I own, split the auth work into small PRs, write the identity design document (my requirements, C2's requirements, the decisions, the contract I expose and the dependency map), then guide me step by step through PR 1 with one self-contained Claude Code prompt per step, and review each result before I commit.
+How the output was used:
+I used it for the PR plan, the design decisions (bcrypt with cost 12 from config, a 72-byte password cap, statuses ACTIVE/SUSPENDED/DEACTIVATED, role never taken from the request, a unique email index instead of a find-then-insert check, consent stored as termsAcceptedAt) and the Claude Code prompts below. I chose bcrypt over argon2 and decided that register logs the user in automatically (added in PR 2). The review of step B found that verify() also needed the 72-byte check, which was fixed before committing. I ran every check in my own terminal and tested the endpoint by hand in Swagger UI against Atlas.
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (User schema)
+Prompt:
+Add the User schema and the Role and UserStatus enums for the auth module. Create only src/common/auth/auth.enums.ts, src/auth/schemas/user.schema.ts and its spec, following airline.schema.ts: name, email (trimmed, lowercase), passwordHash (select: false), phone, preferredCurrency, role, status, termsAcceptedAt, failedLoginAttempts, lockedUntil, mustChangePassword, timestamps, and a unique index on email. Do not touch .env, install packages or commit; run build, lint and tests and report.
+How the output was used:
+Claude Code wrote the three files and 12 schema tests. It used validate() instead of validateSync() to match flight.schema.spec.ts. I read the schema and enums in my terminal, ran the schema tests (12 passed) and committed the three files (627777c).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (password rules and hashing)
+Prompt:
+Add the shared password rules in src/common/validation/password.ts (passwordRuleViolation and @IsValidPassword: at least 8 code points, a Unicode letter, a Unicode digit, at most 72 UTF-8 bytes, never trimmed) and PasswordService in src/auth/password/ (bcrypt, BCRYPT_COST from config with default 12, a whole number from 4 to 15 or the app fails at startup; hash() refuses input over 72 bytes), with specs. Follow-up prompt: make verify() return false for input over 72 bytes without calling bcrypt, with a test.
+How the output was used:
+Claude Code wrote the four files and 33 tests. The review found a truncation gap: bcrypt.compare cuts input at 72 bytes, so a stored 72-byte password followed by extra characters matched. Claude Code confirmed bcrypt.compare returned true for that input, then added the check and the test. I added BCRYPT_COST=12 to backend/.env.example myself, read both source files, ran the tests and committed them together with the bcrypt dependency (91f1285).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (UsersService and AuthModule)
+Prompt:
+Add UsersService: create() hashes the plain password through PasswordService and returns a UserProfile without passwordHash; a duplicate key error 11000 on email becomes 409 EMAIL_ALREADY_REGISTERED; findById returns null for a malformed id; findByEmail normalizes the email before querying. Add AuthModule exporting UsersService and PasswordService, register it in app.module.ts and change nothing else there. Unit tests with a stubbed model.
+How the output was used:
+Claude Code wrote the service, the module and 13 unit tests. It checks ids as 24 hex characters, because ObjectId.isValid accepts any 12-character string, and it leaves duplicate-key errors on other indexes to the global filter. I checked the app.module.ts diff, started the app against Atlas (AuthModule initialized) and committed (eaecf7d).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (POST /api/auth/register)
+Prompt:
+Add POST /api/auth/register: shared trimText and trimLower helpers in src/common/validation/, RegisterDto (acceptTerms must be true, the password is never transformed), UserResponseDto with an explicit field-by-field mapping, AuthService.register (role always USER, termsAcceptedAt set to now), AuthController with Swagger docs, unit tests, and an e2e test against the real database (unique email prefix per run, cleanup afterwards, wait for the unique index, two parallel registrations with the same email). Do not run the e2e tests.
+How the output was used:
+Claude Code wrote the files, 15 unit tests and 10 e2e tests. I ran the e2e suite myself against Atlas (6 suites, 54 tests passed) and committed (b1d4566). I then tested the endpoint by hand in Swagger UI: 201 with no passwordHash, 409 for the same email in capitals, 400 for a password without a digit, 400 for an extra role field. The Swagger example for the 409 response still shows the shared 400 example; that is fixed in a separate PR.
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (documentation)
+Prompt:
+Update README.md only: add BCRYPT_COST under "Environment variables" and a new section "Accounts and passwords (ACC-01, GEN-13)" before "Team workflow", explaining the register endpoint and what teammates must reuse (@IsValidPassword, UsersService, the Role and UserStatus enums, the trim helpers).
+How the output was used:
+I reviewed the README diff against the code before committing. I wrote these AI_PROMPTS.txt entries with Claude (chat) and added them myself.
+================================================
