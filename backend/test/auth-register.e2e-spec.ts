@@ -35,6 +35,14 @@ function body(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// The Set-Cookie headers of a response (none when the header is absent).
+function setCookies(res: { headers: Record<string, unknown> }): string[] {
+  const raw = res.headers['set-cookie'];
+  return Array.isArray(raw)
+    ? raw.filter((cookie): cookie is string => typeof cookie === 'string')
+    : [];
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -95,6 +103,36 @@ describe('POST /api/auth/register (e2e)', () => {
     );
 
     it(
+      'logs the user in with the httpOnly access_token cookie, never a token in the body',
+      async () => {
+        const res = await register(body()).expect(201);
+
+        const cookies = setCookies(res).filter((cookie) =>
+          cookie.startsWith('access_token='),
+        );
+        expect(cookies).toHaveLength(1);
+        const cookie = cookies[0];
+        for (const attribute of [
+          'HttpOnly',
+          'Secure',
+          'SameSite=Lax',
+          'Path=/',
+          'Max-Age=1800',
+        ]) {
+          expect(cookie.split('; ')).toContain(attribute);
+        }
+
+        const token = cookie.slice('access_token='.length).split(';')[0];
+        expect(token.split('.')).toHaveLength(3);
+        expect(JSON.stringify(res.body)).not.toContain(token);
+        expect(Object.keys(res.body)).not.toEqual(
+          expect.arrayContaining(['token']),
+        );
+      },
+      REQUEST_TIMEOUT_MS,
+    );
+
+    it(
       'stores a bcrypt hash, never the plain password, and the terms timestamp',
       async () => {
         const payload = body();
@@ -132,6 +170,7 @@ describe('POST /api/auth/register (e2e)', () => {
         expect(res.body.errors).toEqual([
           { field: 'email', messages: expect.any(Array) },
         ]);
+        expect(setCookies(res)).toEqual([]);
       },
       REQUEST_TIMEOUT_MS * 2,
     );
@@ -147,6 +186,8 @@ describe('POST /api/auth/register (e2e)', () => {
 
         const statuses = results.map((res) => res.status).sort((a, b) => a - b);
         expect(statuses).toEqual([201, 409]);
+        const loser = results.find((res) => res.status === 409);
+        expect(loser && setCookies(loser)).toEqual([]);
         expect(await userModel.countDocuments({ email: payload.email })).toBe(
           1,
         );
@@ -162,6 +203,8 @@ describe('POST /api/auth/register (e2e)', () => {
     ) {
       const res = await register(payload).expect(400);
       expect(res.body.code).toBe('VALIDATION_FAILED');
+      // A failed registration never logs anyone in.
+      expect(setCookies(res)).toEqual([]);
       const fields = (res.body.errors as { field: string }[]).map(
         (e) => e.field,
       );
