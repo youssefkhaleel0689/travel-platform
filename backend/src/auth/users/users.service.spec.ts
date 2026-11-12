@@ -30,9 +30,15 @@ function user(overrides: Partial<User> = {}): User {
   };
 }
 
-// A query stand-in: lean() and exec() resolve to the given result.
+// A query stand-in: select(), lean() and exec() resolve to the given result. The
+// select() arguments are recorded so a test can check which fields were requested.
 function query<R>(result: R) {
   const chain = {
+    selected: [] as string[],
+    select: (fields: string) => {
+      chain.selected.push(fields);
+      return chain;
+    },
     lean: () => chain,
     exec: () => Promise.resolve(result),
   };
@@ -41,7 +47,13 @@ function query<R>(result: R) {
 
 // Fake model and PasswordService; the casts are done only here. create() echoes the data
 // back like Mongoose does, passwordHash included, so the mapper is really exercised.
-function setup(options: { stored?: User | null; createError?: unknown } = {}) {
+function setup(
+  options: {
+    stored?: User | null;
+    createError?: unknown;
+    passwordMatches?: boolean;
+  } = {},
+) {
   const stored = options.stored === undefined ? user() : options.stored;
 
   const userModel = {
@@ -51,10 +63,14 @@ function setup(options: { stored?: User | null; createError?: unknown } = {}) {
         : Promise.resolve({ toObject: () => user({ ...doc }) }),
     ),
     findById: jest.fn(() => query(stored)),
-    findOne: jest.fn(() => query(stored)),
+    findOne: jest.fn((_filter: { email: string }) => query(stored)),
   };
   const passwordService = {
     hash: jest.fn(() => Promise.resolve(HASH)),
+    verify: jest.fn((_plain: string, _hash: string) =>
+      Promise.resolve(options.passwordMatches ?? true),
+    ),
+    verifyDummy: jest.fn((_plain: string) => Promise.resolve(false as const)),
   };
   const service = new UsersService(
     userModel as unknown as Model<User>,
@@ -212,4 +228,75 @@ describe('UsersService.findByEmail', () => {
     const { service } = setup({ stored: null });
     await expect(service.findByEmail('nobody@example.com')).resolves.toBeNull();
   });
+});
+
+describe('UsersService.verifyCredentials (ACC-04)', () => {
+  it('normalizes the email and selects the password hash', async () => {
+    const { service, userModel } = setup();
+    await service.verifyCredentials('  Sara@Example.COM ', 'abcdefg1');
+
+    expect(userModel.findOne).toHaveBeenCalledWith({
+      email: 'sara@example.com',
+    });
+    const chain = userModel.findOne.mock.results[0].value as ReturnType<
+      typeof query
+    >;
+    expect(chain.selected).toEqual(['+passwordHash']);
+  });
+
+  it('returns the profile for the right password, compared with the stored hash', async () => {
+    const { service, passwordService } = setup();
+    const result = await service.verifyCredentials(
+      'sara@example.com',
+      'abcdefg1',
+    );
+
+    expect(passwordService.verify).toHaveBeenCalledWith('abcdefg1', HASH);
+    expect(passwordService.verifyDummy).not.toHaveBeenCalled();
+    expect(result?.profile.id).toBe(USER_ID.toString());
+  });
+
+  it('never lets the hash out', async () => {
+    const { service } = setup();
+    const result = await service.verifyCredentials(
+      'sara@example.com',
+      'abcdefg1',
+    );
+
+    expect(result).not.toBeNull();
+    expect(Object.keys(result ?? {})).toEqual(['profile']);
+    expect(result?.profile).not.toHaveProperty('passwordHash');
+    const json = JSON.stringify(result);
+    expect(json).not.toContain('passwordHash');
+    expect(json).not.toContain(HASH);
+  });
+
+  it('returns null for a wrong password without the dummy compare', async () => {
+    const { service, passwordService } = setup({ passwordMatches: false });
+    await expect(
+      service.verifyCredentials('sara@example.com', 'wrong-pass1'),
+    ).resolves.toBeNull();
+    expect(passwordService.verifyDummy).not.toHaveBeenCalled();
+  });
+
+  it('runs the dummy compare for an unknown email and returns null', async () => {
+    const { service, passwordService } = setup({ stored: null });
+    await expect(
+      service.verifyCredentials('nobody@example.com', 'abcdefg1'),
+    ).resolves.toBeNull();
+    expect(passwordService.verifyDummy).toHaveBeenCalledWith('abcdefg1');
+    expect(passwordService.verify).not.toHaveBeenCalled();
+  });
+
+  it.each([UserStatus.SUSPENDED, UserStatus.DEACTIVATED])(
+    'returns a %s profile too: the caller decides',
+    async (status) => {
+      const { service } = setup({ stored: user({ status }) });
+      const result = await service.verifyCredentials(
+        'sara@example.com',
+        'abcdefg1',
+      );
+      expect(result?.profile.status).toBe(status);
+    },
+  );
 });

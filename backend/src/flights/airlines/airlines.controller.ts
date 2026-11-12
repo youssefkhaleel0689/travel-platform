@@ -7,6 +7,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Public } from '../../common/auth/public.decorator';
 import { ApiErrorResponse } from '../../common/swagger/api-error-response.decorator';
 import { resolveWriteActor } from './airline-actor';
 import type { RequestWithActor } from './airline-actor';
@@ -52,6 +53,18 @@ export class AirlinesController {
     ],
   })
   @ApiErrorResponse({
+    status: 401,
+    description:
+      'Not logged in, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/airlines',
+      },
+    ],
+  })
+  @ApiErrorResponse({
     status: 403,
     description: 'Not an admin',
     examples: [
@@ -82,6 +95,7 @@ export class AirlinesController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({
     summary: 'Get one airline (FLT-01)',
     description:
@@ -155,6 +169,18 @@ export class AirlinesController {
             messages: ['send at least one of name, iataCode, icaoCode'],
           },
         ],
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'Not logged in, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/airlines/6720f1c2a1b2c3d4e5f60718',
       },
     ],
   })

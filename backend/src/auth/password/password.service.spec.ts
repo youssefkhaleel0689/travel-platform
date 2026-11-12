@@ -57,6 +57,39 @@ describe('PasswordService', () => {
     });
   });
 
+  describe('verifyDummy (unknown email at login)', () => {
+    it.each(['abcdefg1', '', 'a'.repeat(100)])(
+      'always resolves false for %p',
+      async (plain) => {
+        const fresh = serviceWith({ BCRYPT_COST: '4' });
+        await expect(fresh.verifyDummy(plain)).resolves.toBe(false);
+      },
+    );
+
+    it('compares against a real bcrypt hash with the configured cost', async () => {
+      const fresh = serviceWith({ BCRYPT_COST: '4' });
+      const hashSpy = jest.spyOn(fresh, 'hash');
+      const verifySpy = jest.spyOn(fresh, 'verify');
+      await fresh.verifyDummy('abcdefg1');
+
+      const dummy = await hashSpy.mock.results[0].value;
+      expect(dummy).toMatch(/^\$2b\$04\$/);
+      expect(verifySpy).toHaveBeenCalledWith('abcdefg1', dummy);
+    });
+
+    it('makes the dummy hash only once, even for concurrent first calls', async () => {
+      const fresh = serviceWith({ BCRYPT_COST: '4' });
+      const hashSpy = jest.spyOn(fresh, 'hash');
+      await Promise.all([
+        fresh.verifyDummy('first1aa'),
+        fresh.verifyDummy('second1a'),
+      ]);
+      await fresh.verifyDummy('third1aa');
+
+      expect(hashSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('defaults the cost to 12 when BCRYPT_COST is unset', () => {
     expect(serviceWith({}).cost).toBe(12);
   });

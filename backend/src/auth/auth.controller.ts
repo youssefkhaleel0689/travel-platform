@@ -1,28 +1,47 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Res,
+} from '@nestjs/common';
 import {
   ApiBody,
+  ApiCookieAuth,
   ApiCreatedResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
-// Account endpoints. ACC-01 (register) for now; login and the rest come in later PRs.
+// Account endpoints: register (ACC-01), login (ACC-04) and me (ACC-04, ACC-19); the rest
+// come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Register a traveller account (ACC-01)',
     description:
       'Public. Creates an ACTIVE account with the USER role; the role cannot be chosen. ' +
-      'acceptTerms must be true. The password is stored only as a bcrypt hash (GEN-13).',
+      'acceptTerms must be true. The password is stored only as a bcrypt hash (GEN-13). ' +
+      'On success the user is logged in: the response sets the httpOnly access_token ' +
+      'cookie (30 minutes); the token is never in the body.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiCreatedResponse({ type: UserResponseDto })
@@ -51,7 +70,99 @@ export class AuthController {
       },
     ],
   })
-  async register(@Body() dto: RegisterDto): Promise<UserResponseDto> {
-    return UserResponseDto.from(await this.auth.register(dto));
+  async register(
+    @Body() dto: RegisterDto,
+    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.register(dto, res));
+  }
+
+  @Post('login')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Log in with email and password (ACC-04)',
+    description:
+      'Public. On success the response sets the httpOnly access_token cookie (30 minutes); ' +
+      'the token is never in the body. A wrong password and an unknown email give the same ' +
+      '401, and the account status is checked only after the password matches.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiErrorResponse({
+    status: 400,
+    description:
+      'Validation failed (field-level errors), including unknown fields',
+    examples: [
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        path: '/api/auth/login',
+        errors: [
+          { field: 'password', messages: ['password should not be empty'] },
+        ],
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 401,
+    description: 'Wrong email or password (INVALID_CREDENTIALS)',
+    examples: [
+      {
+        code: 'INVALID_CREDENTIALS',
+        message: 'invalid email or password',
+        path: '/api/auth/login',
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 403,
+    description:
+      'Right password, but the account is suspended or deactivated (ACCOUNT_SUSPENDED, ACCOUNT_DEACTIVATED)',
+    examples: [
+      {
+        code: 'ACCOUNT_SUSPENDED',
+        message: 'account suspended',
+        path: '/api/auth/login',
+      },
+      {
+        code: 'ACCOUNT_DEACTIVATED',
+        message: 'account deactivated',
+        path: '/api/auth/login',
+      },
+    ],
+  })
+  async login(
+    @Body() dto: LoginDto,
+    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.login(dto, res));
+  }
+
+  @Get('me')
+  @ApiCookieAuth('access_token')
+  @ApiOperation({
+    summary: 'Who is logged in (ACC-04, ACC-19)',
+    description:
+      'The frontend calls this to learn who is logged in: the token is in an httpOnly ' +
+      'cookie that page scripts cannot read. Returns the profile of the logged-in user.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'Not logged in, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/auth/me',
+      },
+    ],
+  })
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.currentProfile(user.userId));
   }
 }

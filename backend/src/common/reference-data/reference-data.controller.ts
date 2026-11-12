@@ -1,5 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 import { ApiPaginatedResponse } from '../pagination/api-paginated-response.decorator';
 import { PageDto } from '../pagination/dto/page.dto';
 import { PaginationQueryDto } from '../pagination/dto/pagination-query.dto';
@@ -20,6 +21,7 @@ export class ReferenceDataController {
   constructor(private readonly referenceData: ReferenceDataService) {}
 
   @Get('airports')
+  @Public()
   @ApiOperation({ summary: 'List seeded airports (FLT-02)' })
   @ApiPaginatedResponse(AirportDto)
   @ApiErrorResponse({
@@ -40,6 +42,7 @@ export class ReferenceDataController {
   }
 
   @Get('countries')
+  @Public()
   @ApiOperation({ summary: 'List seeded countries (ITN-01, HTL-01)' })
   @ApiPaginatedResponse(CountryDto)
   @ApiErrorResponse({
@@ -61,6 +64,7 @@ export class ReferenceDataController {
   }
 
   @Get('cities')
+  @Public()
   @ApiOperation({ summary: 'List seeded cities (ITN-05, ITN-16, HTL-01)' })
   @ApiPaginatedResponse(CityDto)
   @ApiErrorResponse({
@@ -81,6 +85,7 @@ export class ReferenceDataController {
   }
 
   @Get('currencies')
+  @Public()
   @ApiOperation({ summary: 'List seeded currencies (ACC-09, ITN-18)' })
   @ApiPaginatedResponse(CurrencyDto)
   @ApiErrorResponse({

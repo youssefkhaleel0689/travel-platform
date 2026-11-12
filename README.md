@@ -46,7 +46,7 @@ Copy-Item .env.example .env
 cp .env.example .env
 ~~~
 
-Open `backend/.env`, put the connection string after `MONGODB_URI=` (no spaces, no quotes) and **save the file**. Then start the server:
+Open `backend/.env`, put the connection string after `MONGODB_URI=` (no spaces, no quotes), put your own secret after `JWT_SECRET=` (generate it with the command in "Environment variables" below) and **save the file**. Then start the server:
 
 ~~~
 npm run start:dev
@@ -65,6 +65,15 @@ Check that it works:
 | `MONGODB_URI` | Yes | Shared MongoDB Atlas connection string, including the database name (`/travel-platform`) |
 | `PORT` | No | Server port, defaults to 3000 |
 | `BCRYPT_COST` | No | bcrypt cost for password hashes, defaults to 12. Must be a whole number from 4 to 15; any other value (including an empty `BCRYPT_COST=`) stops the app at startup |
+| `JWT_SECRET` | Yes | Secret that signs the access tokens (HS256). At least 32 characters; the app refuses to start when it is missing, empty or shorter. Every developer generates their own and keeps it only in `backend/.env` |
+
+Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
+
+~~~
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+~~~
+
+**Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it ends every existing session on your machine (requests get 401 until you log in again).
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -81,6 +90,8 @@ Check that it works:
 | Symptom | Likely cause |
 | --- | --- |
 | `Configuration key "MONGODB_URI" does not exist` | `.env` is missing, empty (check its size), not saved, or the key name is misspelled |
+| `JWT_SECRET is required` | `JWT_SECRET` is missing from `backend/.env` or empty: generate one with the command in "Environment variables" and add it to `backend/.env` |
+| `JWT_SECRET must be at least 32 characters` | The value is too short: generate one with the command in "Environment variables" and put it in `backend/.env` instead |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `Cannot GET /` | Expected: all routes start with `/api` |
@@ -120,7 +131,7 @@ Default `code` per status (used when you do not set your own):
 | --- | --- |
 | 400 | `BAD_REQUEST` (`VALIDATION_FAILED` for DTO validation) |
 | 400 | `INVALID_VALUE` (a value Mongoose cannot convert, such as a malformed ObjectId in `/api/hotels/abc`; the value is never echoed) |
-| 401 | `UNAUTHORIZED` |
+| 401 | `UNAUTHORIZED` (only the filter's fallback for a bare 401; the auth guard returns `UNAUTHENTICATED` and login returns `INVALID_CREDENTIALS`) |
 | 403 | `FORBIDDEN` |
 | 404 | `NOT_FOUND` |
 | 409 | `CONFLICT` (`DUPLICATE_KEY` for MongoDB unique index violations) |
@@ -160,7 +171,7 @@ Rules:
 
 - Use codes and messages the endpoint really returns (read your service and the filter), and the endpoint's real path with an example id.
 - When one status can return several codes, give one example per code; Swagger UI shows them in a dropdown named by code. Two examples with the same code in one response are refused.
-- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, so it needs `MONGODB_URI`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`.
+- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, and like every e2e test that boots `AppModule` it needs both `MONGODB_URI` and `JWT_SECRET` in `backend/.env`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`.
 - Branches that already document errors with `type: ErrorResponseDto` must switch to `ApiErrorResponse` after merging `develop`.
 
 ## Pagination (GEN-05)
@@ -240,7 +251,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums; `@Roles`, `@Public` and `@CurrentUser` will be added in PR 2), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Layout of one module:
 
@@ -264,7 +275,7 @@ Rules:
 - Time: store dates in UTC and return ISO 8601; flight times are returned in the airport's local time with its offset (see "Airport time zones (GEN-06)"); each airport has an IANA `timeZone` (`CAI` is `Africa/Cairo`).
 - Money: store as Decimal128 and return as a string (`"199.99"`). Convert it to a string in the response DTO mapping, not in a schema transform, because lean queries (`paginateQuery`) skip document transforms. Do arithmetic with a decimal library (decimal.js, not installed yet; the first module that needs money arithmetic adds it), never `Number()`. Convert to integer minor units only when calling Stripe.
 - Currency: PAY-04 requires one platform currency; the team chose USD. Flight and hotel prices, payments and refunds are always USD and are never converted. Itinerary budgets may use any seeded currency (EGP, AED, GBP, USD, EUR, JPY, SAR); conversion applies to budgets only.
-- Swagger: every endpoint has `@ApiTags`, a summary, `@ApiOkResponse` or `@ApiPaginatedResponse`, error responses using `ErrorResponseDto`, and `@ApiCookieAuth` when it is protected.
+- Swagger: every endpoint has `@ApiTags`, a summary, `@ApiOkResponse` or `@ApiPaginatedResponse`, error responses documented with `@ApiErrorResponse` (`ErrorResponseDto` is only their shape; see "Documenting errors in Swagger"), and `@ApiCookieAuth` when it is protected.
 - Errors and lists: throw Nest exceptions with an error code (see "API error format"); every list endpoint uses `PaginationQueryDto` (see "Pagination (GEN-05)").
 
 Shared helpers are in `src/common/`, and the requirements sheet in `docs/requirements/` is the authoritative source for business rules.
@@ -395,15 +406,18 @@ Rules:
 
 The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
 
-## Accounts and passwords (ACC-01, GEN-13)
+## Accounts and authentication (ACC-01, ACC-04, ACC-11, ACC-19, GEN-13)
 
-A traveller creates an account with `POST /api/auth/register`. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
+A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session by setting the `access_token` cookie. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
 
 | Endpoint | Requirement | Access |
 | --- | --- | --- |
 | `POST /api/auth/register` | ACC-01, GEN-13 | Public |
+| `POST /api/auth/login` | ACC-04 | Public |
+| `GET /api/auth/me` | ACC-04, ACC-19 | Logged in |
+| `GET /api/users/me` | ACC-11 | Logged in |
 
-Request body:
+Register request body:
 
 | Field | Rules |
 | --- | --- |
@@ -416,7 +430,7 @@ Request body:
 { "name": "Sara Ahmed", "email": "sara@example.com", "password": "Travel2026", "acceptTerms": true }
 ~~~
 
-201 response (`UserResponseDto`, never `passwordHash`):
+201 response (`UserResponseDto`, never `passwordHash`). Registration also logs the user in: the response sets the session cookie (see "Session cookie" below).
 
 ~~~
 {
@@ -439,6 +453,37 @@ Request body:
 | The email is already registered (in any case, with or without spaces) | 409 `EMAIL_ALREADY_REGISTERED` with a field error on `email` |
 
 The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (ACC-18; the admin seed is not written yet), and moderators are created by an admin (ACC-13).
+
+Login request body: `email` (valid email, trimmed and lower-cased, at most 254 characters) and `password` (a non-empty string, used exactly as sent). The login DTO does not apply the password rules: login must not reveal them, and old passwords keep working if the rules change.
+
+~~~
+{ "email": "sara@example.com", "password": "Travel2026" }
+~~~
+
+| Case | Result |
+| --- | --- |
+| Right email and password, account `ACTIVE` | 200 with the profile (`UserResponseDto`, same shape as above) and the session cookie |
+| Unknown email, or wrong password | 401 `INVALID_CREDENTIALS` (`invalid email or password`). Both give the same body, and an unknown email runs the same bcrypt work, so neither the response nor its timing reveals which emails are registered |
+| Right password, account `SUSPENDED` | 403 `ACCOUNT_SUSPENDED` (`account suspended`) |
+| Right password, account `DEACTIVATED` | 403 `ACCOUNT_DEACTIVATED` (`account deactivated`) |
+| A field breaks a rule, or an unknown field | 400 `VALIDATION_FAILED` |
+
+The status is checked only after the password matches, so a wrong password for a suspended account still gives 401 and does not reveal the status. No error response sets a cookie.
+
+`GET /api/auth/me` and `GET /api/users/me` return the logged-in user's profile (`UserResponseDto`), or 401 `UNAUTHENTICATED`. The frontend calls `/api/auth/me` to learn who is logged in, because page scripts cannot read the httpOnly cookie. `/api/users/me` returns the same profile on the path where PATCH (ACC-09) and DELETE (ACC-12) will be added.
+
+Session cookie (`src/auth/tokens/auth-cookie.ts`), set by register and login:
+
+| Attribute | Value |
+| --- | --- |
+| Name | `access_token` |
+| `HttpOnly` | Yes: page scripts cannot read it |
+| `Secure` | Yes |
+| `SameSite` | `Lax` |
+| `Path` | `/` |
+| `Max-Age` | 1800 (30 minutes) |
+
+The cookie holds a JWT signed with `JWT_SECRET`; only HS256 is accepted, so a token that claims another algorithm or `none` is rejected. The payload is only `{ sub: <user id> }` plus the standard `iat` and `exp`; the role is never in the token. The token expires 30 minutes after it was issued, whether or not the user is active. The token is never in a response body.
 
 Password rules (`src/common/validation/password.ts`), checked in this order; the field error is the message of the first rule broken:
 
@@ -484,6 +529,7 @@ const profile = await this.users.create({
 | `create(input)` | `UserProfile` | Takes the plain password and hashes it; trims and lower-cases the email; 409 `EMAIL_ALREADY_REGISTERED` on a duplicate email. `termsAcceptedAt` defaults to `null`, `mustChangePassword` to `false` |
 | `findById(id)` | `UserProfile` or `null` | `null` for an id that is not 24 hex characters, without querying |
 | `findByEmail(email)` | `UserProfile` or `null` | Trims and lower-cases the email before the query |
+| `verifyCredentials(email, password)` | `{ profile }` or `null` | For login only. Compares the password with the stored hash and never returns the hash; an unknown email runs a dummy bcrypt compare. Returns the profile whatever its status: the caller decides |
 
 `UserProfile` has `id`, `name`, `email`, `phone`, `preferredCurrency`, `role`, `status`, `mustChangePassword` and `createdAt`; it never contains `passwordHash` or the lockout fields.
 
@@ -491,14 +537,88 @@ Rules:
 
 - Never call bcrypt yourself and never store a hash you computed: create users with `UsersService.create()`, which hashes. `PasswordService` is the only file that calls bcrypt.
 - Never inject the `User` model outside `src/auth/`; import `AuthModule` and use `UsersService` (see "Module structure and conventions").
-- `passwordHash` has `select: false`, so normal queries never load it. Only login (PR 2) will select it explicitly.
+- `passwordHash` has `select: false`, so normal queries never load it. Only `verifyCredentials()` (login) selects it explicitly, and the hash never leaves that method.
 - Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
 - `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
-- Not available yet: login, cookies, guards and `/auth/me` come in PR 2 (ACC-04, ACC-19). Until then, protected endpoints keep their placeholders (for example the placeholder admin in `airline-actor.ts`).
-- `test/auth-register.e2e-spec.ts` registers real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-<timestamp>-`), and the test deletes those users when it finishes.
+- Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), and `/api/auth/me` and `/api/users/me` return the logged-in user. Still to come: account lockout after failed logins (ACC-05, PR 3); refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
+- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts` and `auth-me.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-` or `e2e-me-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
 
-The endpoint, `UsersService`, `PasswordService` and the `User` schema are in `src/auth/`; the enums are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+### Protecting your endpoints
+
+Every route requires a logged-in user unless it is marked `@Public()`. The two guards (`JwtAuthGuard`, then `RolesGuard`) are registered globally in `AuthModule`, so they apply to every module: a route that guests should reach but has no `@Public()` returns 401.
+
+| Decorator (`src/common/auth/`) | Use |
+| --- | --- |
+| `@Public()` | On a method or a class: guests may call it. A valid cookie still sets `request.user`, but a missing or bad one is never rejected |
+| `@Roles(Role.ADMIN, ...)` | Only these roles may call it; another logged-in user gets 403. Needs at least one role (`@Roles()` alone throws at startup). On a method it replaces the class's `@Roles` |
+| `@CurrentUser()` | Parameter: the logged-in user. Use it on protected routes |
+| `@OptionalUser()` | Parameter: the logged-in user or `undefined`, for public routes that behave differently for a logged-in user |
+
+Example (illustration only: the hotels module does not exist yet):
+
+~~~
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+
+@Controller('hotels')
+export class HotelsController {
+  @Get(':id')
+  @Public()
+  findOne(@Param() params: HotelIdParamDto, @OptionalUser() user?: AuthenticatedUser) {}
+
+  @Post()
+  @Roles(Role.ADMIN)
+  create(@Body() dto: CreateHotelDto, @CurrentUser() user: AuthenticatedUser) {}
+}
+~~~
+
+Import `AuthenticatedUser` with `import type`: TypeScript requires it for a type used only in a decorated parameter with this project's settings.
+
+`request.user` is `{ userId, role }` (`AuthenticatedUser`). The guard loads the user from the database on every request, so the role always comes from the database, and a suspension or role change applies to the very next request.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
+| 403 | `FORBIDDEN` (`You do not have permission to do this`) | Logged in, but the role is not in `@Roles` |
+
+Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 401, plus a 403 when roles apply:
+
+~~~
+@Post()
+@Roles(Role.ADMIN)
+@ApiCookieAuth('access_token')
+@ApiErrorResponse({
+  status: 401,
+  description: 'Not logged in, or the session is no longer valid (UNAUTHENTICATED)',
+  examples: [{ code: 'UNAUTHENTICATED', message: 'Authentication required', path: '/api/hotels' }],
+})
+@ApiErrorResponse({
+  status: 403,
+  description: 'Not an admin (FORBIDDEN)',
+  examples: [{ code: 'FORBIDDEN', message: 'You do not have permission to do this', path: '/api/hotels' }],
+})
+~~~
+
+Trying it in Swagger UI:
+
+- Run `POST /api/auth/login` (or register). The browser stores the cookie and sends it with every later request from Swagger UI, so no Authorize step is needed.
+- The curl preview that Swagger UI shows has no cookie, because page scripts cannot read an httpOnly cookie. A copied curl command therefore gets 401.
+- Safari may refuse `Secure` cookies over `http://localhost`; use Chrome or Firefox for Swagger.
+
+In e2e tests, register or log in through the API and reuse the `access_token` cookie (see `accessTokenCookie` in `test/auth-me.e2e-spec.ts`):
+
+~~~
+const login = await request(app.getHttpServer())
+  .post('/api/auth/login')
+  .send({ email, password })
+  .expect(200);
+await request(app.getHttpServer())
+  .get('/api/users/me')
+  .set('Cookie', accessTokenCookie(login))
+  .expect(200);
+~~~
+
+The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, the guards and the `User` schema are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
 
 ## Team workflow
 

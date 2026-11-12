@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
 import { PASSWORD_MAX_BYTES } from '../../common/validation/password';
 
 export const DEFAULT_BCRYPT_COST = 12;
@@ -37,6 +38,34 @@ export class PasswordService {
       return false;
     }
     return bcrypt.compare(plain, passwordHash);
+  }
+
+  /**
+   * For a login with an unknown email (ACC-04): runs the same bcrypt comparison as a known
+   * email, against a hash nobody knows the password of, and always resolves false. An
+   * unknown email then takes as long as a known one, so the response time does not reveal
+   * which emails are registered.
+   */
+  async verifyDummy(plain: string): Promise<false> {
+    await this.verify(plain, await this.dummyHash());
+    return false;
+  }
+
+  // Made once with the configured cost, on first use, so it costs the same as a real hash.
+  // The promise is cached, so concurrent first calls share one hash.
+  private dummyHashPromise: Promise<string> | null = null;
+
+  private dummyHash(): Promise<string> {
+    if (!this.dummyHashPromise) {
+      this.dummyHashPromise = this.hash(randomBytes(16).toString('hex')).catch(
+        (error: unknown) => {
+          // Do not cache a failure: the next login tries again.
+          this.dummyHashPromise = null;
+          throw error;
+        },
+      );
+    }
+    return this.dummyHashPromise;
   }
 }
 

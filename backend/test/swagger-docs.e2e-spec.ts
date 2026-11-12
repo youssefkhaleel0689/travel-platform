@@ -12,7 +12,9 @@ import {
   PathItemObject,
   SwaggerModule,
 } from '@nestjs/swagger';
+import { getConnectionToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { Connection } from 'mongoose';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
@@ -100,6 +102,16 @@ describe('Swagger document (e2e)', () => {
     configureApp(app);
     await app.init();
 
+    // Compiling each Mongoose model starts Model.init() in the background (create the
+    // collection, then build its indexes), which opens pooled connections to Atlas. This
+    // suite never queries the database, so without waiting it would close the app while
+    // those connections are still authenticating, and the driver would load code after
+    // Jest has torn the environment down. init() returns the same in-flight promise.
+    const connection = app.get<Connection>(getConnectionToken());
+    await Promise.all(
+      Object.values(connection.models).map((model) => model.init()),
+    );
+
     // Same configuration as main.ts.
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Travel Platform API')
@@ -112,10 +124,11 @@ describe('Swagger document (e2e)', () => {
     document = SwaggerModule.createDocument(app, swaggerConfig);
   }, CONNECT_TIMEOUT_MS);
 
-  // Also closes the MongoDB connection.
+  // Also closes the MongoDB connection. Awaited, with the same timeout as the connect, so
+  // the suite ends only after the connection is fully closed.
   afterAll(async () => {
     await app.close();
-  });
+  }, CONNECT_TIMEOUT_MS);
 
   it('finds documented error responses', () => {
     expect(errorResponses(document).length).toBeGreaterThan(0);
