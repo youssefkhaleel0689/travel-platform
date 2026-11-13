@@ -11,7 +11,7 @@ import { configureApp } from './../src/app.setup';
 // Connecting to Atlas can take longer than Jest's default 5 seconds.
 // Registering and logging accounts in over HTTP happens in beforeAll now, on
 // top of connecting to Atlas and building indexes, so this is generous.
-const CONNECT_TIMEOUT_MS = 90_000;
+const CONNECT_TIMEOUT_MS = 120_000;
 
 describe('Reference data (e2e)', () => {
   let app: INestApplication<App>;

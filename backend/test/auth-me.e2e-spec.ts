@@ -15,7 +15,7 @@ import { UserStatus } from './../src/common/auth/auth.enums';
 // Connecting to Atlas can take longer than Jest's default 5 seconds.
 // Registering and logging accounts in over HTTP happens in beforeAll now, on
 // top of connecting to Atlas and building indexes, so this is generous.
-const CONNECT_TIMEOUT_MS = 90_000;
+const CONNECT_TIMEOUT_MS = 120_000;
 // Register and login compute real bcrypt hashes at the configured cost.
 const REQUEST_TIMEOUT_MS = 15_000;
 

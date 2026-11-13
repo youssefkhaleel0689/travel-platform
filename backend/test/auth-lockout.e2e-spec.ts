@@ -21,7 +21,7 @@ import {
 // suites run serially (test:e2e uses --runInBand), so this one starts after a
 // queue of others and 30 seconds was not enough: the beforeAll timed out and
 // every test in the file then failed on an undefined app.
-const CONNECT_TIMEOUT_MS = 90_000;
+const CONNECT_TIMEOUT_MS = 120_000;
 // Every login computes a real bcrypt hash at the configured cost; the race sends ten at once.
 const REQUEST_TIMEOUT_MS = 60_000;
 

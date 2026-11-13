@@ -17,6 +17,12 @@ import { PaymentsModule } from './payments/payments.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         uri: config.getOrThrow<string>('MONGODB_URI'),
+        // The whole team shares one Atlas cluster, and its connection limit is
+        // for all of us together: eight dev servers plus test runs against the
+        // driver's default of 100 sockets each can exhaust it, which shows up
+        // as connections that hang rather than as a clear error. Ten is ample
+        // for this API and leaves room for everyone else.
+        maxPoolSize: 10,
       }),
     }),
     ReferenceDataModule,
