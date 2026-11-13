@@ -7,28 +7,25 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiCookieAuth,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../common/swagger/standard-errors';
 import { ApiPaginatedResponse } from '../common/pagination/api-paginated-response.decorator';
 import { PageDto } from '../common/pagination/dto/page.dto';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '../auth/enums/role.enum';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import { Roles } from '../common/auth/roles.decorator';
+import { Role } from '../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminAccountDto } from './dto/admin-account.dto';
 import { AdminAccountsQueryDto } from './dto/admin-accounts-query.dto';
@@ -47,15 +44,8 @@ import { TemporaryPasswordDto } from './dto/temporary-password.dto';
  */
 @ApiTags('Administration')
 @ApiCookieAuth()
-@ApiUnauthorizedResponse({
-  type: ErrorResponseDto,
-  description: 'No valid access-token cookie, or the session expired',
-})
-@ApiForbiddenResponse({
-  type: ErrorResponseDto,
-  description: 'Not an administrator, or the target is an administrator',
-})
-@UseGuards(AuthenticatedGuard, RolesGuard)
+@ApiErrorResponse(unauthenticated('/api/admin/accounts'))
+@ApiErrorResponse(forbidden('/api/admin/accounts'))
 @Roles(Role.ADMIN)
 @Controller('admin')
 export class AdminAccountsController {
@@ -70,9 +60,12 @@ export class AdminAccountsController {
       'role and status narrow the list further.',
   })
   @ApiPaginatedResponse(AdminAccountDto)
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Bad page, unknown role or status, or unknown query parameter',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Bad page, unknown role or status, or unknown query parameter', path: '/api/admin/accounts' },
+    ],
   })
   listAccounts(
     @Query() query: AdminAccountsQueryDto,
@@ -91,16 +84,25 @@ export class AdminAccountsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60718' })
   @ApiOkResponse({ type: AdminAccountDto })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Own account, or an account its owner deactivated',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Own account, or an account its owner deactivated', path: '/api/admin/accounts' },
+    ],
   })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'No such account' })
+  @ApiErrorResponse({
+    status: 404,
+    description: 'No such account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+    ],
+  })
   suspend(
     @CurrentUser() admin: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<AdminAccountDto> {
-    return this.adminAccounts.suspend(admin.id, id);
+    return this.adminAccounts.suspend(admin.userId, id);
   }
 
   @Patch('accounts/:id/reactivate')
@@ -112,16 +114,25 @@ export class AdminAccountsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60718' })
   @ApiOkResponse({ type: AdminAccountDto })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Own account, or an account its owner deactivated',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Own account, or an account its owner deactivated', path: '/api/admin/accounts' },
+    ],
   })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'No such account' })
+  @ApiErrorResponse({
+    status: 404,
+    description: 'No such account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+    ],
+  })
   reactivate(
     @CurrentUser() admin: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<AdminAccountDto> {
-    return this.adminAccounts.reactivate(admin.id, id);
+    return this.adminAccounts.reactivate(admin.userId, id);
   }
 
   @Post('users/:id/reset-password')
@@ -139,15 +150,24 @@ export class AdminAccountsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60718' })
   @ApiOkResponse({ type: TemporaryPasswordDto })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Own account',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Own account', path: '/api/admin/accounts' },
+    ],
   })
-  @ApiNotFoundResponse({ type: ErrorResponseDto, description: 'No such account' })
+  @ApiErrorResponse({
+    status: 404,
+    description: 'No such account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+    ],
+  })
   resetPassword(
     @CurrentUser() admin: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<TemporaryPasswordDto> {
-    return this.adminAccounts.resetPassword(admin.id, id);
+    return this.adminAccounts.resetPassword(admin.userId, id);
   }
 }

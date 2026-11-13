@@ -3,11 +3,9 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Types } from 'mongoose';
 import { PageDto, PageMetaDto } from '../common/pagination/dto/page.dto';
-import { Role } from '../auth/enums/role.enum';
-import { UserStatus } from '../auth/enums/user-status.enum';
-import { UsersService } from '../auth/users.service';
+import { Role, UserStatus } from '../common/auth/auth.enums';
+import { UsersService } from '../auth/users/users.service';
 import { NotificationType } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AdminAccountsService } from './admin-accounts.service';
@@ -30,7 +28,7 @@ describe('AdminAccountsService', () => {
 
   function account(overrides: Record<string, unknown> = {}) {
     return {
-      _id: new Types.ObjectId(TARGET_ID),
+      id: TARGET_ID,
       name: 'Target User',
       email: 'target@example.com',
       role: Role.USER,
@@ -51,7 +49,7 @@ describe('AdminAccountsService', () => {
         .mockResolvedValue(new PageDto([], PageMetaDto.create(1, 0))),
       setStatus: jest.fn().mockResolvedValue(account()),
       resetPasswordToTemporary: jest.fn().mockResolvedValue({
-        user: account(),
+        profile: account(),
         temporaryPassword: 'Tmpabcde12349',
       }),
     };
@@ -141,7 +139,7 @@ describe('AdminAccountsService', () => {
 
     it('refuses to act on the admin’s own account (400)', async () => {
       users.findByIdOrThrow.mockResolvedValue(
-        account({ _id: new Types.ObjectId(ADMIN_ID) }) as never,
+        account({ id: ADMIN_ID }) as never,
       );
 
       await expect(service.suspend(ADMIN_ID, ADMIN_ID)).rejects.toMatchObject({
@@ -232,7 +230,7 @@ describe('AdminAccountsService', () => {
       ).rejects.toThrow(ForbiddenException);
 
       users.findByIdOrThrow.mockResolvedValue(
-        account({ _id: new Types.ObjectId(ADMIN_ID) }) as never,
+        account({ id: ADMIN_ID }) as never,
       );
       await expect(
         service.resetPassword(ADMIN_ID, ADMIN_ID),

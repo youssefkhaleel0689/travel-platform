@@ -1,8 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PageDto } from '../common/pagination/dto/page.dto';
-import { Role } from '../auth/enums/role.enum';
-import { UserStatus } from '../auth/enums/user-status.enum';
-import { AccountListFilters, UsersService } from '../auth/users.service';
+import { Role, UserStatus } from '../common/auth/auth.enums';
+import { AccountListFilters, UsersService } from '../auth/users/users.service';
 import {
   NotificationResourceType,
   NotificationType,
@@ -33,16 +32,14 @@ export class AdminAccountsService {
     filters: AccountListFilters,
   ): Promise<PageDto<AdminAccountDto>> {
     const result = await this.users.listAccounts(page, filters);
-    return new PageDto(
-      result.items.map((item) => AdminAccountDto.from(item)),
-      result.meta,
-    );
+    return new PageDto(result.items.map((item) => AdminAccountDto.from(item)), result.meta);
   }
 
   /**
-   * ACC-16: suspends an account. The account cannot log in afterwards and its
-   * open sessions end at once, while its bookings stay valid (GEN-11 is not
-   * touched). The owner is told in the app (ACC-15, GEN-01).
+   * ACC-16: suspends an account. It cannot log in afterwards, and the global
+   * guard reloads the user on every request, so any token it already holds
+   * stops working at once. Its bookings stay valid (GEN-11 is not touched), and
+   * the owner is told in the app (ACC-15, GEN-01).
    *
    * Suspending an already-suspended account succeeds and changes nothing, so a
    * repeated click is harmless.
@@ -66,14 +63,14 @@ export class AdminAccountsService {
     );
     if (updated) {
       await this.notifications.notify({
-        userId: updated._id,
+        userId: updated.id,
         type: NotificationType.ACCOUNT_SUSPENDED,
         title: 'Account suspended',
         message:
           'An administrator suspended your account. You cannot sign in until ' +
           'it is reactivated. Existing bookings remain valid.',
         resourceType: NotificationResourceType.ACCOUNT,
-        resourceId: updated._id.toString(),
+        resourceId: updated.id,
       });
       return AdminAccountDto.from(updated);
     }
@@ -121,12 +118,12 @@ export class AdminAccountsService {
   ): Promise<TemporaryPasswordDto> {
     await this.assertManageable(actorId, targetUserId);
 
-    const { user, temporaryPassword } =
+    const { profile, temporaryPassword } =
       await this.users.resetPasswordToTemporary(targetUserId);
 
     const dto = new TemporaryPasswordDto();
-    dto.userId = user._id.toString();
-    dto.email = user.email;
+    dto.userId = profile.id;
+    dto.email = profile.email;
     dto.temporaryPassword = temporaryPassword;
     dto.message =
       'Give this password to the account owner. It cannot be shown again.';
@@ -137,7 +134,7 @@ export class AdminAccountsService {
   private async assertManageable(actorId: string, targetUserId: string) {
     const target = await this.users.findByIdOrThrow(targetUserId);
 
-    if (target._id.toString() === actorId) {
+    if (target.id === actorId) {
       throw new BadRequestException({
         code: 'CANNOT_TARGET_SELF',
         message: 'An administrator cannot perform this action on their own account',

@@ -6,23 +6,20 @@ import {
   HttpStatus,
   Param,
   Post,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
-  ApiConflictResponse,
   ApiCookieAuth,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../common/swagger/standard-errors';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { AcceptPoliciesDto } from './dto/accept-policies.dto';
 import { BookingParamsDto } from './dto/booking-params.dto';
 import { BookingPoliciesDto } from './dto/booking-policies.dto';
@@ -38,24 +35,22 @@ import { PolicyAcceptancesService } from './policy-acceptances.service';
  */
 @ApiTags('Payments and policies')
 @ApiCookieAuth()
-@ApiUnauthorizedResponse({
-  type: ErrorResponseDto,
-  description: 'No valid access-token cookie, or the session expired',
-})
-@ApiForbiddenResponse({
-  type: ErrorResponseDto,
-  description:
-    'Account suspended or deactivated, or a password change is pending',
-})
-@ApiNotFoundResponse({
-  type: ErrorResponseDto,
-  description: 'No such booking for this account',
-})
-@ApiBadRequestResponse({
-  type: ErrorResponseDto,
-  description: 'Bad booking type or id, or a body that fails validation',
-})
-@UseGuards(AuthenticatedGuard)
+@ApiErrorResponse(unauthenticated('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'))
+@ApiErrorResponse(forbidden('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'))
+@ApiErrorResponse({
+    status: 404,
+    description: 'No such booking for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such booking for this account', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
+    ],
+  })
+@ApiErrorResponse({
+    status: 400,
+    description: 'Bad booking type or id, or a body that fails validation',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Bad booking type or id, or a body that fails validation', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
+    ],
+  })
 @Controller('bookings')
 export class BookingPoliciesController {
   constructor(private readonly policies: PolicyAcceptancesService) {}
@@ -75,7 +70,7 @@ export class BookingPoliciesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param() params: BookingParamsDto,
   ): Promise<BookingPoliciesDto> {
-    return this.policies.getPolicies(user.id, params.type, params.id);
+    return this.policies.getPolicies(user.userId, params.type, params.id);
   }
 
   @Post(':type/:id/accept-policies')
@@ -92,10 +87,12 @@ export class BookingPoliciesController {
       'the first timestamp.',
   })
   @ApiOkResponse({ type: PolicyAcceptanceDto })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
-    description:
-      'POLICY_VERSION_MISMATCH, or the booking no longer awaits payment',
+  @ApiErrorResponse({
+    status: 409,
+    description: 'POLICY_VERSION_MISMATCH, or the booking no longer awaits payment',
+    examples: [
+      { code: 'CONFLICT', message: 'POLICY_VERSION_MISMATCH, or the booking no longer awaits payment', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
+    ],
   })
   acceptPolicies(
     @CurrentUser() user: AuthenticatedUser,
@@ -103,7 +100,7 @@ export class BookingPoliciesController {
     @Body() dto: AcceptPoliciesDto,
   ): Promise<PolicyAcceptanceDto> {
     return this.policies.accept(
-      user.id,
+      user.userId,
       params.type,
       params.id,
       dto.policyVersion,

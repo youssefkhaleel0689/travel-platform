@@ -2,8 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
-import { Role } from '../../auth/enums/role.enum';
-import { UserStatus } from '../../auth/enums/user-status.enum';
+import { Role, UserStatus } from '../../common/auth/auth.enums';
 
 // ACC-14: search by name or email, filter by role and status.
 export class AdminAccountsQueryDto extends PaginationQueryDto {

@@ -1,88 +1,94 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
-import { CURRENCY_CODE } from '../../common/reference-data/reference-data.patterns';
-import { Role, ROLES } from '../enums/role.enum';
-import { UserStatus, USER_STATUSES } from '../enums/user-status.enum';
+import { HydratedDocument, Types } from 'mongoose';
+import { Role, UserStatus } from '../../common/auth/auth.enums';
 
 export type UserDocument = HydratedDocument<User>;
 
-// One account for every registered user, moderator and admin (ACC-01, ACC-18).
-// Only a salted hash of the password is ever stored (GEN-13).
-@Schema({ collection: 'users', timestamps: true })
+// Collection name is pinned so Mongoose never pluralises it (schema section 1).
+@Schema({ collection: 'users', versionKey: false, timestamps: true })
 export class User {
+  _id: Types.ObjectId;
+
   @Prop({ type: String, required: true, trim: true, maxlength: 100 })
   name: string;
 
-  // Stored lowercase and trimmed so "A@b.com" and "a@b.com" are one account.
   @Prop({
     type: String,
     required: true,
-    unique: true,
     trim: true,
     lowercase: true,
+    maxlength: 254,
   })
   email: string;
 
-  // bcrypt hash. Never selected by default, so no query can leak it.
+  // bcrypt hash only. Never returned by default; login selects it explicitly.
   @Prop({ type: String, required: true, select: false })
   passwordHash: string;
 
-  @Prop({ type: String, default: null, trim: true })
+  // Format rules belong to ACC-09.
+  @Prop({ type: String, trim: true, default: null })
   phone: string | null;
 
-  // ACC-09, PAY-04: display currency for itinerary budgets only. Booking
-  // prices, payments and refunds always use the platform currency.
-  @Prop({ type: String, default: null, uppercase: true, match: CURRENCY_CODE })
+  // A code from the currencies reference data, checked by ReferenceDataService when set (ACC-09).
+  @Prop({ type: String, trim: true, uppercase: true, default: null })
   preferredCurrency: string | null;
 
-  @Prop({ type: String, required: true, enum: ROLES, default: Role.USER })
+  @Prop({
+    type: String,
+    enum: Object.values(Role),
+    required: true,
+    default: Role.USER,
+  })
   role: Role;
 
   @Prop({
     type: String,
+    enum: Object.values(UserStatus),
     required: true,
-    enum: USER_STATUSES,
     default: UserStatus.ACTIVE,
   })
   status: UserStatus;
 
-  // ACC-01: consent is mandatory, and when it was given is kept for the record.
-  @Prop({ type: Date, required: true })
-  termsAcceptedAt: Date;
+  // Set by register (ACC-01). Null for seeded admins and admin-created moderators.
+  @Prop({ type: Date, default: null })
+  termsAcceptedAt: Date | null;
 
-  @Prop({ type: String, required: true })
-  termsVersion: string;
-
-  // ACC-05: reset to 0 by a successful login.
+  // Lockout counter (ACC-05).
   @Prop({ type: Number, required: true, default: 0, min: 0 })
   failedLoginAttempts: number;
 
-  // ACC-05: set when the attempts run out; login is refused until it passes.
+  // Lockout end (ACC-05).
   @Prop({ type: Date, default: null })
   lockedUntil: Date | null;
 
-  // ACC-07a, ACC-13: the account must choose a new password before it can do
-  // anything else.
+  // Forces a password change at next login (ACC-07a, ACC-13).
   @Prop({ type: Boolean, required: true, default: false })
   mustChangePassword: boolean;
 
+  // When an admin issued the temporary password (ACC-07a). Cleared when the
+  // account chooses its own.
   @Prop({ type: Date, default: null })
   temporaryPasswordIssuedAt: Date | null;
 
-  // ACC-12: when the owner deactivated the account.
-  @Prop({ type: Date, default: null })
-  deactivatedAt: Date | null;
-
-  // ACC-15, ACC-16: when an admin suspended the account.
+  // When an admin suspended the account (ACC-15, ACC-16). Null while it is not.
   @Prop({ type: Date, default: null })
   suspendedAt: Date | null;
 
+  // When the owner deactivated the account (ACC-12). Nothing is ever deleted,
+  // so past bookings, payments and refunds still point at a real account.
+  @Prop({ type: Date, default: null })
+  deactivatedAt: Date | null;
+
+  // Added by `timestamps: true`. createdAt is the registration date (ACC-14).
   createdAt: Date;
   updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-// ACC-14: the admin account list is filtered by role and status and sorted by
+// The index, not an application check, guarantees uniqueness under concurrent registrations.
+UserSchema.index({ email: 1 }, { unique: true });
+
+// ACC-14: the admin account list filters by role and status and sorts by
 // registration date.
 UserSchema.index({ role: 1, status: 1, createdAt: -1 });

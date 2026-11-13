@@ -6,26 +6,24 @@ import {
   Param,
   Patch,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
   ApiCookieAuth,
-  ApiForbiddenResponse,
   ApiNoContentResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../common/swagger/standard-errors';
 import { ApiPaginatedResponse } from '../common/pagination/api-paginated-response.decorator';
 import { PageDto } from '../common/pagination/dto/page.dto';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { NotificationDto } from './dto/notification.dto';
 import { NotificationsQueryDto } from './dto/notifications-query.dto';
 import { UnreadCountDto } from './dto/unread-count.dto';
@@ -38,16 +36,8 @@ import { NotificationsService } from './notifications.service';
  */
 @ApiTags('Notifications')
 @ApiCookieAuth()
-@ApiUnauthorizedResponse({
-  type: ErrorResponseDto,
-  description: 'No valid access-token cookie, or the session expired',
-})
-@ApiForbiddenResponse({
-  type: ErrorResponseDto,
-  description:
-    'Account suspended or deactivated, or a password change is pending',
-})
-@UseGuards(AuthenticatedGuard)
+@ApiErrorResponse(unauthenticated('/api/notifications'))
+@ApiErrorResponse(forbidden('/api/notifications'))
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
@@ -58,15 +48,18 @@ export class NotificationsController {
     description: 'Pages of 10 (GEN-05). Add unreadOnly=true for unread ones.',
   })
   @ApiPaginatedResponse(NotificationDto)
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Bad page or unknown query parameter',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Bad page or unknown query parameter', path: '/api/notifications' },
+    ],
   })
   async list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: NotificationsQueryDto,
   ): Promise<PageDto<NotificationDto>> {
-    const page = await this.notifications.list(user.id, query.page, {
+    const page = await this.notifications.list(user.userId, query.page, {
       unreadOnly: query.unreadOnly,
     });
     return new PageDto(
@@ -84,7 +77,7 @@ export class NotificationsController {
   async unreadCount(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<UnreadCountDto> {
-    return new UnreadCountDto(await this.notifications.unreadCount(user.id));
+    return new UnreadCountDto(await this.notifications.unreadCount(user.userId));
   }
 
   @Patch('read-all')
@@ -95,7 +88,7 @@ export class NotificationsController {
   })
   @ApiNoContentResponse({ description: 'Every notification is now read' })
   async markAllAsRead(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    await this.notifications.markAllAsRead(user.id);
+    await this.notifications.markAllAsRead(user.userId);
   }
 
   @Patch(':id/read')
@@ -109,14 +102,17 @@ export class NotificationsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60718' })
   @ApiNoContentResponse({ description: 'The notification is now read' })
-  @ApiNotFoundResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 404,
     description: 'No such notification for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such notification for this account', path: '/api/notifications' },
+    ],
   })
   async markAsRead(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<void> {
-    await this.notifications.markAsRead(user.id, id);
+    await this.notifications.markAsRead(user.userId, id);
   }
 }

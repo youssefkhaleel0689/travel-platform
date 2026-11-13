@@ -21,7 +21,9 @@ import {
   SignedInUser,
 } from './support/auth-test-helper';
 
-const CONNECT_TIMEOUT_MS = 30_000;
+// Registering and logging accounts in over HTTP happens in beforeAll now, on
+// top of connecting to Atlas and building indexes, so this is generous.
+const CONNECT_TIMEOUT_MS = 90_000;
 const SLOW_MS = 30_000;
 const LIST = '/api/notifications';
 

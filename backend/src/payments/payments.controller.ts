@@ -9,29 +9,26 @@ import {
   Param,
   Post,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBadRequestResponse,
-  ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiExcludeEndpoint,
-  ApiForbiddenResponse,
   ApiHeader,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
-  ApiServiceUnavailableResponse,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../common/swagger/standard-errors';
 import type { Request } from 'express';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import { Public } from '../common/auth/public.decorator';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentDto } from './dto/payment.dto';
 import { PaymentIntentDto } from './dto/payment-intent.dto';
@@ -53,7 +50,6 @@ export class PaymentsController {
   ) {}
 
   @Post('payments')
-  @UseGuards(AuthenticatedGuard)
   @ApiCookieAuth()
   @ApiOperation({
     summary: 'Start paying for a booking on hold (PAY-01)',
@@ -70,46 +66,48 @@ export class PaymentsController {
       'the payment succeeded.',
   })
   @ApiCreatedResponse({ type: PaymentIntentDto })
-  @ApiBadRequestResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 400,
     description: 'Invalid body, or Stripe rejected the request',
+    examples: [
+      { code: 'VALIDATION_FAILED', message: 'Invalid body, or Stripe rejected the request', path: '/api/payments' },
+    ],
   })
-  @ApiUnauthorizedResponse({
-    type: ErrorResponseDto,
-    description: 'No valid access-token cookie, or the session expired',
-  })
-  @ApiForbiddenResponse({
-    type: ErrorResponseDto,
-    description:
-      'POLICIES_NOT_ACCEPTED, or the account is suspended or deactivated',
-  })
-  @ApiNotFoundResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse(unauthenticated('/api/payments'))
+  @ApiErrorResponse(forbidden('/api/payments'))
+  @ApiErrorResponse({
+    status: 404,
     description: 'No such booking for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such booking for this account', path: '/api/payments' },
+    ],
   })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
-    description:
-      'HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT or ' +
-      'PAYMENT_ATTEMPT_CLOSED',
+  @ApiErrorResponse({
+    status: 409,
+    description: 'HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT or',
+    examples: [
+      { code: 'CONFLICT', message: 'HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT or', path: '/api/payments' },
+    ],
   })
-  @ApiServiceUnavailableResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 503,
     description: 'PAYMENTS_UNAVAILABLE (no Stripe key) or STRIPE_UNAVAILABLE',
+    examples: [
+      { code: 'PAYMENTS_UNAVAILABLE', message: 'PAYMENTS_UNAVAILABLE (no Stripe key) or STRIPE_UNAVAILABLE', path: '/api/payments' },
+    ],
   })
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePaymentDto,
   ): Promise<PaymentIntentDto> {
     return this.payments.createForBooking(
-      user.id,
+      user.userId,
       dto.bookingType,
       dto.bookingId,
     );
   }
 
   @Post('payments/:id/retry')
-  @UseGuards(AuthenticatedGuard)
   @ApiCookieAuth()
   // 200: a retry opens a new attempt but the client is being handed the state
   // of an existing payment flow, not a created resource at a new URL.
@@ -123,25 +121,36 @@ export class PaymentsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60910' })
   @ApiOkResponse({ type: PaymentIntentDto })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto })
-  @ApiNotFoundResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse(unauthenticated('/api/payments'))
+  @ApiErrorResponse({
+    status: 404,
     description: 'No such payment for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such payment for this account', path: '/api/payments' },
+    ],
   })
-  @ApiConflictResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 409,
     description: 'ALREADY_PAID, HOLD_EXPIRED or BOOKING_NOT_AWAITING_PAYMENT',
+    examples: [
+      { code: 'CONFLICT', message: 'ALREADY_PAID, HOLD_EXPIRED or BOOKING_NOT_AWAITING_PAYMENT', path: '/api/payments' },
+    ],
   })
-  @ApiServiceUnavailableResponse({ type: ErrorResponseDto })
+  @ApiErrorResponse({
+    status: 503,
+    description: 'Request refused',
+    examples: [
+      { code: 'PAYMENTS_UNAVAILABLE', message: 'Request refused', path: '/api/payments' },
+    ],
+  })
   retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<PaymentIntentDto> {
-    return this.payments.retry(user.id, id);
+    return this.payments.retry(user.userId, id);
   }
 
   @Get('payments/:id')
-  @UseGuards(AuthenticatedGuard)
   @ApiCookieAuth()
   @ApiOperation({
     summary: 'Payment status (PAY-01)',
@@ -152,17 +161,26 @@ export class PaymentsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60910' })
   @ApiOkResponse({ type: PaymentDto })
-  @ApiUnauthorizedResponse({ type: ErrorResponseDto })
-  @ApiNotFoundResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse(unauthenticated('/api/payments'))
+  @ApiErrorResponse({
+    status: 404,
     description: 'No such payment for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such payment for this account', path: '/api/payments' },
+    ],
   })
-  @ApiServiceUnavailableResponse({ type: ErrorResponseDto })
+  @ApiErrorResponse({
+    status: 503,
+    description: 'Request refused',
+    examples: [
+      { code: 'PAYMENTS_UNAVAILABLE', message: 'Request refused', path: '/api/payments' },
+    ],
+  })
   get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<PaymentDto> {
-    return this.payments.getOwn(user.id, id);
+    return this.payments.getOwn(user.userId, id);
   }
 
   /**
@@ -179,6 +197,11 @@ export class PaymentsController {
    * CLI (stripe listen --forward-to localhost:3000/api/payments/webhook).
    */
   @Post('payments/webhook')
+  // @Public: Stripe has no cookie, so the global JwtAuthGuard would answer 401
+  // and no booking would ever be confirmed. The route authenticates itself, by
+  // verifying Stripe's signature over the raw body, which is stronger than a
+  // session cookie for this purpose.
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
   @ApiHeader({ name: 'stripe-signature', required: true })

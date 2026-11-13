@@ -6,15 +6,16 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import { Role } from './../src/auth/enums/role.enum';
-import { UserStatus } from './../src/auth/enums/user-status.enum';
+import { Role, UserStatus } from './../src/common/auth/auth.enums';
 import {
   createSignedInUser,
   deleteTestUsers,
   SignedInUser,
 } from './support/auth-test-helper';
 
-const CONNECT_TIMEOUT_MS = 30_000;
+// Registering and logging accounts in over HTTP happens in beforeAll now, on
+// top of connecting to Atlas and building indexes, so this is generous.
+const CONNECT_TIMEOUT_MS = 90_000;
 const SLOW_MS = 30_000;
 const ME = '/api/users/me';
 

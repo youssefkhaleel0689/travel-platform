@@ -1,60 +1,137 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, HttpException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '../enums/role.enum';
-import { AuthenticatedUser } from '../types/authenticated-user';
+import { Role } from '../../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { Roles } from '../../common/auth/roles.decorator';
 import { RolesGuard } from './roles.guard';
 
-function contextFor(user?: AuthenticatedUser): ExecutionContext {
+// `this: void`: the methods are only read as metadata targets, never called.
+class ProbeController {
+  open(this: void): void {}
+
+  @Roles(Role.ADMIN, Role.AIRLINE_MODERATOR)
+  managed(this: void): void {}
+}
+
+@Roles(Role.ADMIN)
+class AdminController {
+  route(this: void): void {}
+
+  @Roles(Role.HOTEL_MODERATOR)
+  overridden(this: void): void {}
+}
+
+const guard = new RolesGuard(new Reflector());
+
+function contextFor(
+  controller: object,
+  handler: (this: void) => void,
+  user: AuthenticatedUser | undefined,
+): ExecutionContext {
   return {
+    getHandler: () => handler,
+    getClass: () => controller,
     switchToHttp: () => ({ getRequest: () => ({ user }) }),
-    getHandler: () => () => undefined,
-    getClass: () => class {},
   } as unknown as ExecutionContext;
 }
 
-const admin: AuthenticatedUser = {
-  id: '6720f1c2a1b2c3d4e5f60001',
-  email: 'admin@example.com',
-  name: 'Admin',
-  role: Role.ADMIN,
-  sessionId: '6720f1c2a1b2c3d4e5f60002',
-};
+function asRole(role: Role): AuthenticatedUser {
+  return { userId: '6720f1c2a1b2c3d4e5f60718', role, mustChangePassword: false };
+}
+
+function thrownBy(fn: () => unknown): HttpException {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof HttpException) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error('expected the guard to throw');
+}
 
 describe('RolesGuard (ACC-11)', () => {
-  function guardWith(required?: Role[]): RolesGuard {
-    const reflector = new Reflector();
-    jest
-      .spyOn(reflector, 'getAllAndOverride')
-      .mockReturnValue(required as never);
-    return new RolesGuard(reflector);
-  }
-
-  it('allows any signed-in account when no role is required', () => {
-    expect(guardWith(undefined).canActivate(contextFor(admin))).toBe(true);
-    expect(guardWith([]).canActivate(contextFor(admin))).toBe(true);
+  it('allows any request on a route without @Roles', () => {
+    expect(
+      guard.canActivate(
+        contextFor(ProbeController, ProbeController.prototype.open, undefined),
+      ),
+    ).toBe(true);
   });
 
-  it('allows an account whose role is listed', () => {
-    const guard = guardWith([Role.ADMIN, Role.HOTEL_MODERATOR]);
-
-    expect(guard.canActivate(contextFor(admin))).toBe(true);
+  it.each([Role.ADMIN, Role.AIRLINE_MODERATOR])('allows %s', (role) => {
+    expect(
+      guard.canActivate(
+        contextFor(
+          ProbeController,
+          ProbeController.prototype.managed,
+          asRole(role),
+        ),
+      ),
+    ).toBe(true);
   });
 
-  it('rejects an account whose role is not listed', () => {
-    const guard = guardWith([Role.HOTEL_MODERATOR]);
+  it.each([Role.USER, Role.HOTEL_MODERATOR])(
+    'denies %s with 403 FORBIDDEN',
+    (role) => {
+      const error = thrownBy(() =>
+        guard.canActivate(
+          contextFor(
+            ProbeController,
+            ProbeController.prototype.managed,
+            asRole(role),
+          ),
+        ),
+      );
+      expect(error.getStatus()).toBe(403);
+      expect(error.getResponse()).toEqual({
+        code: 'FORBIDDEN',
+        message: 'You do not have permission to do this',
+      });
+    },
+  );
 
-    expect(() => guard.canActivate(contextFor(admin))).toThrow(
-      ForbiddenException,
+  it('gives 401 UNAUTHENTICATED when there is no user', () => {
+    const error = thrownBy(() =>
+      guard.canActivate(
+        contextFor(
+          ProbeController,
+          ProbeController.prototype.managed,
+          undefined,
+        ),
+      ),
     );
+    expect(error.getStatus()).toBe(401);
+    expect(error.getResponse()).toEqual({
+      code: 'UNAUTHENTICATED',
+      message: 'Authentication required',
+    });
   });
 
-  // Without this, forgetting AuthenticatedGuard on a route would make
-  // RolesGuard pass an anonymous request straight through.
-  it('rejects a request that no AuthenticatedGuard has filled in', () => {
-    const guard = guardWith([Role.ADMIN]);
+  it('reads @Roles from the class', () => {
+    const context = (role: Role) =>
+      contextFor(
+        AdminController,
+        AdminController.prototype.route,
+        asRole(role),
+      );
+    expect(guard.canActivate(context(Role.ADMIN))).toBe(true);
+    expect(
+      thrownBy(() => guard.canActivate(context(Role.USER))).getStatus(),
+    ).toBe(403);
+  });
 
-    expect(() => guard.canActivate(contextFor(undefined))).toThrow(
-      ForbiddenException,
-    );
+  it('lets @Roles on the method replace the class roles', () => {
+    const context = (role: Role) =>
+      contextFor(
+        AdminController,
+        AdminController.prototype.overridden,
+        asRole(role),
+      );
+    expect(guard.canActivate(context(Role.HOTEL_MODERATOR))).toBe(true);
+    expect(
+      thrownBy(() => guard.canActivate(context(Role.ADMIN))).getStatus(),
+    ).toBe(403);
   });
 });

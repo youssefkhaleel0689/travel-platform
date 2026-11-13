@@ -176,7 +176,7 @@ describe('StripeService (PAY-01)', () => {
         .spyOn(stripeClient().paymentIntents, 'create')
         .mockRejectedValue(
           new Stripe.errors.StripeConnectionError({
-            type: 'api_connection_error',
+            type: 'invalid_request_error',
             message: 'network down',
           }),
         );

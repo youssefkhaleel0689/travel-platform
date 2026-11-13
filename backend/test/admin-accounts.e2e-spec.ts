@@ -6,17 +6,18 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import { Role } from './../src/auth/enums/role.enum';
-import { UserStatus } from './../src/auth/enums/user-status.enum';
-import { SessionsService } from './../src/auth/sessions.service';
-import { UsersService } from './../src/auth/users.service';
+import { Role, UserStatus } from './../src/common/auth/auth.enums';
+import { UsersService } from './../src/auth/users/users.service';
 import {
   createSignedInUser,
+  login,
   deleteTestUsers,
   SignedInUser,
 } from './support/auth-test-helper';
 
-const CONNECT_TIMEOUT_MS = 30_000;
+// Registering and logging accounts in over HTTP happens in beforeAll now, on
+// top of connecting to Atlas and building indexes, so this is generous.
+const CONNECT_TIMEOUT_MS = 90_000;
 // Each account in this suite is one bcrypt hash at 12 rounds.
 const SLOW_MS = 60_000;
 const ACCOUNTS = '/api/admin/accounts';
@@ -65,7 +66,7 @@ describe('Admin account administration (e2e)', () => {
         .set('Cookie', plainUser.cookie)
         .expect(403);
 
-      expect(res.body.code).toBe('FORBIDDEN_ROLE');
+      expect(res.body.code).toBe('FORBIDDEN');
     });
 
     it('rejects an anonymous request (401)', async () => {
@@ -159,7 +160,6 @@ describe('Admin account administration (e2e)', () => {
   describe('suspend and reactivate (ACC-16)', () => {
     it('suspends, ends the sessions, notifies, and reactivates', async () => {
       const target = await signIn({ label: 'suspendme' });
-      const sessions = app.get(SessionsService);
 
       const suspended = await request(app.getHttpServer())
         .patch(`${ACCOUNTS}/${target.userId}/suspend`)
@@ -169,10 +169,8 @@ describe('Admin account administration (e2e)', () => {
       expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
       expect(suspended.body.suspendedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-      // The account's own cookie stops working immediately.
-      await expect(
-        sessions.touchIfUsable(target.sessionId),
-      ).resolves.toBeNull();
+      // The guard reloads the user every request, so the account's own cookie
+      // stops working immediately.
       await request(app.getHttpServer())
         .get('/api/users/me')
         .set('Cookie', target.cookie)
@@ -269,38 +267,44 @@ describe('Admin account administration (e2e)', () => {
       });
 
       // The temporary password really is the account's password now.
-      const stored = await users.findByEmailWithPassword(target.email);
-      expect(stored?.mustChangePassword).toBe(true);
-      expect(stored?.temporaryPasswordIssuedAt).toBeInstanceOf(Date);
+      const stored = await users.findByIdOrThrow(target.userId);
+      expect(stored.mustChangePassword).toBe(true);
+      // temporaryPasswordIssuedAt is internal and not part of UserProfile.
 
-      // Every session of the account ended.
-      await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Cookie', target.cookie)
-        .expect(401);
-
-      // With a fresh session, the only route it can reach is change-password.
-      const fresh = await createSignedInUser(app, {
-        label: 'reset-fresh',
-        mustChangePassword: true,
-      });
-      createdUserIds.push(fresh.userId);
-
+      // The cookie the account already held keeps working as a token - the
+      // access token is stateless until ACC-06 adds sessions - but the guard
+      // now refuses every route except change-password, so the reset still
+      // takes effect immediately.
       const blocked = await request(app.getHttpServer())
         .get('/api/users/me')
-        .set('Cookie', fresh.cookie)
+        .set('Cookie', target.cookie)
         .expect(403);
       expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
+      // The temporary password is what logs in now, and the old one does not.
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: target.email, password: target.password })
+        .expect(401);
+      const cookie = await login(
+        app,
+        target.email,
+        res.body.temporaryPassword as string,
+      );
+
+      // Choosing a password is the way out, and then the API opens up.
       await request(app.getHttpServer())
         .patch('/api/auth/change-password')
-        .set('Cookie', fresh.cookie)
-        .send({ currentPassword: fresh.password, newPassword: 'Chosen123' })
+        .set('Cookie', cookie)
+        .send({
+          currentPassword: res.body.temporaryPassword as string,
+          newPassword: 'Chosen123',
+        })
         .expect(200);
 
       await request(app.getHttpServer())
         .get('/api/users/me')
-        .set('Cookie', fresh.cookie)
+        .set('Cookie', cookie)
         .expect(200);
     }, SLOW_MS);
 

@@ -169,18 +169,6 @@ Claude Code found no violations and proved the rule is active by linting a throw
 Date: 2026-11-09
 Student: Taher Khalaf
 Tool: Claude Code
-Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
-Prompt:
-Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
-How the output was used:
-Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
- - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
- - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
-Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
-================================================
-Date: 2026-11-09
-Student: Taher Khalaf
-Tool: Claude Code
 Related Requirement: ACC-08, ACC-19, GEN-13 (branch feature/ACC-08-account-core)
 Prompt:
 Implement the account core: the users and sessions schemas from the schema PDF, bcrypt password hashing, access and refresh tokens as httpOnly cookies, AuthenticatedGuard and RolesGuard with @CurrentUser and @Roles, and PATCH /api/auth/change-password. Do not add registration or login; export the services those will need.
@@ -329,3 +317,161 @@ Decisions I made during this:
  - the collection asserts the 501 BOOKING_TYPE_UNAVAILABLE that folders 70 to 90 return today, rather than pretending they work, and each request says what to change when A1 or B2 wires its BookingsPort in.
 I also corrected a claim Claude Code had written: it described the validation cases in folders 70 and 80 as "fully testable today". Running them showed 401, not 400, because AuthenticatedGuard runs before the validation pipe. The collection and the document now list the exact 7 requests and 12 assertions that pass with no sign-in at all - the public currency list, the two guard refusals, the two webhook refusals and the non-existent refund route - and say plainly that everything else waits on ACC-04. Verified against a running server with newman: folder 00 is 5/5, the two webhook requests are 5/5, POST /refunds is 2/2.
 ================================================
+=======
+Date: 2026-11-08
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: GEN-06 (used by FLT-03, FLT-05, FLT-11, FLT-17)
+Prompt:
+Design the shared airport time zone helper in src/common/time/: Intl or Luxon, the functions and signatures A1 and A2 need, how to handle a local time that does not exist (DST gap) or happens twice (DST overlap) with error codes, and a unit test plan.
+How the output was used:
+Chose Intl over Luxon: no new package, and Luxon moves a non-existent time forward by default. Decided on plain functions, 400 NONEXISTENT_LOCAL_TIME for a DST gap and the earlier instant for an overlap. The 2026 transitions in Cairo, London and New York became the test cases.
+================================================
+================================================
+Date: 2026-11-08
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: GEN-06 (used by FLT-03, FLT-05, FLT-11, FLT-17)
+Prompt:
+In steps: the LOCAL_DATE and LOCAL_DATE_TIME formats with a strict parser in src/common/time/local-date-time.ts; IsLocalDate and IsLocalDateTime class-validator decorators that reuse it; toUtcFromAirportLocal in airport-time.ts, rejecting DST gaps and choosing the earlier instant in overlaps; toAirportLocalDateKey and toAirportLocalIso for the local date key and ISO output with the offset; unit tests for each step; a README section with usage, error codes and DST rules.
+How the output was used:
+Reviewed each step before committing it. Claude ran Prettier, the compiler and the new tests; I ran build, lint and all unit tests myself (169 passed). Leap years are computed by hand because Date maps years 0 to 99 to 1900 to 1999. The tests use the real 2026 DST transitions, including the minutes around the Cairo gap, and check the exact GEN-02 field errors. The README check also updated the Time convention and the src/common/ list.
+================================================
+================================================
+Date: 2026-11-09
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-01 (with ACC-11 ownership checks)
+Prompt:
+Read CLAUDE.md and docs/requirements/, then do PR #2 (FLT-01) end to end: check I am on a clean develop, create feature/FLT-01-airline-profile, unzip the airline profile files drafted earlier in a Claude chat, review them against the schema PDF and the FLT-01 row of the requirements sheet, run prettier, build, lint, the unit tests and the airlines e2e test and show the real results, append this log entry, then stop and wait for my approval before committing or pushing. Do not run anything against the shared database and do not read .env.
+How the output was used:
+The files (flights module, airline and airlineModeratorAssignment schemas, POST/GET/PATCH /airlines, DTOs, unit and e2e tests) were first drafted in a Claude chat session. Claude Code applied them to the branch, compared them with the schema PDF and FLT-01, and ran prettier, build, lint, 195 unit tests and the 9 airlines e2e tests (fake service, no database). I reviewed the diff before approving the commit. The endpoints were not run against Atlas. Auth is not merged yet, so the write endpoints use a placeholder admin marked TODO(ACC-04); logo upload (GEN-08) and status changes (ACC-15) are left to later PRs.
+================================================
+
+================================================
+Date: 2026-11-09
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-01
+Prompt:
+After review of PR #18, fix the airline DTOs so null is rejected for name, iataCode and icaoCode (a field may be left out but never null), keep the Co-Authored-By line, and tell me how to run the Swagger smoke test against Atlas myself.
+How the output was used:
+Reproduced the problem first: IsOptional lets null through, and PartialType in the update body does the same. Replaced it with ValidateIf(value !== undefined) and wrote UpdateAirlineDto out by hand. Added 4 unit tests; prettier, build, lint, 199 unit tests and the airlines e2e tests pass. The Atlas smoke test was run by me, not by Claude Code.
+================================================
+
+================================================
+Date: 2026-11-10
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (flight schema), FLT-04 (cabin rules), FLT-30 (status values)
+Prompt:
+Start FLT-03 (PR #3 in flights-pr-order.xlsx) from the latest develop: build flight.schema.ts for the flights collection with the embedded cabinInventory[] (each category once, whole totalSeats > 0, Decimal128 price > 0, the bookedSeats and heldSeats counters), the search index and the unique airline + flight number + departure date index, following the schema PDF and the FLT-03 and FLT-04 rows. Register the model in the flights module, add tests, show the real build, lint and test results, and wait for my approval before committing or pushing. Do not run anything against the shared database and do not read .env.
+How the output was used:
+I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
+================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude (chat)
+Related Requirement: ACC-01, GEN-13 (design also covers ACC-04, ACC-05, ACC-06, ACC-11, ACC-19)
+Prompt:
+Read the project description, the requirements workbook and the team Playbook, explain the identity requirements I own, split the auth work into small PRs, write the identity design document (my requirements, C2's requirements, the decisions, the contract I expose and the dependency map), then guide me step by step through PR 1 with one self-contained Claude Code prompt per step, and review each result before I commit.
+How the output was used:
+I used it for the PR plan, the design decisions (bcrypt with cost 12 from config, a 72-byte password cap, statuses ACTIVE/SUSPENDED/DEACTIVATED, role never taken from the request, a unique email index instead of a find-then-insert check, consent stored as termsAcceptedAt) and the Claude Code prompts below. I chose bcrypt over argon2 and decided that register logs the user in automatically (added in PR 2). The review of step B found that verify() also needed the 72-byte check, which was fixed before committing. I ran every check in my own terminal and tested the endpoint by hand in Swagger UI against Atlas.
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (User schema)
+Prompt:
+Add the User schema and the Role and UserStatus enums for the auth module. Create only src/common/auth/auth.enums.ts, src/auth/schemas/user.schema.ts and its spec, following airline.schema.ts: name, email (trimmed, lowercase), passwordHash (select: false), phone, preferredCurrency, role, status, termsAcceptedAt, failedLoginAttempts, lockedUntil, mustChangePassword, timestamps, and a unique index on email. Do not touch .env, install packages or commit; run build, lint and tests and report.
+How the output was used:
+Claude Code wrote the three files and 12 schema tests. It used validate() instead of validateSync() to match flight.schema.spec.ts. I read the schema and enums in my terminal, ran the schema tests (12 passed) and committed the three files (627777c).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (password rules and hashing)
+Prompt:
+Add the shared password rules in src/common/validation/password.ts (passwordRuleViolation and @IsValidPassword: at least 8 code points, a Unicode letter, a Unicode digit, at most 72 UTF-8 bytes, never trimmed) and PasswordService in src/auth/password/ (bcrypt, BCRYPT_COST from config with default 12, a whole number from 4 to 15 or the app fails at startup; hash() refuses input over 72 bytes), with specs. Follow-up prompt: make verify() return false for input over 72 bytes without calling bcrypt, with a test.
+How the output was used:
+Claude Code wrote the four files and 33 tests. The review found a truncation gap: bcrypt.compare cuts input at 72 bytes, so a stored 72-byte password followed by extra characters matched. Claude Code confirmed bcrypt.compare returned true for that input, then added the check and the test. I added BCRYPT_COST=12 to backend/.env.example myself, read both source files, ran the tests and committed them together with the bcrypt dependency (91f1285).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (UsersService and AuthModule)
+Prompt:
+Add UsersService: create() hashes the plain password through PasswordService and returns a UserProfile without passwordHash; a duplicate key error 11000 on email becomes 409 EMAIL_ALREADY_REGISTERED; findById returns null for a malformed id; findByEmail normalizes the email before querying. Add AuthModule exporting UsersService and PasswordService, register it in app.module.ts and change nothing else there. Unit tests with a stubbed model.
+How the output was used:
+Claude Code wrote the service, the module and 13 unit tests. It checks ids as 24 hex characters, because ObjectId.isValid accepts any 12-character string, and it leaves duplicate-key errors on other indexes to the global filter. I checked the app.module.ts diff, started the app against Atlas (AuthModule initialized) and committed (eaecf7d).
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (POST /api/auth/register)
+Prompt:
+Add POST /api/auth/register: shared trimText and trimLower helpers in src/common/validation/, RegisterDto (acceptTerms must be true, the password is never transformed), UserResponseDto with an explicit field-by-field mapping, AuthService.register (role always USER, termsAcceptedAt set to now), AuthController with Swagger docs, unit tests, and an e2e test against the real database (unique email prefix per run, cleanup afterwards, wait for the unique index, two parallel registrations with the same email). Do not run the e2e tests.
+How the output was used:
+Claude Code wrote the files, 15 unit tests and 10 e2e tests. I ran the e2e suite myself against Atlas (6 suites, 54 tests passed) and committed (b1d4566). I then tested the endpoint by hand in Swagger UI: 201 with no passwordHash, 409 for the same email in capitals, 400 for a password without a digit, 400 for an extra role field. The Swagger example for the 409 response still shows the shared 400 example; that is fixed in a separate PR.
+================================================
+
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-01, GEN-13 (documentation)
+Prompt:
+Update README.md only: add BCRYPT_COST under "Environment variables" and a new section "Accounts and passwords (ACC-01, GEN-13)" before "Team workflow", explaining the register endpoint and what teammates must reuse (@IsValidPassword, UsersService, the Role and UserStatus enums, the trim helpers).
+How the output was used:
+I reviewed the README diff against the code before committing. I wrote these AI_PROMPTS.txt entries with Claude (chat) and added them myself.
+================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: Swagger documentation of error responses (ACC-01, FLT-01 and GEN-12 endpoints)
+Prompt:
+Add an ApiErrorResponse decorator in src/common/swagger/ that attaches each error response's own example (named examples when one status has several codes) while keeping ErrorResponseDto as the schema. Check the installed @nestjs/swagger 12.1.0 type definitions first. Use it for every error response in the auth, airlines and reference-data controllers with codes the code really returns, and add a unit spec and an e2e guard that fails when an error response has no matching example. Follow-up prompt: document the rule in the README.
+How the output was used:
+The cause came from reading the DTO: its property examples were shared by every response, so the 403, 404 and 409 responses showed the 400 example. Claude Code wrote the decorator (10 unit tests), the guard test, and new examples for 12 error responses. I ran the unit tests and the e2e suite (7 suites, 56 tests), temporarily restored the old auth controller to confirm the guard fails on exactly its two responses, and checked register, PATCH and GET airline in Swagger UI. I reviewed the README change, including one existing sentence it corrected because it contradicted the new rule.
+================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-04, ACC-11, ACC-19 (Leader PR 2: login, cookies, guards)
+Prompt:
+One prompt per step: (B) read JWT_SECRET with a fail-fast check that never prints the value, register JwtModule with HS256 pinned for signing and verifying, and register cookie-parser in app.setup.ts; (C) add @Public, @Roles, @CurrentUser, @OptionalUser and the { userId, role } request.user type in src/common/auth/; (D) sign access tokens holding only { sub }, set the httpOnly, Secure, SameSite=Lax access_token cookie for 30 minutes from one startSession method, and make register log the user in; (E) add a global JwtAuthGuard that loads the user from the database on every request and never rejects on @Public routes, plus RolesGuard, and mark every open route @Public; (F) add POST /api/auth/login with one 401 for an unknown email or a wrong password, a dummy bcrypt compare, and the account status checked only after the password matches; (G) add GET /api/auth/me and GET /api/users/me; then update the README. A separate prompt diagnosed an e2e teardown warning.
+How the output was used:
+I chose the packages (@nestjs/jwt and cookie-parser, no Passport), the 30-minute token, SameSite=Lax and the database check on every request, and generated my own JWT_SECRET without sharing it. Claude chat reviewed each step. Before the guard step we read airline-actor.ts and confirmed the placeholder admin is only used when request.user is missing; an e2e test proves a logged-in USER gets 403 on POST /api/airlines. The teardown warning came from background Mongoose index builds and was fixed in the swagger-docs test; I ran the e2e suite three times to confirm. I ran every check myself (unit 413, e2e 10 suites and 91 tests) and tested in Swagger UI: login, /auth/me, /users/me, the 403 on POST /api/airlines and the 401 for a wrong password.
+================================================
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-18 (admin accounts created by seeding)
+Prompt:
+Add an AdminSeeder in src/auth/seed/ and a standalone `npm run seed:admin` entry point modelled on the reference data seed. Read ADMIN_EMAIL, ADMIN_PASSWORD and ADMIN_NAME from backend/.env and check them (password rules included) before any database query, never printing the password; create the admin with UsersService.create and role ADMIN; leave an existing ADMIN unchanged; refuse to promote a non-admin account; handle two simultaneous seeds through the unique email index. Add unit tests and an e2e test that logs in as the seeded admin. Follow-up prompt: document the seed in the README.
+How the output was used:
+I took ACC-18 over from B1 and chose to keep the admin credentials only in .env. Claude Code wrote the seeder (19 unit tests), the entry point, the npm script and an e2e test. I ran the unit tests and the e2e suite (11 suites, 95 tests), then seeded the shared Atlas database myself: the first run created the admin and the second reported "already exists". I logged in as the admin in Swagger and /auth/me returned role ADMIN. A screenshot of that login showed the password in Swagger's curl preview, so I rotated it (deleted the admin, new password, seeded again) and confirmed the old password is rejected. I reviewed the README section before committing.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
+Prompt:
+Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
+How the output was used:
+Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
+ - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
+ - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
+Everything below follows from those two decisions. I reviewed each step's diff before it was committed.

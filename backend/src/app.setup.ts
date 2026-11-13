@@ -7,8 +7,7 @@ import { validationExceptionFactory } from './common/validation/validation-excep
 export function configureApp(app: INestApplication): void {
   app.setGlobalPrefix('api');
 
-  // ACC-19: the access and refresh tokens arrive as httpOnly cookies, so the
-  // guards need the cookies parsed before any route runs.
+  // The guard reads the access token from request.cookies (ACC-19).
   app.use(cookieParser());
 
   app.useGlobalPipes(

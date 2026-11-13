@@ -11,10 +11,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import { Role } from './../src/auth/enums/role.enum';
-import { UserStatus } from './../src/auth/enums/user-status.enum';
-import { SessionsService } from './../src/auth/sessions.service';
-import { UsersService } from './../src/auth/users.service';
+import { Role, UserStatus } from './../src/common/auth/auth.enums';
+import { UsersService } from './../src/auth/users/users.service';
 import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
 import {
   createSignedInUser,
@@ -22,7 +20,9 @@ import {
   SignedInUser,
 } from './support/auth-test-helper';
 
-const CONNECT_TIMEOUT_MS = 30_000;
+// Registering and logging accounts in over HTTP happens in beforeAll now, on
+// top of connecting to Atlas and building indexes, so this is generous.
+const CONNECT_TIMEOUT_MS = 90_000;
 const SLOW_MS = 30_000;
 const ME = '/api/users/me';
 
@@ -81,10 +81,8 @@ describe('Account deactivation (e2e)', () => {
         status: UserStatus.DEACTIVATED,
       });
 
-      // The cookie stops working at once, so the account cannot sign in or act.
-      await expect(
-        app.get(SessionsService).touchIfUsable(user.sessionId),
-      ).resolves.toBeNull();
+      // The guard reloads the user on every request, so the cookie it already
+      // holds stops working at once without any token being revoked.
       await request(app.getHttpServer())
         .get(ME)
         .set('Cookie', user.cookie)
@@ -110,7 +108,7 @@ describe('Account deactivation (e2e)', () => {
 
     // ACC-12 says "after confirmation": the backend does not take an empty
     // DELETE as consent (GEN-03, GEN-13).
-    it.each([
+    it.each<[Record<string, unknown>, string]>([
       [{}, 'confirm missing'],
       [{ confirm: false }, 'confirm false'],
       [{ confirm: 'yes' }, 'confirm not a boolean'],

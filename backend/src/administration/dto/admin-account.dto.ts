@@ -1,29 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Types } from 'mongoose';
-import { Role } from '../../auth/enums/role.enum';
-import { UserStatus } from '../../auth/enums/user-status.enum';
-import { User } from '../../auth/schemas/user.schema';
+import { Role, UserStatus } from '../../common/auth/auth.enums';
+import type { UserProfile } from '../../auth/users/users.service';
 
 /**
- * The fields this DTO reads. Both a hydrated document and the lean object that
- * paginateQuery returns satisfy it, so one mapping serves the list and the
- * single-account responses.
+ * ACC-14: the row an admin sees.
+ *
+ * It maps from UserProfile, the one shape UsersService hands out, so a field
+ * added there can never reach a client unless it is listed here. The fields are
+ * exactly the ones the requirement names, plus the two status dates and the
+ * pending-password flag an admin needs to see.
  */
-export type AdminAccountSource = Pick<
-  User,
-  | 'name'
-  | 'email'
-  | 'role'
-  | 'status'
-  | 'createdAt'
-  | 'mustChangePassword'
-  | 'suspendedAt'
-  | 'deactivatedAt'
-> & { _id: Types.ObjectId };
-
-// ACC-14: the row an admin sees. The fields are exactly the ones the
-// requirement lists, plus the pending-password flag so an admin can see that a
-// reset has not been used yet. No credential or lockout field is copied.
 export class AdminAccountDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   id: string;
@@ -66,19 +52,17 @@ export class AdminAccountDto {
   })
   deactivatedAt: string | null;
 
-  static from(user: AdminAccountSource): AdminAccountDto {
+  static from(profile: UserProfile): AdminAccountDto {
     const dto = new AdminAccountDto();
-    dto.id = user._id.toString();
-    dto.name = user.name;
-    dto.email = user.email;
-    dto.role = user.role;
-    dto.status = user.status;
-    dto.createdAt = user.createdAt.toISOString();
-    dto.mustChangePassword = user.mustChangePassword;
-    dto.suspendedAt = user.suspendedAt ? user.suspendedAt.toISOString() : null;
-    dto.deactivatedAt = user.deactivatedAt
-      ? user.deactivatedAt.toISOString()
-      : null;
+    dto.id = profile.id;
+    dto.name = profile.name;
+    dto.email = profile.email;
+    dto.role = profile.role;
+    dto.status = profile.status;
+    dto.createdAt = profile.createdAt.toISOString();
+    dto.mustChangePassword = profile.mustChangePassword;
+    dto.suspendedAt = profile.suspendedAt?.toISOString() ?? null;
+    dto.deactivatedAt = profile.deactivatedAt?.toISOString() ?? null;
     return dto;
   }
 }

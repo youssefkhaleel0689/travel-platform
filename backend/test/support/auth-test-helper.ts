@@ -1,30 +1,30 @@
-// Helpers for e2e tests that need a signed-in account.
+// Helpers for e2e tests that need a logged-in account.
 //
-// Login (ACC-04) is not implemented yet, so a test cannot POST /api/auth/login
-// to get a cookie. These helpers build the same state login will: a user row, a
-// sessions row and a signed access token, then hand back the cookie header.
-// Once login exists, only createSignedInUser needs to change.
+// These go through the real endpoints now that ACC-01 and ACC-04 are merged:
+// POST /api/auth/register creates the account and POST /api/auth/login returns
+// the httpOnly access_token cookie. Nothing here mints a token by hand, so a
+// test exercises the same path a browser does.
 //
-// Every account created here has a test_c2_ email prefix, as the shared
-// database rules require, and deleteTestUsers removes exactly those rows.
+// Every account has a test_c2_ email prefix, as the shared-database rules
+// require, and deleteTestUsers removes exactly those rows.
 import { INestApplication } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { Role, UserStatus } from '../../src/common/auth/auth.enums';
 import { ACCESS_TOKEN_COOKIE } from '../../src/auth/auth.constants';
-import { AuthTokensService } from '../../src/auth/auth-tokens.service';
-import { Role } from '../../src/auth/enums/role.enum';
-import { Session } from '../../src/auth/schemas/session.schema';
 import { User } from '../../src/auth/schemas/user.schema';
-import { SessionsService } from '../../src/auth/sessions.service';
-import { UsersService } from '../../src/auth/users.service';
+import { UsersService } from '../../src/auth/users/users.service';
 
 export const TEST_EMAIL_PREFIX = 'test_c2_';
+export const TEST_PASSWORD = 'TestPass123';
 
 export interface SignedInUser {
   userId: string;
-  sessionId: string;
   email: string;
   password: string;
+  role: Role;
   /** Ready for supertest: .set('Cookie', cookie) */
   cookie: string;
 }
@@ -37,83 +37,121 @@ export function testEmail(label = 'user'): string {
   return `${TEST_EMAIL_PREFIX}${label}_${Date.now()}_${counter}@example.com`;
 }
 
+/** Pulls the access-token cookie out of a Set-Cookie header. */
+function accessTokenCookie(setCookie: string[] | undefined): string {
+  const header = (setCookie ?? []).find((value) =>
+    value.startsWith(`${ACCESS_TOKEN_COOKIE}=`),
+  );
+  if (!header) {
+    throw new Error(
+      `No ${ACCESS_TOKEN_COOKIE} cookie was set. Login must set it (ACC-19).`,
+    );
+  }
+  // Only the name=value part; the attributes are not sent back by a client.
+  return header.split(';')[0];
+}
+
+/**
+ * Registers an account through the API and returns its login cookie.
+ *
+ * A role other than USER cannot be registered (ACC-01 creates USER only), so
+ * for an ADMIN or a moderator the role is set on the document afterwards and
+ * the account logs in again - the same thing the ACC-18 admin seed does.
+ */
 export async function createSignedInUser(
-  app: INestApplication,
+  app: INestApplication<App>,
   options: {
     role?: Role;
     password?: string;
     label?: string;
     mustChangePassword?: boolean;
-    preferredCurrency?: string | null;
   } = {},
 ): Promise<SignedInUser> {
-  const users = app.get(UsersService);
-  const sessions = app.get(SessionsService);
-  const tokens = app.get(AuthTokensService);
-
-  const password = options.password ?? 'TestPass123';
+  const role = options.role ?? Role.USER;
+  const password = options.password ?? TEST_PASSWORD;
   const email = testEmail(options.label);
 
-  const user = await users.create({
-    name: 'C2 Test Account',
-    email,
-    password,
-    role: options.role ?? Role.USER,
-    mustChangePassword: options.mustChangePassword,
-    preferredCurrency: options.preferredCurrency ?? null,
-  });
+  const registered = await request(app.getHttpServer())
+    .post('/api/auth/register')
+    .send({
+      name: 'C2 Test Account',
+      email,
+      password,
+      acceptTerms: true,
+    })
+    .expect(201);
 
-  const refreshToken = tokens.generateRefreshToken();
-  const session = await sessions.create(
-    user._id,
-    tokens.hashRefreshToken(refreshToken),
-  );
-  const accessToken = await tokens.signAccessToken({
-    sub: user._id.toString(),
-    sid: session._id.toString(),
-    role: user.role,
-  });
+  const userId = registered.body.id as string;
+
+  // Anything the registration endpoint cannot set, set directly, then log in
+  // again so the cookie reflects it.
+  if (role !== Role.USER || options.mustChangePassword) {
+    const userModel = app.get<Model<User>>(getModelToken(User.name));
+    await userModel
+      .updateOne(
+        { _id: new Types.ObjectId(userId) },
+        {
+          $set: {
+            role,
+            mustChangePassword: options.mustChangePassword ?? false,
+            temporaryPasswordIssuedAt: options.mustChangePassword
+              ? new Date()
+              : null,
+          },
+        },
+      )
+      .exec();
+  }
 
   return {
-    userId: user._id.toString(),
-    sessionId: session._id.toString(),
+    userId,
     email,
     password,
-    cookie: `${ACCESS_TOKEN_COOKIE}=${accessToken}`,
+    role,
+    cookie: await login(app, email, password),
   };
 }
 
-/** A cookie for a session that no longer exists, i.e. a signed-out token. */
-export async function cookieForUnknownSession(
-  app: INestApplication,
-  userId: string,
+/** Logs in through the API and returns the access-token cookie. */
+export async function login(
+  app: INestApplication<App>,
+  email: string,
+  password: string,
 ): Promise<string> {
-  const tokens = app.get(AuthTokensService);
-  const accessToken = await tokens.signAccessToken({
-    sub: userId,
-    sid: new Types.ObjectId().toString(),
-    role: Role.USER,
-  });
-  return `${ACCESS_TOKEN_COOKIE}=${accessToken}`;
+  const response = await request(app.getHttpServer())
+    .post('/api/auth/login')
+    .send({ email, password })
+    .expect(200);
+  return accessTokenCookie(
+    response.headers['set-cookie'] as unknown as string[],
+  );
 }
 
-/** Removes every account this suite created, and their sessions. */
+/**
+ * A cookie whose token is valid but whose account no longer passes the guard.
+ * Used to prove that the guard reloads the user rather than trusting the token.
+ */
+export async function cookieForSuspendedAccount(
+  app: INestApplication<App>,
+  user: SignedInUser,
+): Promise<string> {
+  await app.get(UsersService).setStatus(user.userId, UserStatus.SUSPENDED);
+  return user.cookie;
+}
+
+/** Removes every account this suite created. */
 export async function deleteTestUsers(
-  app: INestApplication,
+  app: INestApplication<App>,
   userIds: string[],
 ): Promise<void> {
   if (userIds.length === 0) {
     return;
   }
   const userModel = app.get<Model<User>>(getModelToken(User.name));
-  const sessionModel = app.get<Model<Session>>(getModelToken(Session.name));
-  const ids = userIds.map((id) => new Types.ObjectId(id));
-
-  await sessionModel.deleteMany({ userId: { $in: ids } }).exec();
   // The email guard makes certain this never deletes a teammate's data.
   await userModel
     .deleteMany({
-      _id: { $in: ids },
+      _id: { $in: userIds.map((id) => new Types.ObjectId(id)) },
       email: { $regex: `^${TEST_EMAIL_PREFIX}` },
     })
     .exec();

@@ -1,18 +1,18 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import {
   ApiCookieAuth,
-  ApiForbiddenResponse,
-  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
-  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { AuthenticatedGuard } from '../auth/guards/authenticated.guard';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../common/swagger/standard-errors';
+import { CurrentUser } from '../common/auth/current-user.decorator';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { RefundDto } from './dto/refund.dto';
 import { RefundsService } from './refunds.service';
 
@@ -26,16 +26,8 @@ import { RefundsService } from './refunds.service';
  */
 @ApiTags('Payments and policies')
 @ApiCookieAuth()
-@ApiUnauthorizedResponse({
-  type: ErrorResponseDto,
-  description: 'No valid access-token cookie, or the session expired',
-})
-@ApiForbiddenResponse({
-  type: ErrorResponseDto,
-  description:
-    'Account suspended or deactivated, or a password change is pending',
-})
-@UseGuards(AuthenticatedGuard)
+@ApiErrorResponse(unauthenticated('/api/refunds/6720f1c2a1b2c3d4e5f60920'))
+@ApiErrorResponse(forbidden('/api/refunds/6720f1c2a1b2c3d4e5f60920'))
 @Controller('refunds')
 export class RefundsController {
   constructor(private readonly refunds: RefundsService) {}
@@ -50,16 +42,19 @@ export class RefundsController {
   })
   @ApiParam({ name: 'id', example: '6720f1c2a1b2c3d4e5f60920' })
   @ApiOkResponse({ type: RefundDto })
-  @ApiNotFoundResponse({
-    type: ErrorResponseDto,
+  @ApiErrorResponse({
+    status: 404,
     description: 'No such refund for this account',
+    examples: [
+      { code: 'NOT_FOUND', message: 'No such refund for this account', path: '/api/refunds/6720f1c2a1b2c3d4e5f60920' },
+    ],
   })
   async get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<RefundDto> {
     return RefundDto.fromDocument(
-      await this.refunds.findOwnOrThrow(user.id, id),
+      await this.refunds.findOwnOrThrow(user.userId, id),
     );
   }
 }
