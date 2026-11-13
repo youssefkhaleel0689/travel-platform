@@ -1,5 +1,9 @@
 import { STATUS_CODES } from 'node:http';
-import { ApiResponse, ApiResponseExamples } from '@nestjs/swagger';
+import {
+  ApiResponse,
+  ApiResponseExamples,
+  HeadersObject,
+} from '@nestjs/swagger';
 import { ErrorResponseDto, FieldErrorDto } from '../dto/error-response.dto';
 
 // Fixed so the generated document does not change from one run to the next.
@@ -11,11 +15,15 @@ export interface ApiErrorExample {
   /** The endpoint's real path, with an example id where it has one. */
   path: string;
   errors?: FieldErrorDto[];
+  /** Extra structured data, e.g. { lockedUntil } for ACCOUNT_LOCKED (ACC-05). */
+  details?: Record<string, unknown>;
 }
 
 export interface ApiErrorResponseOptions {
   status: number;
   description: string;
+  /** Response headers to document, e.g. Retry-After on a 423 (ACC-05). */
+  headers?: HeadersObject;
   /** At least one. Several are shown as a dropdown named by `code`, so codes must differ. */
   examples: [ApiErrorExample, ...ApiErrorExample[]];
 }
@@ -32,6 +40,7 @@ export function errorExample(
     error: STATUS_CODES[status] ?? 'Error',
     message: example.message,
     ...(example.errors && { errors: example.errors }),
+    ...(example.details && { details: example.details }),
     path: example.path,
     timestamp: ERROR_EXAMPLE_TIMESTAMP,
   };
@@ -47,7 +56,7 @@ export function errorExample(
 export function ApiErrorResponse(
   options: ApiErrorResponseOptions,
 ): MethodDecorator & ClassDecorator {
-  const { status, description, examples } = options;
+  const { status, description, examples, headers } = options;
   if (examples.length === 0) {
     throw new Error(`ApiErrorResponse(${status}) needs at least one example`);
   }
@@ -58,6 +67,7 @@ export function ApiErrorResponse(
       status,
       description,
       type: ErrorResponseDto,
+      ...(headers && { headers }),
       example: bodies[0],
     });
   }
@@ -75,6 +85,7 @@ export function ApiErrorResponse(
     status,
     description,
     type: ErrorResponseDto,
+    ...(headers && { headers }),
     examples: named,
   });
 }

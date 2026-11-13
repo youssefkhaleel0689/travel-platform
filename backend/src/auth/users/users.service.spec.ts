@@ -4,6 +4,10 @@ import { Types } from 'mongoose';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
 import type { PasswordService } from '../password/password.service';
 import { User } from '../schemas/user.schema';
+import {
+  LOCKOUT_DURATION_MS,
+  MAX_FAILED_LOGIN_ATTEMPTS,
+} from './login-lockout';
 import { CreateUserInput, UsersService } from './users.service';
 
 const USER_ID = new Types.ObjectId();
@@ -47,14 +51,26 @@ function query<R>(result: R) {
 
 // Fake model and PasswordService; the casts are done only here. create() echoes the data
 // back like Mongoose does, passwordHash included, so the mapper is really exercised.
+// `ticket` is what the reservation update returns (null: no ticket; default: the stored
+// user holding ticket 1). `stored` is what findOne returns; `byId` what findById returns
+// (default: `stored`). `updateMatched` is the matchedCount of every updateOne (default 1).
 function setup(
   options: {
     stored?: User | null;
     createError?: unknown;
     passwordMatches?: boolean;
+    ticket?: User | null;
+    updateMatched?: number;
+    byId?: User | null;
   } = {},
 ) {
   const stored = options.stored === undefined ? user() : options.stored;
+  const byId = options.byId === undefined ? stored : options.byId;
+  const matchedCount = options.updateMatched ?? 1;
+  const ticket =
+    options.ticket === undefined
+      ? user({ failedLoginAttempts: 1 })
+      : options.ticket;
 
   const userModel = {
     create: jest.fn((doc: Partial<User>) =>
@@ -62,8 +78,15 @@ function setup(
         ? Promise.reject(options.createError)
         : Promise.resolve({ toObject: () => user({ ...doc }) }),
     ),
-    findById: jest.fn(() => query(stored)),
+    findById: jest.fn((_id: unknown) => query(byId)),
     findOne: jest.fn((_filter: { email: string }) => query(stored)),
+    findOneAndUpdate: jest.fn(
+      (_filter: unknown, _update: unknown, _options: unknown) => query(ticket),
+    ),
+    updateOne: jest.fn((_filter: unknown, _update: unknown) => ({
+      exec: () =>
+        Promise.resolve({ matchedCount, modifiedCount: matchedCount }),
+    })),
   };
   const passwordService = {
     hash: jest.fn(() => Promise.resolve(HASH)),
@@ -230,22 +253,28 @@ describe('UsersService.findByEmail', () => {
   });
 });
 
+const FUTURE = () => new Date(Date.now() + 10 * 60 * 1000);
+
+// The query stand-in returned by a recorded call.
+function chainOf(fn: jest.Mock, call = 0): ReturnType<typeof query> {
+  return fn.mock.results[call].value as ReturnType<typeof query>;
+}
+
 describe('UsersService.verifyCredentials (ACC-04)', () => {
-  it('normalizes the email and selects the password hash', async () => {
+  it('reserves with the email normalized and selects the password hash', async () => {
     const { service, userModel } = setup();
     await service.verifyCredentials('  Sara@Example.COM ', 'abcdefg1');
 
-    expect(userModel.findOne).toHaveBeenCalledWith({
+    expect(userModel.findOneAndUpdate.mock.calls[0][0]).toMatchObject({
       email: 'sara@example.com',
     });
-    const chain = userModel.findOne.mock.results[0].value as ReturnType<
-      typeof query
-    >;
-    expect(chain.selected).toEqual(['+passwordHash']);
+    expect(chainOf(userModel.findOneAndUpdate).selected).toEqual([
+      '+passwordHash',
+    ]);
   });
 
-  it('returns the profile for the right password, compared with the stored hash', async () => {
-    const { service, passwordService } = setup();
+  it('returns ok for the right password, compared with the stored hash, and gives the ticket back', async () => {
+    const { service, passwordService, userModel } = setup();
     const result = await service.verifyCredentials(
       'sara@example.com',
       'abcdefg1',
@@ -253,50 +282,281 @@ describe('UsersService.verifyCredentials (ACC-04)', () => {
 
     expect(passwordService.verify).toHaveBeenCalledWith('abcdefg1', HASH);
     expect(passwordService.verifyDummy).not.toHaveBeenCalled();
-    expect(result?.profile.id).toBe(USER_ID.toString());
+    expect(result).toEqual({
+      kind: 'ok',
+      profile: expect.objectContaining({ id: USER_ID.toString() }),
+    });
+    expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+    expect(userModel.updateOne).toHaveBeenCalledWith(
+      { _id: USER_ID },
+      { $set: { failedLoginAttempts: 0, lockedUntil: null } },
+    );
   });
 
-  it('never lets the hash out', async () => {
-    const { service } = setup();
+  it('never lets the hash or the lockout fields out', async () => {
+    const { service } = setup({ ticket: user({ failedLoginAttempts: 3 }) });
     const result = await service.verifyCredentials(
       'sara@example.com',
       'abcdefg1',
     );
 
-    expect(result).not.toBeNull();
-    expect(Object.keys(result ?? {})).toEqual(['profile']);
-    expect(result?.profile).not.toHaveProperty('passwordHash');
+    expect(result.kind).toBe('ok');
     const json = JSON.stringify(result);
     expect(json).not.toContain('passwordHash');
     expect(json).not.toContain(HASH);
-  });
-
-  it('returns null for a wrong password without the dummy compare', async () => {
-    const { service, passwordService } = setup({ passwordMatches: false });
-    await expect(
-      service.verifyCredentials('sara@example.com', 'wrong-pass1'),
-    ).resolves.toBeNull();
-    expect(passwordService.verifyDummy).not.toHaveBeenCalled();
-  });
-
-  it('runs the dummy compare for an unknown email and returns null', async () => {
-    const { service, passwordService } = setup({ stored: null });
-    await expect(
-      service.verifyCredentials('nobody@example.com', 'abcdefg1'),
-    ).resolves.toBeNull();
-    expect(passwordService.verifyDummy).toHaveBeenCalledWith('abcdefg1');
-    expect(passwordService.verify).not.toHaveBeenCalled();
+    expect(json).not.toContain('failedLoginAttempts');
+    expect(json).not.toContain('lockedUntil');
   });
 
   it.each([UserStatus.SUSPENDED, UserStatus.DEACTIVATED])(
-    'returns a %s profile too: the caller decides',
+    'returns a %s profile too and resets its counter: the caller decides',
     async (status) => {
-      const { service } = setup({ stored: user({ status }) });
+      const { service, userModel } = setup({
+        ticket: user({ status, failedLoginAttempts: 2 }),
+      });
       const result = await service.verifyCredentials(
         'sara@example.com',
         'abcdefg1',
       );
-      expect(result?.profile.status).toBe(status);
+      expect(result.kind === 'ok' && result.profile.status).toBe(status);
+      expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        { _id: USER_ID },
+        { $set: { failedLoginAttempts: 0, lockedUntil: null } },
+      );
     },
   );
+});
+
+describe('UsersService.verifyCredentials lockout tickets (ACC-05)', () => {
+  it('reserves a ticket with one conditional atomic update before bcrypt', async () => {
+    const { service, userModel, passwordService } = setup({
+      passwordMatches: false,
+    });
+    const before = Date.now();
+    await service.verifyCredentials('sara@example.com', 'wrong-pass1');
+    const after = Date.now();
+
+    expect(userModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(userModel.findOneAndUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      passwordService.verify.mock.invocationCallOrder[0],
+    );
+
+    const [filter, update, options] = userModel.findOneAndUpdate.mock.calls[0];
+    // No lock running, and fewer than MAX tickets taken (a missing counter counts as 0).
+    expect(filter).toEqual({
+      email: 'sara@example.com',
+      $and: [
+        {
+          $or: [
+            { lockedUntil: null },
+            { lockedUntil: { $lte: expect.any(Date) } },
+          ],
+        },
+        {
+          $or: [
+            { failedLoginAttempts: { $lt: MAX_FAILED_LOGIN_ATTEMPTS } },
+            { failedLoginAttempts: { $exists: false } },
+          ],
+        },
+      ],
+    });
+    // The "now" of the lock condition is the request time.
+    const iso = /\d{4}-\d{2}-\d{2}T[\d:.]+Z/.exec(JSON.stringify(filter))?.[0];
+    expect(Date.parse(iso ?? '')).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(iso ?? '')).toBeLessThanOrEqual(after);
+
+    // Plain operators, not a pipeline; the same update clears an expired lock.
+    expect(update).toEqual({
+      $inc: { failedLoginAttempts: 1 },
+      $set: { lockedUntil: null },
+    });
+    expect(options).toEqual({ returnDocument: 'after' });
+  });
+
+  it('runs the dummy compare for an unknown email and writes nothing', async () => {
+    const { service, passwordService, userModel } = setup({
+      stored: null,
+      ticket: null,
+    });
+    await expect(
+      service.verifyCredentials('  Nobody@Example.com', 'abcdefg1'),
+    ).resolves.toEqual({ kind: 'invalid' });
+
+    expect(passwordService.verifyDummy).toHaveBeenCalledWith('abcdefg1');
+    expect(passwordService.verify).not.toHaveBeenCalled();
+    expect(userModel.findOne).toHaveBeenCalledWith({
+      email: 'nobody@example.com',
+    });
+    expect(userModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('returns the running lock without bcrypt when no ticket is given', async () => {
+    const lockedUntil = FUTURE();
+    const { service, passwordService, userModel } = setup({
+      stored: user({ lockedUntil, failedLoginAttempts: 0 }),
+      ticket: null,
+      passwordMatches: true,
+    });
+    await expect(
+      service.verifyCredentials('sara@example.com', 'abcdefg1'),
+    ).resolves.toEqual({ kind: 'locked', lockedUntil });
+
+    expect(passwordService.verify).not.toHaveBeenCalled();
+    expect(passwordService.verifyDummy).not.toHaveBeenCalled();
+    expect(userModel.updateOne).not.toHaveBeenCalled();
+    // The read after a refused reservation needs only the lock.
+    expect(chainOf(userModel.findOne).selected).toEqual(['lockedUntil']);
+  });
+
+  describe('all tickets taken and no lock written (a stuck last ticket heals itself)', () => {
+    const EXHAUSTED = () =>
+      user({
+        failedLoginAttempts: MAX_FAILED_LOGIN_ATTEMPTS,
+        lockedUntil: null,
+      });
+
+    it('writes the lock with one conditional update and answers with it, without bcrypt', async () => {
+      const { service, passwordService, userModel } = setup({
+        stored: EXHAUSTED(),
+        ticket: null,
+        passwordMatches: true,
+        updateMatched: 1,
+      });
+      const before = Date.now();
+      const result = await service.verifyCredentials(
+        'sara@example.com',
+        'abcdefg1',
+      );
+      const after = Date.now();
+
+      expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+      const [filter, update] = userModel.updateOne.mock.calls[0];
+      expect(filter).toEqual({
+        _id: USER_ID,
+        failedLoginAttempts: { $gte: MAX_FAILED_LOGIN_ATTEMPTS },
+        $or: [
+          { lockedUntil: null },
+          { lockedUntil: { $lte: expect.any(Date) } },
+        ],
+      });
+      expect(update).toEqual({
+        $set: { lockedUntil: expect.any(Date), failedLoginAttempts: 0 },
+      });
+
+      // The answer carries exactly the moment that was written, 15 minutes ahead.
+      expect(result.kind).toBe('locked');
+      const lockedUntil = result.kind === 'locked' ? result.lockedUntil : null;
+      expect(update).toEqual({ $set: { lockedUntil, failedLoginAttempts: 0 } });
+      const until = lockedUntil?.getTime() ?? 0;
+      expect(until).toBeGreaterThanOrEqual(before + LOCKOUT_DURATION_MS);
+      expect(until).toBeLessThanOrEqual(after + LOCKOUT_DURATION_MS);
+
+      expect(userModel.findById).not.toHaveBeenCalled();
+      expect(passwordService.verify).not.toHaveBeenCalled();
+      expect(passwordService.verifyDummy).not.toHaveBeenCalled();
+    });
+
+    it('re-reads and answers the lock another request wrote in between', async () => {
+      const lockedUntil = FUTURE();
+      const { service, passwordService, userModel } = setup({
+        stored: EXHAUSTED(),
+        ticket: null,
+        updateMatched: 0,
+        byId: user({ failedLoginAttempts: 0, lockedUntil }),
+      });
+      await expect(
+        service.verifyCredentials('sara@example.com', 'abcdefg1'),
+      ).resolves.toEqual({ kind: 'locked', lockedUntil });
+
+      expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+      expect(userModel.findById).toHaveBeenCalledWith(USER_ID);
+      expect(chainOf(userModel.findById).selected).toEqual(['lockedUntil']);
+      expect(passwordService.verify).not.toHaveBeenCalled();
+    });
+
+    it('answers locked for the full duration when a reset was written in between', async () => {
+      const { service, passwordService, userModel } = setup({
+        stored: EXHAUSTED(),
+        ticket: null,
+        updateMatched: 0,
+        byId: user({ failedLoginAttempts: 0, lockedUntil: null }),
+      });
+      const before = Date.now();
+      const result = await service.verifyCredentials(
+        'sara@example.com',
+        'abcdefg1',
+      );
+      const after = Date.now();
+
+      expect(result.kind).toBe('locked');
+      const until = result.kind === 'locked' ? result.lockedUntil.getTime() : 0;
+      expect(until).toBeGreaterThanOrEqual(before + LOCKOUT_DURATION_MS);
+      expect(until).toBeLessThanOrEqual(after + LOCKOUT_DURATION_MS);
+      expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+      expect(userModel.findById).toHaveBeenCalledTimes(1);
+      expect(passwordService.verify).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(
+    Array.from({ length: MAX_FAILED_LOGIN_ATTEMPTS - 1 }, (_, i) => i + 1),
+  )(
+    'answers invalid with no further write for a wrong password on ticket %i',
+    async (ticketNumber) => {
+      const { service, userModel } = setup({
+        ticket: user({ failedLoginAttempts: ticketNumber }),
+        passwordMatches: false,
+      });
+      await expect(
+        service.verifyCredentials('sara@example.com', 'wrong-pass1'),
+      ).resolves.toEqual({ kind: 'invalid' });
+      expect(userModel.updateOne).not.toHaveBeenCalled();
+    },
+  );
+
+  it('locks the account for 15 minutes on a wrong password with the last ticket', async () => {
+    const { service, userModel } = setup({
+      ticket: user({ failedLoginAttempts: MAX_FAILED_LOGIN_ATTEMPTS }),
+      passwordMatches: false,
+    });
+    const before = Date.now();
+    const result = await service.verifyCredentials(
+      'sara@example.com',
+      'wrong-pass1',
+    );
+    const after = Date.now();
+
+    expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+    expect(userModel.updateOne).toHaveBeenCalledWith(
+      { _id: USER_ID },
+      { $set: { lockedUntil: expect.any(Date), failedLoginAttempts: 0 } },
+    );
+    // The 5th failure already answers locked, with the moment that was stored.
+    expect(result.kind).toBe('locked');
+    const lockedUntil = result.kind === 'locked' ? result.lockedUntil : null;
+    expect(userModel.updateOne.mock.calls[0][1]).toEqual({
+      $set: { lockedUntil, failedLoginAttempts: 0 },
+    });
+    const until = lockedUntil?.getTime() ?? 0;
+    expect(until).toBeGreaterThanOrEqual(before + LOCKOUT_DURATION_MS);
+    expect(until).toBeLessThanOrEqual(after + LOCKOUT_DURATION_MS);
+  });
+
+  it('lets the right password in on the last ticket and resets instead of locking', async () => {
+    const { service, userModel } = setup({
+      ticket: user({ failedLoginAttempts: MAX_FAILED_LOGIN_ATTEMPTS }),
+      passwordMatches: true,
+    });
+    const result = await service.verifyCredentials(
+      'sara@example.com',
+      'abcdefg1',
+    );
+    expect(result.kind).toBe('ok');
+    expect(userModel.updateOne).toHaveBeenCalledTimes(1);
+    expect(userModel.updateOne).toHaveBeenCalledWith(
+      { _id: USER_ID },
+      { $set: { failedLoginAttempts: 0, lockedUntil: null } },
+    );
+  });
 });

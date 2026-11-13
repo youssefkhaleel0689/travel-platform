@@ -1,5 +1,7 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,6 +13,30 @@ import { unauthenticated } from './guards/jwt-auth.guard';
 import { AccessTokenService } from './tokens/access-token.service';
 import { setAccessTokenCookie } from './tokens/auth-cookie';
 import { UserProfile, UsersService } from './users/users.service';
+
+/**
+ * ACC-05: 423 for a locked account. details.lockedUntil tells the client when to retry, and
+ * the exception filter turns retryAfterSeconds into the Retry-After header (whole seconds,
+ * rounded up, at least 1); it never appears in the body.
+ */
+export function accountLocked(
+  lockedUntil: Date,
+  now = Date.now(),
+): HttpException {
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((lockedUntil.getTime() - now) / 1000),
+  );
+  return new HttpException(
+    {
+      code: 'ACCOUNT_LOCKED',
+      message: 'account locked, try again later',
+      details: { lockedUntil: lockedUntil.toISOString() },
+      retryAfterSeconds,
+    },
+    HttpStatus.LOCKED,
+  );
+}
 
 @Injectable()
 export class AuthService {
@@ -39,19 +65,22 @@ export class AuthService {
    *
    * The status is checked only after the password matches, so a wrong password never
    * reveals whether an account exists or is suspended: it is always 401 INVALID_CREDENTIALS.
+   * ACC-05: a locked account gets 423 ACCOUNT_LOCKED, even with the right password. The
+   * failure counter is kept by UsersService.verifyCredentials (reset on any right
+   * password); nothing here writes to it.
    */
   async login(dto: LoginDto, res: Response): Promise<UserProfile> {
-    const verified = await this.users.verifyCredentials(
-      dto.email,
-      dto.password,
-    );
-    if (!verified) {
+    const result = await this.users.verifyCredentials(dto.email, dto.password);
+    if (result.kind === 'invalid') {
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'invalid email or password',
       });
     }
-    const { profile } = verified;
+    if (result.kind === 'locked') {
+      throw accountLocked(result.lockedUntil);
+    }
+    const { profile } = result;
     if (profile.status === UserStatus.SUSPENDED) {
       throw new ForbiddenException({
         code: 'ACCOUNT_SUSPENDED',
