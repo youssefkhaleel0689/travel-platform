@@ -6,12 +6,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, QueryFilter } from 'mongoose';
+import { Model, QueryFilter, Types } from 'mongoose';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
 import { PageDto } from '../../common/pagination/dto/page.dto';
 import { paginateQuery } from '../../common/pagination/paginate';
 import { PasswordService } from '../password/password.service';
 import { User } from '../schemas/user.schema';
+import {
+  LOCKOUT_DURATION_MS,
+  MAX_FAILED_LOGIN_ATTEMPTS,
+} from './login-lockout';
 
 // What the rest of the app sees of a user. Never includes passwordHash or the lockout fields.
 export interface UserProfile {
@@ -61,6 +65,23 @@ export interface CreateUserInput {
   role: Role;
   termsAcceptedAt?: Date | null;
   mustChangePassword?: boolean;
+}
+
+/**
+ * Result of a login check (ACC-04, ACC-05). 'invalid' covers an unknown email and a wrong
+ * password alike.
+ */
+export type CredentialCheck =
+  | { kind: 'ok'; profile: UserProfile }
+  | { kind: 'invalid' }
+  | { kind: 'locked'; lockedUntil: Date };
+
+// A lock is running while lockedUntil is in the future; an expired lock counts as none.
+function isLockActive(
+  lockedUntil: Date | null | undefined,
+  now: Date,
+): lockedUntil is Date {
+  return lockedUntil instanceof Date && lockedUntil.getTime() > now.getTime();
 }
 
 // A route id is always 24 hex characters. Types.ObjectId.isValid is not used because it
@@ -152,30 +173,156 @@ export class UsersService {
   }
 
   /**
-   * Login check (ACC-04): the profile when the email and password match, otherwise null.
-   * Returns the profile whatever its status; the caller decides what a status means. The
-   * hash never leaves this method.
+   * Login check (ACC-04, ACC-05). The hash never leaves this method.
+   *
+   * Ticket design: checking the lock first and counting the failure after bcrypt (~250 ms)
+   * is a time-of-check/time-of-use flaw: parallel requests all pass the check before any
+   * failure is counted, so an attacker gets every parallel guess evaluated. Instead, each
+   * attempt first reserves a ticket with one conditional atomic update, BEFORE bcrypt: the
+   * update matches only while no lock runs and fewer than MAX_FAILED_LOGIN_ATTEMPTS tickets
+   * are taken, and it adds 1 to the counter. At most MAX passwords are ever compared per
+   * lock period, however many requests arrive at once.
+   *
+   * 1. Reserve a ticket (it also clears an expired lock). The new counter is its number.
+   * 2. No ticket, so no bcrypt against the stored hash:
+   *    - unknown email: the same bcrypt work on a dummy hash (timing does not reveal which
+   *      emails are registered) and 'invalid'; nothing was written;
+   *    - a lock running: 'locked';
+   *    - otherwise all tickets are taken but no lock is written: this request writes the
+   *      lock itself (see lockExhaustedTickets: a stuck last ticket heals itself) and
+   *      answers 'locked'.
+   * 3. Ticket taken, bcrypt:
+   *    - right password: the counter and lock are reset and 'ok' with the profile whatever
+   *      its status (the caller decides what a status means; a suspended account still gets
+   *      403, so giving its ticket back is harmless);
+   *    - wrong password with a ticket below MAX: 'invalid' (step 1 already counted it);
+   *    - wrong password with the last ticket: the account is locked for
+   *      LOCKOUT_DURATION_MS and the counter reset; this 5th failure already answers 'locked'.
    */
   async verifyCredentials(
     email: string,
     password: string,
-  ): Promise<{ profile: UserProfile } | null> {
-    const user = await this.userModel
-      .findOne({ email: normalizeEmail(email) })
+  ): Promise<CredentialCheck> {
+    const normalized = normalizeEmail(email);
+    const now = new Date();
+
+    const ticket = await this.userModel
+      .findOneAndUpdate(
+        {
+          email: normalized,
+          $and: [
+            { $or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }] },
+            {
+              $or: [
+                { failedLoginAttempts: { $lt: MAX_FAILED_LOGIN_ATTEMPTS } },
+                { failedLoginAttempts: { $exists: false } },
+              ],
+            },
+          ],
+        },
+        { $inc: { failedLoginAttempts: 1 }, $set: { lockedUntil: null } },
+        { returnDocument: 'after' },
+      )
       .select('+passwordHash')
       .lean<User>()
       .exec();
+
+    if (!ticket) {
+      return this.withoutTicket(normalized, password, now);
+    }
+
+    if (await this.passwordService.verify(password, ticket.passwordHash)) {
+      await this.resetLoginFailures(ticket._id);
+      return { kind: 'ok', profile: this.toUserProfile(ticket) };
+    }
+    if (ticket.failedLoginAttempts < MAX_FAILED_LOGIN_ATTEMPTS) {
+      return { kind: 'invalid' };
+    }
+    const lockedUntil = new Date(now.getTime() + LOCKOUT_DURATION_MS);
+    await this.userModel
+      .updateOne(
+        { _id: ticket._id },
+        { $set: { lockedUntil, failedLoginAttempts: 0 } },
+      )
+      .exec();
+    return { kind: 'locked', lockedUntil };
+  }
+
+  // Step 2 of verifyCredentials: the reservation matched nothing. The stored hash is never
+  // compared here.
+  private async withoutTicket(
+    normalizedEmail: string,
+    password: string,
+    now: Date,
+  ): Promise<CredentialCheck> {
+    const user = await this.userModel
+      .findOne({ email: normalizedEmail })
+      .select('lockedUntil')
+      .lean<Pick<User, '_id' | 'lockedUntil'>>()
+      .exec();
     if (!user) {
-      // Same bcrypt work as a known email, so timing does not reveal registered emails.
       await this.passwordService.verifyDummy(password);
-      return null;
+      return { kind: 'invalid' };
     }
-    // TODO(ACC-05, PR 3): the lockout check (lockedUntil, failedLoginAttempts) goes here,
-    // before the password is compared, and a wrong password increments the counter.
-    if (!(await this.passwordService.verify(password, user.passwordHash))) {
-      return null;
+    // Compared with the same `now` as the reservation, so a lock that ends between the two
+    // queries still reads as the lock that refused the ticket.
+    if (isLockActive(user.lockedUntil, now)) {
+      return { kind: 'locked', lockedUntil: user.lockedUntil };
     }
-    return { profile: this.toUserProfile(user) };
+    return this.lockExhaustedTickets(user._id, now);
+  }
+
+  /**
+   * All MAX tickets are taken and no lock runs. Usually the request holding the last ticket
+   * is still in bcrypt and about to write the lock or the reset. But if it died first
+   * (crash, database error, bcrypt error), the counter would stay at MAX with no lock and no
+   * request could ever reserve a ticket again: locked forever. So this request writes the
+   * lock itself, with one conditional update that matches only while the counter is at MAX
+   * and no lock runs. A stuck last ticket then heals itself after one lock period: when the
+   * lock ends, the next reservation clears it. If the in-flight ticket turns out to hold the
+   * right password, its reset clears this lock; if it holds a wrong one, it writes its own.
+   * The stored hash is never compared here.
+   */
+  private async lockExhaustedTickets(
+    userId: Types.ObjectId,
+    now: Date,
+  ): Promise<CredentialCheck> {
+    const lockedUntil = new Date(now.getTime() + LOCKOUT_DURATION_MS);
+    const written = await this.userModel
+      .updateOne(
+        {
+          _id: userId,
+          failedLoginAttempts: { $gte: MAX_FAILED_LOGIN_ATTEMPTS },
+          $or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }],
+        },
+        { $set: { lockedUntil, failedLoginAttempts: 0 } },
+      )
+      .exec();
+    if (written.matchedCount > 0) {
+      return { kind: 'locked', lockedUntil };
+    }
+    // Another request wrote a lock or a reset in between: read which.
+    const current = await this.userModel
+      .findById(userId)
+      .select('lockedUntil')
+      .lean<Pick<User, 'lockedUntil'>>()
+      .exec();
+    if (current && isLockActive(current.lockedUntil, now)) {
+      return { kind: 'locked', lockedUntil: current.lockedUntil };
+    }
+    // A reset (or a counter below MAX) with no lock: this attempt was still refused a
+    // ticket, so it answers locked for the full duration.
+    return { kind: 'locked', lockedUntil };
+  }
+
+  // ACC-05: a right password gives its ticket back and clears any lock.
+  private async resetLoginFailures(userId: Types.ObjectId): Promise<void> {
+    await this.userModel
+      .updateOne(
+        { _id: userId },
+        { $set: { failedLoginAttempts: 0, lockedUntil: null } },
+      )
+      .exec();
   }
 
   /**

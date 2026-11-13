@@ -71,6 +71,27 @@ class ProbeController {
     ],
   })
   phrases(): void {}
+
+  @Get('locked')
+  @ApiErrorResponse({
+    status: 423,
+    description: 'Locked',
+    headers: {
+      'Retry-After': {
+        description: 'Seconds until the lock ends',
+        schema: { type: 'integer' },
+      },
+    },
+    examples: [
+      {
+        code: 'ACCOUNT_LOCKED',
+        message: 'account locked, try again later',
+        path: '/api/probe/locked',
+        details: { lockedUntil: '2026-11-13T10:15:00.000Z' },
+      },
+    ],
+  })
+  locked(): void {}
 }
 
 // The application/json content of one documented response.
@@ -169,6 +190,46 @@ describe('ApiErrorResponse', () => {
     for (const body of bodies) {
       expect(body).toMatchObject({ statusCode: status, error: phrase });
     }
+  });
+
+  it('copies details into the example, between errors and path', () => {
+    const media = content(document, '/probe/locked', 423);
+    expect(media.example).toEqual({
+      statusCode: 423,
+      code: 'ACCOUNT_LOCKED',
+      error: 'Locked',
+      message: 'account locked, try again later',
+      details: { lockedUntil: '2026-11-13T10:15:00.000Z' },
+      path: '/api/probe/locked',
+      timestamp: ERROR_EXAMPLE_TIMESTAMP,
+    });
+    expect(Object.keys(media.example ?? {})).toEqual([
+      'statusCode',
+      'code',
+      'error',
+      'message',
+      'details',
+      'path',
+      'timestamp',
+    ]);
+  });
+
+  it('adds details only when they are given', () => {
+    expect(content(document, '/probe/one', 404).example).not.toHaveProperty(
+      'details',
+    );
+  });
+
+  it('documents the given response headers, and none otherwise', () => {
+    const locked = document.paths['/probe/locked']?.get?.responses['423'];
+    expect(locked && 'headers' in locked ? locked.headers : undefined).toEqual({
+      'Retry-After': {
+        description: 'Seconds until the lock ends',
+        schema: { type: 'integer' },
+      },
+    });
+    const one = document.paths['/probe/one']?.get?.responses['404'];
+    expect(one).not.toHaveProperty('headers');
   });
 
   it('refuses two examples with the same code', () => {

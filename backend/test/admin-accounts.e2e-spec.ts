@@ -249,6 +249,49 @@ describe('Admin account administration (e2e)', () => {
     });
   });
 
+  // ACC-05 + ACC-07a. The Leader asked whether an admin password reset should
+  // also clear a running lock. It should: the admin has just given the account
+  // a new password, so making the person wait out a lockout earned by the old
+  // one helps nobody, and there is no other way to clear it from the API.
+  describe('an admin reset clears an ACC-05 lockout', () => {
+    it('unlocks the account, and the temporary password logs in at once', async () => {
+      const target = await signIn({ label: 'locked' });
+
+      // Lock it: five wrong passwords.
+      for (let i = 1; i < 5; i += 1) {
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: target.email, password: 'WrongPass123' })
+          .expect(401);
+      }
+      const locked = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: target.email, password: 'WrongPass123' })
+        .expect(423);
+      expect(locked.body.code).toBe('ACCOUNT_LOCKED');
+
+      // Even the right password is refused while the lock runs.
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ email: target.email, password: target.password })
+        .expect(423);
+
+      const reset = await request(app.getHttpServer())
+        .post(`/api/admin/users/${target.userId}/reset-password`)
+        .set('Cookie', admin.cookie)
+        .expect(200);
+
+      // The lock is gone: the temporary password logs in straight away.
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({
+          email: target.email,
+          password: reset.body.temporaryPassword as string,
+        })
+        .expect(200);
+    }, SLOW_MS);
+  });
+
   describe('POST /api/admin/users/:id/reset-password (ACC-07a)', () => {
     it('issues a working temporary password that must then be changed', async () => {
       const target = await signIn({ label: 'reset' });

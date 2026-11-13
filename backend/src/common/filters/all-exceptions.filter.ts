@@ -23,7 +23,33 @@ const CODE_BY_STATUS: Record<number, string> = {
 // Nest's router 404 text, e.g. "Cannot GET /api/nope?token=abc".
 const ROUTER_NOT_FOUND = /^Cannot [A-Z]+ \//;
 
-type ErrorBody = Omit<ErrorResponseDto, 'path' | 'timestamp' | 'error'>;
+// What toErrorBody() decides; path, timestamp and error are added in catch().
+// retryAfterSeconds becomes the Retry-After header and is never part of the body.
+type ErrorBody = Omit<ErrorResponseDto, 'path' | 'timestamp' | 'error'> & {
+  retryAfterSeconds?: number;
+};
+
+// The fields read from an HttpException's response object. Anything else on it is dropped.
+interface HttpExceptionFields {
+  code?: unknown;
+  message?: unknown;
+  errors?: unknown;
+  details?: unknown;
+  retryAfterSeconds?: unknown;
+}
+
+// A plain object literal: not null, not an array, not a Date or another class instance.
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
 
 interface MongoDuplicateKeyError {
   code: 11000;
@@ -68,9 +94,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error: STATUS_CODES[body.statusCode] ?? 'Error',
       message: body.message,
       ...(body.errors && { errors: body.errors }),
+      ...(body.details && { details: body.details }),
       path,
       timestamp: new Date().toISOString(),
     };
+    if (body.retryAfterSeconds !== undefined) {
+      response.setHeader('Retry-After', String(body.retryAfterSeconds));
+    }
     response.status(body.statusCode).json(payload);
   }
 
@@ -130,10 +160,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private fromHttpException(exception: HttpException): ErrorBody {
     const statusCode = exception.getStatus();
     const res = exception.getResponse();
-    const fields =
-      typeof res === 'object' && res !== null
-        ? (res as { code?: unknown; message?: unknown; errors?: unknown })
-        : { message: res };
+    const fields: HttpExceptionFields =
+      typeof res === 'object' && res !== null ? res : { message: res };
 
     let message = Array.isArray(fields.message)
       ? fields.message.join('; ')
@@ -158,6 +186,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message,
       ...(Array.isArray(fields.errors) && {
         errors: fields.errors as FieldErrorDto[],
+      }),
+      // Structured extras (e.g. lockedUntil for ACCOUNT_LOCKED), for client errors only:
+      // a 5xx never carries details, so nothing internal can leak through them.
+      ...(statusCode < 500 &&
+        isPlainObject(fields.details) && { details: fields.details }),
+      // Sent as the Retry-After header by catch(), never in the body.
+      ...(isPositiveInteger(fields.retryAfterSeconds) && {
+        retryAfterSeconds: fields.retryAfterSeconds,
       }),
     };
   }

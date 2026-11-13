@@ -464,18 +464,6 @@ Add an AdminSeeder in src/auth/seed/ and a standalone `npm run seed:admin` entry
 How the output was used:
 I took ACC-18 over from B1 and chose to keep the admin credentials only in .env. Claude Code wrote the seeder (19 unit tests), the entry point, the npm script and an e2e test. I ran the unit tests and the e2e suite (11 suites, 95 tests), then seeded the shared Atlas database myself: the first run created the admin and the second reported "already exists". I logged in as the admin in Swagger and /auth/me returned role ADMIN. A screenshot of that login showed the password in Swagger's curl preview, so I rotated it (deleted the admin, new password, seeded again) and confirmed the old password is rejected. I reviewed the README section before committing.
 ================================================
-Date: 2026-11-09
-Student: Taher Khalaf
-Tool: Claude Code
-Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
-Prompt:
-Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
-How the output was used:
-Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
- - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
- - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
-Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
-================================================
 Date: 2026-11-13
 Student: Taher Khalaf
 Tool: Claude Code
@@ -491,4 +479,40 @@ Two real bugs the merge created, which Claude Code found and I reviewed:
 Where we disagreed on error codes, theirs win: FORBIDDEN not my FORBIDDEN_ROLE, UNAUTHENTICATED not UNAUTHORIZED, and a suspended account is the guard's 401 rather than a 403 of mine. I also had my controllers adopt their @ApiErrorResponse convention, which their swagger-docs e2e suite enforces, through a small standard-errors helper so the repeated bodies stay identical instead of being written out 50 times.
 Verified myself: 0 type errors, lint clean, 689 unit tests, 250 e2e tests, and a manual pass over every one of my endpoints on a running server - register, login, profile read and edit, change password, the admin list with search and filters, suspend and reactivate, the temporary-password lockout and the way out of it, the notification the suspension creates, and the 501 the payment routes correctly return while no booking module provides a BookingsPort.
 Two things worth recording for the team. test:e2e now runs with --runInBand: nineteen suites each opening a Nest app against our one shared Atlas database exhausted connections and made app.e2e-spec fail at random, and serially all 250 pass. And the Postman collection had a real design fault that only showed up once login worked - folder 50 suspended and reset "the first ACTIVE USER account it found", which was the collection's own test user, so every later folder failed to sign in. It now registers a target of its own. All 60 requests and 134 assertions pass against a running server.
+=======
+================================================
+Date: 2026-11-13
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-05 (Leader PR 3: account lockout, plus the shared error format change it needed)
+Prompt:
+Decide the lockout response (423 Locked with lockedUntil and a Retry-After header, chosen over 429, 403 and 401) and the rules: 5 consecutive failures lock the account for 15 minutes, the counter resets when the lock starts, the lock is checked before the password, and existing sessions are not affected. Extend the shared error format with an optional details object and retryAfterSeconds (sent as the Retry-After header, never in the body). Implement the lockout with an atomic database update, and write unit and e2e tests. Follow-up prompts: redesign the check after the review below, make a stuck last ticket heal itself, fix an e2e warning, and document the lockout in the README.
+How the output was used:
+Several problems were found and fixed before any commit. The first implementation checked the lock before bcrypt but counted the failure after it; reading the diff showed a time-of-check/time-of-use flaw, because parallel requests could all have their password checked. It was redesigned so each attempt reserves a "ticket" with one atomic update before bcrypt, so at most 5 passwords are checked per lock period. Claude Code then pointed out that a request dying while holding the last ticket would lock the account forever, so a self-healing conditional lock was added. A MaxListenersExceededWarning in the new e2e test (supertest starting the server for every request) was fixed by starting the server once. I reviewed every diff and ran lint, the unit tests (477) and the e2e tests (102) myself, repeating the runs that include a 10-request parallel race. I tested by hand in Swagger UI with a throwaway account: the 401 to 423 sequence, the Retry-After header and the automatic unlock. Commits: c03b0fd, e9f354b, 679bb17; this entry is committed separately.
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
+Prompt:
+Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
+How the output was used:
+Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
+ - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
+ - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
+Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
+================================================
+================================================
+Date: 2026-11-13
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-05 integration with ACC-07a and ACC-08
+Prompt:
+Merge the leader's PR 3 (ACC-05 account lockout) from develop into my branch and check how it interacts with my work, after the team message saying login now returns 423 ACCOUNT_LOCKED and asking whether the admin password reset should also clear the lock.
+How the output was used:
+The merge was almost clean: one import line in users.service.ts, where their ticket-based lockout and my account operations had both grown in the same file, and the usual AI_PROMPTS append. Their verifyCredentials is now a ticket reservation with a conditional update, which is a nicer answer to five simultaneous wrong passwords than a counter read followed by a write.
+On the leader's question I checked the code before answering rather than agreeing in principle: resetPasswordToTemporary (ACC-07a), changeOwnPassword (ACC-08) and setStatus back to ACTIVE (ACC-16) already set failedLoginAttempts to 0 and lockedUntil to null, because I had written them that way when I first built the account operations. So the answer is yes, and it is already true. My reasoning, which I will give the leader: the admin has just replaced the password, so a lock earned by the old one is meaningless, and there is no other way to clear a lock through the API - the message itself says to edit lockedUntil in Atlas by hand, which is not something we should need.
+To make that agreement concrete rather than a chat message, I had Claude Code add two unit tests on the clearing behaviour and one e2e test that drives the whole flow: five wrong passwords, the 423, the right password still refused while locked, the admin reset, and the temporary password logging in straight away. If anyone later removes the lock clearing from the reset, those fail.
+I also had to add generateTemporary to their password service mock in users.service.spec.ts, because my resetPasswordToTemporary calls it.
+Not done on purpose: their new optional details object would suit my POLICY_VERSION_MISMATCH error, which could carry the current policyVersion so the client knows what to re-accept without another request. That is a small improvement rather than part of this merge, so I left it out and noted it instead.
+Verified: 0 type errors, lint clean, 736 unit tests and the full e2e suite.
 ================================================
