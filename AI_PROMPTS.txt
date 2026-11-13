@@ -516,3 +516,14 @@ I also had to add generateTemporary to their password service mock in users.serv
 Not done on purpose: their new optional details object would suit my POLICY_VERSION_MISMATCH error, which could carry the current policyVersion so the client knows what to re-accept without another request. That is a small improvement rather than part of this merge, so I left it out and noted it instead.
 Verified: 0 type errors, lint clean, 736 unit tests and the full e2e suite.
 ================================================
+================================================
+Date: 2026-11-13
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-05 (test harness fix after the merge)
+Prompt:
+Run the full e2e suite after merging ACC-05 and fix whatever it reports.
+How the output was used:
+The run showed 7 failures, all in the leader's own test/auth-lockout.e2e-spec.ts, and all from one cause: its beforeAll timed out at 30 seconds, after which app was undefined and every test in the file failed on getHttpServer. Not a defect in ACC-05 and nothing to do with my code: the suites now run serially because I had added --runInBand, so this one starts after a queue of others, and its hooks register several accounts over HTTP with a real bcrypt hash each.
+I raised that file's CONNECT_TIMEOUT_MS to 90 seconds, the same value I had already given every other suite for the same reason, and wrote the reason into the comment so nobody lowers it again. All 7 pass. I am telling the leader rather than quietly editing their file.
+================================================
