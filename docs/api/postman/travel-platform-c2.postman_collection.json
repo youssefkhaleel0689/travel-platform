@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Travel Platform - C2 (accounts, notifications, payments)",
-    "description": "Manual test collection for the C2 endpoints: ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11, PAY-01 to PAY-04.\n\nHOW AUTHENTICATION WORKS HERE\nThe API keeps its tokens in httpOnly cookies (ACC-19), and Postman has a cookie jar, so no token is ever copied by hand: run a sign-in request and Postman stores the cookie and sends it automatically on every later request to the same host. Each folder that needs a particular role starts with its own sign-in request, so folders are self-contained.\n\nWHAT WORKS TODAY, WITH NO SIGN-IN (7 requests, all verified against a running server)\n  00/01  GET /currencies                      200\n  00/02  GET /currencies?limit=50             400 VALIDATION_FAILED\n  10/01  GET /users/me with no cookie         401 UNAUTHORIZED\n  10/02  GET /users/me with a bad cookie      401 INVALID_TOKEN\n  80/05  POST /payments/webhook, no signature 400 MISSING_WEBHOOK_SIGNATURE\n  80/06  POST /payments/webhook, forged sig   401 INVALID_WEBHOOK_SIGNATURE\n  90/02  POST /refunds                        404, the route does not exist by design\n\nWHAT NEEDS ACC-04 (POST /api/auth/login), WHICH IS NOT MERGED YET\nEverything else. AuthenticatedGuard runs before the validation pipe, so even the deliberately invalid requests in folders 70 and 80 answer 401 rather than 400 until you can sign in. Expect folders 20 to 90 to be red today; that is the guard working, not a broken collection. The sign-in bodies follow ACC-01 and ACC-04 as the requirements describe them, so if the implemented DTO uses different field names, fix them in the sign-in requests only.\n\nWHAT NEEDS A BOOKING MODULE\nFolders 70 to 90 call through BookingsPort, which no module provides yet, so once you can sign in they answer 501 BOOKING_TYPE_UNAVAILABLE. Their tests assert that 501 on purpose; each request says what to change when the flights or hotels module is wired in.\n\nSee docs/api/POSTMAN.md for the protocol and the troubleshooting table.",
+    "description": "Manual test collection for the C2 endpoints: ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11, PAY-01 to PAY-04.\n\nHOW AUTHENTICATION WORKS\nThe API keeps its token in an httpOnly cookie (ACC-19), and Postman has a cookie jar, so no token is ever copied by hand: run a sign-in request and Postman stores the cookie and sends it automatically on every later request to the same host. Each folder that needs a particular role starts with its own sign-in request, so folders are self-contained.\n\nThe jar holds one cookie per name per host, so signing in as the admin replaces the user's cookie. After folder 50, sign in again as the test user before going back to folders 20 to 40.\n\nWHAT YOU NEED FIRST\n  cd backend && npm run seed        (reference data: folder 00 asserts 7 currencies)\n  cd backend && npm run seed:admin  (the ADMIN account folder 50 needs, ACC-18)\n  cd backend && npm run start:dev\nSet userEmail/userPassword to an account you register with folder 20 request 01, and adminEmail/adminPassword to the ADMIN_EMAIL and ADMIN_PASSWORD in backend/.env.\n\nWHAT STILL ANSWERS 501\nFolders 70 to 90 reach bookings through BookingsPort, which neither the flights nor the hotels module provides yet, so they answer 501 BOOKING_TYPE_UNAVAILABLE. Their tests assert that on purpose; each request says what to change when a booking module lands.\n\nSee docs/api/POSTMAN.md for the protocol and the troubleshooting table.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -76,6 +76,15 @@
     {
       "key": "refundId",
       "value": "6720f1c2a1b2c3d4e5f60920"
+    },
+    {
+      "key": "targetEmail",
+      "value": "test_c2_target@example.com",
+      "description": "The account folder 50 suspends, reactivates and resets. Not the one the other folders use."
+    },
+    {
+      "key": "targetPassword",
+      "value": "ManualTest123"
     }
   ],
   "item": [
@@ -187,7 +196,7 @@
                 "exec": [
                   "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
                   "const body = pm.response.json();",
-                  "pm.test('code UNAUTHORIZED', () => pm.expect(body.code).to.eql('UNAUTHORIZED'));",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(body.code).to.eql('UNAUTHENTICATED'));",
                   "pm.test('shared error shape (GEN-02)', () => {",
                   "  ['statusCode', 'code', 'error', 'message', 'path', 'timestamp'].forEach((f) =>",
                   "    pm.expect(body).to.have.property(f));",
@@ -200,7 +209,7 @@
           ]
         },
         {
-          "name": "02 Malformed token -> 401 INVALID_TOKEN",
+          "name": "02 Malformed token -> 401 UNAUTHENTICATED",
           "request": {
             "method": "GET",
             "header": [
@@ -219,7 +228,7 @@
                 "me"
               ]
             },
-            "description": "An explicit Cookie header overrides the jar, so this works whether or not you are signed in."
+            "description": "An explicit Cookie header overrides the jar, so this works whether or not you are signed in.\n\nThe guard answers the same UNAUTHENTICATED for every failure - no cookie, a bad token, an expired one, an unknown user, a non-active account - so the response never reveals which of those it was."
           },
           "event": [
             {
@@ -228,23 +237,18 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
-                  "pm.test('code INVALID_TOKEN', () =>",
-                  "  pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN'));"
+                  "pm.test('code UNAUTHENTICATED, the same as every other failure', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "03 Log out, then reuse the old cookie -> 401 SESSION_EXPIRED",
+          "name": "03 A suspended account is refused at once (ACC-16)",
           "request": {
             "method": "GET",
-            "header": [
-              {
-                "key": "Cookie",
-                "value": "access_token={{revokedToken}}"
-              }
-            ],
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/users/me",
               "host": [
@@ -255,7 +259,7 @@
                 "me"
               ]
             },
-            "description": "The check that makes logout and the 30-minute inactivity rule real (ACC-06): the JWT is still cryptographically valid, but its session is gone, so the request is refused.\n\nTo produce it once ACC-04 and ACC-06 exist: sign in, copy the access_token value out of Postman's cookie jar into the revokedToken variable, call POST /api/auth/logout, then send this request.\n\nA password change (folder 30) does the same thing to the account's OTHER sessions."
+            "description": "Run this while signed in, after an admin has suspended your account in folder 50. The guard reloads the user from the database on every request, so the cookie you still hold stops working immediately rather than when the token expires - and the answer is 401 UNAUTHENTICATED, because the guard refuses to identify a non-active account at all.\n\nLogout and the 30-minute idle expiry are ACC-06 and are not built yet."
           },
           "event": [
             {
@@ -263,12 +267,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (!pm.variables.get('revokedToken')) {",
-                  "  pm.test.skip('set revokedToken first - see the request description');",
-                  "} else {",
-                  "  pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
-                  "  pm.test('code SESSION_EXPIRED', () =>",
-                  "    pm.expect(pm.response.json().code).to.eql('SESSION_EXPIRED'));",
+                  "pm.test('200 while active, 401 once suspended', () =>",
+                  "  pm.expect([200, 401]).to.include(pm.response.code));",
+                  "if (pm.response.code === 401) {",
+                  "  pm.test('code UNAUTHENTICATED', () =>",
+                  "    pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));",
                   "}"
                 ]
               }
@@ -282,7 +285,51 @@
       "description": "Starts by signing in, so the folder can be run on its own.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Register the test account (ACC-01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Test Account\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"acceptTerms\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Public. Creates an ACTIVE USER account and logs it in straight away, so the cookie is already in Postman's jar after this.\n\n409 EMAIL_ALREADY_REGISTERED means the account exists: skip to the sign-in request below."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created, or 409 if it already exists', () =>",
+                  "  pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('userId', pm.response.json().id);",
+                  "  pm.test('the role cannot be chosen: always USER (ACC-01)', () =>",
+                  "    pm.expect(pm.response.json().role).to.eql('USER'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -313,22 +360,18 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "  pm.test('an access_token cookie was set (ACC-19)', () =>",
-                  "    pm.expect(pm.cookies.has('access_token')).to.be.true);",
-                  "  pm.test('no token is returned in the body (ACC-19)', () =>",
-                  "    pm.expect(pm.response.text()).to.not.include('eyJ'));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "02 GET /users/me",
+          "name": "03 GET /users/me",
           "request": {
             "method": "GET",
             "header": [],
@@ -369,7 +412,7 @@
           ]
         },
         {
-          "name": "03 PATCH /users/me - all three fields",
+          "name": "04 PATCH /users/me - all three fields",
           "request": {
             "method": "PATCH",
             "header": [
@@ -412,7 +455,7 @@
           ]
         },
         {
-          "name": "04 PATCH /users/me - partial update leaves the rest alone",
+          "name": "05 PATCH /users/me - partial update leaves the rest alone",
           "request": {
             "method": "PATCH",
             "header": [
@@ -454,7 +497,7 @@
           ]
         },
         {
-          "name": "05 PATCH /users/me - null clears a field",
+          "name": "06 PATCH /users/me - null clears a field",
           "request": {
             "method": "PATCH",
             "header": [
@@ -494,7 +537,7 @@
           ]
         },
         {
-          "name": "06 PATCH /users/me - every invalid field is reported (GEN-02)",
+          "name": "07 PATCH /users/me - every invalid field is reported (GEN-02)",
           "request": {
             "method": "PATCH",
             "header": [
@@ -539,7 +582,7 @@
           ]
         },
         {
-          "name": "07 PATCH /users/me - role is refused, not ignored",
+          "name": "08 PATCH /users/me - role is refused, not ignored",
           "request": {
             "method": "PATCH",
             "header": [
@@ -579,7 +622,7 @@
           ]
         },
         {
-          "name": "08 PATCH /users/me - unseeded currency is refused",
+          "name": "09 PATCH /users/me - unseeded currency is refused",
           "request": {
             "method": "PATCH",
             "header": [
@@ -625,7 +668,7 @@
       "description": "Requests 04 to 06 change the password and change it back, so the folder is safe to run repeatedly on the same account.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -655,11 +698,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }
@@ -874,7 +917,7 @@
       "description": "To see a real notification: have an admin suspend this account (folder 50) and then reactivate it, and sign in again here. The suspension leaves an ACCOUNT_SUSPENDED notification behind. A confirmed payment or a refund also creates one, once a booking module exists.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -904,11 +947,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }
@@ -1157,10 +1200,52 @@
     },
     {
       "name": "50 Admin accounts (ACC-07a, ACC-14, ACC-16)",
-      "description": "Needs an ADMIN account. Admins cannot self-register (ACC-18), so this comes from the admin seed - set adminEmail and adminPassword to its credentials.\n\nSigning in here replaces the cookie in Postman's jar, so sign in again as the test user before going back to folders 20 to 40.",
+      "description": "Needs the ADMIN account from the seed (ACC-18): run `npm run seed:admin` in backend/, then set adminEmail and adminPassword to the ADMIN_EMAIL and ADMIN_PASSWORD in backend/.env. Admins cannot self-register, so the seed is the only way to get one.\n\nSigning in here replaces the cookie in Postman's jar, so sign in again as the test user before going back to folders 20 to 40.",
       "item": [
         {
-          "name": "01 Sign in as an admin (needs ACC-04 and the ACC-18 seed)",
+          "name": "01 Register the account this folder will act on",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Admin Target\",\n  \"email\": \"{{targetEmail}}\",\n  \"password\": \"{{targetPassword}}\",\n  \"acceptTerms\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "A dedicated account to suspend, reactivate and reset, so this folder never touches the account the other folders use. Request 10 leaves it on a temporary password, so give targetEmail a fresh address when you want to run the folder again from clean."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created, or 409 if it already exists', () =>",
+                  "  pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set('secondUserId', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Sign in as the seeded admin (ACC-18)",
           "request": {
             "method": "POST",
             "header": [
@@ -1191,11 +1276,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "if (!pm.variables.get('adminEmail')) {",
-                  "  pm.test.skip('set adminEmail and adminPassword from the admin seed (ACC-18)');",
-                  "} else if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
+                  "  pm.test.skip('set adminEmail and adminPassword from backend/.env (npm run seed:admin)');",
                   "} else {",
                   "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('the account really is an ADMIN', () =>",
+                  "    pm.expect(pm.response.json().role).to.eql('ADMIN'));",
                   "}"
                 ]
               }
@@ -1203,7 +1288,7 @@
           ]
         },
         {
-          "name": "02 GET /admin/accounts",
+          "name": "03 GET /admin/accounts",
           "request": {
             "method": "GET",
             "header": [],
@@ -1239,17 +1324,17 @@
                   "      pm.expect(row).to.not.have.property(f));",
                   "  });",
                   "});",
+                  "// The admin's own id, for the self-target refusal below. The account this",
+                  "// folder acts on was registered by request 01, never picked by scanning.",
                   "const admin = body.items.find((r) => r.email === pm.variables.get('adminEmail'));",
-                  "if (admin) pm.collectionVariables.set('adminUserId', admin.id);",
-                  "const target = body.items.find((r) => r.role === 'USER' && r.status === 'ACTIVE');",
-                  "if (target) pm.collectionVariables.set('secondUserId', target.id);"
+                  "if (admin) pm.collectionVariables.set('adminUserId', admin.id);"
                 ]
               }
             }
           ]
         },
         {
-          "name": "03 GET /admin/accounts - search, role and status filters",
+          "name": "04 GET /admin/accounts - search, role and status filters",
           "request": {
             "method": "GET",
             "header": [],
@@ -1298,7 +1383,7 @@
           ]
         },
         {
-          "name": "04 GET /admin/accounts?search=.* - a regex is matched literally",
+          "name": "05 GET /admin/accounts?search=.* - a regex is matched literally",
           "request": {
             "method": "GET",
             "header": [],
@@ -1335,7 +1420,7 @@
           ]
         },
         {
-          "name": "05 Invalid role -> 400",
+          "name": "06 Invalid role -> 400",
           "request": {
             "method": "GET",
             "header": [],
@@ -1372,7 +1457,7 @@
           ]
         },
         {
-          "name": "06 PATCH /admin/accounts/{{secondUserId}}/suspend",
+          "name": "07 PATCH /admin/accounts/{{secondUserId}}/suspend",
           "request": {
             "method": "PATCH",
             "header": [],
@@ -1412,7 +1497,7 @@
           ]
         },
         {
-          "name": "07 PATCH /admin/accounts/{{secondUserId}}/reactivate",
+          "name": "08 PATCH /admin/accounts/{{secondUserId}}/reactivate",
           "request": {
             "method": "PATCH",
             "header": [],
@@ -1452,7 +1537,7 @@
           ]
         },
         {
-          "name": "08 Suspend own account -> 400 CANNOT_TARGET_SELF",
+          "name": "09 Suspend own account -> 400 CANNOT_TARGET_SELF",
           "request": {
             "method": "PATCH",
             "header": [],
@@ -1489,7 +1574,7 @@
           ]
         },
         {
-          "name": "09 Suspend an unknown id -> 404",
+          "name": "10 Suspend an unknown id -> 404",
           "request": {
             "method": "PATCH",
             "header": [],
@@ -1520,7 +1605,45 @@
           ]
         },
         {
-          "name": "10 POST /admin/users/{{secondUserId}}/reset-password",
+          "name": "11 A non-admin cannot reach these -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Cookie",
+                "value": "access_token=not.a.real.token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/accounts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "accounts"
+              ]
+            },
+            "description": "With a real USER cookie this answers 403 FORBIDDEN, which is RolesGuard doing its job; the role is read from the database on every request, never from the token, so an old cookie cannot claim ADMIN.\n\nThis request sends a nonsense cookie instead so it can run without signing out of the admin account, and therefore answers 401. To see the 403, sign in as the test user and delete the Cookie header here."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('refused: 401 with a bad cookie, 403 with a real USER cookie', () =>",
+                  "  pm.expect([401, 403]).to.include(pm.response.code));",
+                  "pm.test('a specific reason is given', () =>",
+                  "  pm.expect(['UNAUTHENTICATED', 'FORBIDDEN'])",
+                  "    .to.include(pm.response.json().code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 POST /admin/users/{{secondUserId}}/reset-password",
           "request": {
             "method": "POST",
             "header": [],
@@ -1536,7 +1659,7 @@
                 "reset-password"
               ]
             },
-            "description": "ACC-07a. 200, not 201: nothing is created. The temporary password is shown once and stored only as a hash.\n\nSIDE EFFECT: every session of the target account is revoked, so run this AFTER requests 06 and 07. Until it sets its own password the only endpoint that account can reach is PATCH /api/auth/change-password - prove that by signing in as it and calling GET /users/me, which answers 403 PASSWORD_CHANGE_REQUIRED."
+            "description": "ACC-07a. 200, not 201: nothing is created. The temporary password is shown once and stored only as a hash.\n\nTo see the lockout it causes: log in as that account with the temporary password, call GET /api/users/me and get 403 PASSWORD_CHANGE_REQUIRED, then PATCH /api/auth/change-password and watch the rest of the API open up. The old password no longer logs in.\n\nThe cookie the account already held keeps working as a token - it is stateless until ACC-06 - but the guard refuses every route except change-password, so the reset takes effect immediately anyway."
           },
           "event": [
             {
@@ -1559,53 +1682,15 @@
               }
             }
           ]
-        },
-        {
-          "name": "11 A non-admin cannot reach these -> 403",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Cookie",
-                "value": "access_token=not.a.real.token"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/admin/accounts",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "admin",
-                "accounts"
-              ]
-            },
-            "description": "With a real USER cookie this answers 403 FORBIDDEN_ROLE, which is RolesGuard doing its job; the role is read from the database on every request, never from the token, so an old cookie cannot claim ADMIN.\n\nThis request sends a nonsense cookie instead so it can run without signing out of the admin account, and therefore answers 401. To see the 403, sign in as the test user and delete the Cookie header here."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('refused: 401 with a bad cookie, 403 with a real USER cookie', () =>",
-                  "  pm.expect([401, 403]).to.include(pm.response.code));",
-                  "pm.test('a specific reason is given', () =>",
-                  "  pm.expect(['INVALID_TOKEN', 'UNAUTHORIZED', 'FORBIDDEN_ROLE'])",
-                  "    .to.include(pm.response.json().code));"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
     {
       "name": "60 Account deactivation (ACC-12)",
-      "description": "RUN THIS LAST, and on a THROWAWAY account. Deactivation cannot be undone by an admin, so register an account just for it and set throwawayEmail to that address. Change the address each time you run the folder.",
+      "description": "RUN THIS LAST, and on a THROWAWAY account. Deactivation cannot be undone by an admin, so register an account just for it: set throwawayEmail to a fresh address and run request 01, which registers and logs it in. Change the address each time.",
       "item": [
         {
-          "name": "01 Sign in as the throwaway account (needs ACC-04)",
+          "name": "01 Register and sign in a throwaway account",
           "request": {
             "method": "POST",
             "header": [
@@ -1616,19 +1701,19 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{throwawayEmail}}\",\n  \"password\": \"{{throwawayPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Throwaway\",\n  \"email\": \"{{throwawayEmail}}\",\n  \"password\": \"{{throwawayPassword}}\",\n  \"acceptTerms\": true\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/auth/login",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "login"
+                "register"
               ]
             },
-            "description": "Register it first with POST /api/auth/register (ACC-01) if it does not exist."
+            "description": "Registering logs the account in, so the cookie is in the jar straight away. Use a fresh throwawayEmail: this folder deactivates the account for good."
           },
           "event": [
             {
@@ -1636,11 +1721,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('a cookie was set', () => pm.expect(pm.cookies.has('access_token')).to.be.true);"
                 ]
               }
             }
@@ -1719,18 +1801,21 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "const body = pm.response.json();",
                   "pm.test('status DEACTIVATED', () =>",
-                  "  pm.expect(body.status).to.eql('DEACTIVATED'));",
-                  "pm.test('a deactivation date is recorded', () =>",
-                  "  pm.expect(body.deactivatedAt).to.be.a('string'));"
+                  "  pm.expect(pm.response.json().status).to.eql('DEACTIVATED'));",
+                  "// The row is kept: the account still has its name, email and id, so past",
+                  "// bookings, payments and refunds still point at a real account.",
+                  "pm.test('nothing was deleted', () => {",
+                  "  pm.expect(pm.response.json().id).to.be.a('string');",
+                  "  pm.expect(pm.response.json().email).to.be.a('string');",
+                  "});"
                 ]
               }
             }
           ]
         },
         {
-          "name": "04 The cookie is dead afterwards -> 401",
+          "name": "04 The cookie is dead afterwards -> 401 UNAUTHENTICATED",
           "request": {
             "method": "GET",
             "header": [],
@@ -1753,8 +1838,10 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
-                  "pm.test('the session was revoked', () =>",
-                  "  pm.expect(pm.response.json().code).to.eql('SESSION_EXPIRED'));"
+                  "// The guard reloads the user every request, so a deactivated account is",
+                  "// refused at once without any token having to be revoked.",
+                  "pm.test('code UNAUTHENTICATED', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
                 ]
               }
             }
@@ -1767,7 +1854,7 @@
       "description": "Requests 02 and 05 answer 501 until the flights or hotels module provides a BookingsPort; that 501 is the designed behaviour, not a bug. Requests 03, 04 and 06 check the path and body validation, which happens after the guard - so all of them need a cookie, and all of them answer 401 until ACC-04 is merged.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -1798,11 +1885,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }
@@ -1998,7 +2085,7 @@
       "description": "Request 02 needs a booking, so it answers 501 once you can sign in. Requests 03 to 05 need a cookie. Requests 06 and 07 are the webhook: they need no cookie, work today, and are the most important things in this collection to demonstrate.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -2029,11 +2116,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }
@@ -2282,7 +2369,7 @@
       "description": "There is no endpoint to create a refund: one only ever follows a cancellation, so a create endpoint would be a way to get money back without cancelling anything. The flights and hotels modules call RefundsService instead.\n\nRequest 02 needs a cookie; request 03 needs none.",
       "item": [
         {
-          "name": "01 Sign in as the test user (needs ACC-04)",
+          "name": "01 Sign in as the test user",
           "request": {
             "method": "POST",
             "header": [
@@ -2313,11 +2400,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "if (pm.response.code === 404) {",
-                  "  pm.test.skip('POST /api/auth/login does not exist yet (ACC-04 not merged)');",
-                  "} else {",
-                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "}"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('an access_token cookie was set (ACC-19)', () =>",
+                  "  pm.expect(pm.cookies.has('access_token')).to.be.true);",
+                  "pm.test('no token is in the body (ACC-19)', () =>",
+                  "  pm.expect(pm.response.text()).to.not.include('eyJ'));"
                 ]
               }
             }

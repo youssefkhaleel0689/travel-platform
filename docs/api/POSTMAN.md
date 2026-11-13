@@ -28,7 +28,7 @@ npm run seed
 `npm run seed` loads the reference data; folder 00 asserts the 7 seeded
 currencies, so without it the first request fails.
 
-Your `backend/.env` needs `MONGODB_URI` and `JWT_ACCESS_SECRET`. Leave
+Your `backend/.env` needs `MONGODB_URI` and `JWT_SECRET`. Leave
 `NODE_ENV` as `development`: in production the auth cookies are marked
 `Secure`, and Postman will not store a `Secure` cookie sent over plain
 `http://`.
@@ -57,60 +57,61 @@ again as the test user before going back to folders 20 to 40.
 To start from nothing, clear the jar: the **Cookies** link under the Send
 button, then delete the `localhost` entries.
 
-### Blocked on ACC-04
-
-`POST /api/auth/login` is foundation work and is not merged yet. Until it is,
-the sign-in requests answer 404 (the collection marks them skipped) and every
-folder from 20 onwards answers 401.
-
-`AuthenticatedGuard` runs **before** the validation pipe, so even the
-deliberately invalid requests in folders 70 and 80 answer 401 rather than 400
-until you can sign in. A red run today is the guard working, not a broken
-collection.
-
-The sign-in bodies are written against ACC-01 and ACC-04 as the requirements
-describe them:
+### What you need before the first run
 
 ~~~
-POST /api/auth/login
-{ "email": "test_c2_user@example.com", "password": "ManualTest123" }
+cd backend
+npm run seed
 ~~~
 
-If the merged DTO uses different field names, fix them in the sign-in requests
-only — nothing else in the collection depends on them.
+~~~
+cd backend
+npm run seed:admin
+~~~
 
-### What works today, with no sign-in at all
+The first loads the reference data, which folder 00 checks. The second creates
+the ADMIN account folder 50 needs: admins cannot self-register (ACC-18), so the
+seed is the only way to get one. It reads `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+from `backend/.env`.
 
-Verified against a running server:
+Then start the server and import both JSON files:
 
-| Request | Expected |
-| --- | --- |
-| `00/01 GET /currencies` | 200, a page of 10 with 7 total |
-| `00/02 GET /currencies?limit=50` | 400 `VALIDATION_FAILED` on `limit` |
-| `10/01 GET /users/me`, no cookie | 401 `UNAUTHORIZED` |
-| `10/02 GET /users/me`, bad cookie | 401 `INVALID_TOKEN` |
-| `80/06 POST /payments/webhook`, no signature | 400 `MISSING_WEBHOOK_SIGNATURE` |
-| `80/07 POST /payments/webhook`, forged signature | 401 `INVALID_WEBHOOK_SIGNATURE` |
-| `90/03 POST /refunds` | 404 `Route not found` — no such route, by design |
+~~~
+cd backend
+npm run start:dev
+~~~
 
-That is 7 requests and 12 assertions. The two webhook ones are the most
-worthwhile to show anybody: they prove that a body claiming a payment
-succeeded is refused unless Stripe signed it.
+### One answer for every authentication failure
+
+The guard replies `401 UNAUTHENTICATED` to all of these: no cookie, a malformed
+token, an expired one, an unknown user, and an account that is suspended or
+deactivated. That is deliberate, so a response never reveals which. The
+exceptions are the two it can safely be specific about:
+
+| Code | Status | When |
+| --- | --- | --- |
+| `UNAUTHENTICATED` | 401 | Any authentication failure, including a non-active account |
+| `FORBIDDEN` | 403 | Logged in, but the role is not allowed (ACC-11) |
+| `PASSWORD_CHANGE_REQUIRED` | 403 | The account is on a temporary password (ACC-07a) |
+
+`ACCOUNT_SUSPENDED` and `ACCOUNT_DEACTIVATED` (403) come from **login** only,
+where naming the reason is useful and safe.
 
 ## 3. The accounts you need
 
-| Variable | How to get the account |
+| Variable | How the collection gets it |
 | --- | --- |
-| `userEmail` / `userPassword` | Register it: `POST /api/auth/register` (ACC-01) |
-| `throwawayEmail` / `throwawayPassword` | Register a second one, only for folder 60 |
-| `adminEmail` / `adminPassword` | From the **admin seed** (ACC-18) |
+| `userEmail` / `userPassword` | Folder 20 request 01 registers it for you |
+| `targetEmail` / `targetPassword` | Folder 50 request 01 registers it; the folder suspends and resets this one, never your test user |
+| `throwawayEmail` / `throwawayPassword` | Folder 60 request 01 registers it; the folder deactivates it for good |
+| `adminEmail` / `adminPassword` | Copy them from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` after `npm run seed:admin` |
 
-Admins cannot self-register, so there is no way to make one through the API.
-ACC-18 seeds them and is owned by B1; until that seed exists, folder 50 cannot
-be run and its sign-in request skips itself.
-
-Keep the `test_c2_` prefix on every address. The shared-database rules require
+Keep the `test_c2_` prefix on every address: the shared-database rules require
 test data to be prefixed, and it makes your rows easy to find and delete.
+
+Give `targetEmail` and `throwawayEmail` a fresh address when you want to rerun
+those folders from clean, because folder 50 leaves its target on a temporary
+password and folder 60 deactivates its account permanently.
 
 ## 4. The protocol
 
@@ -202,19 +203,18 @@ Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
 | What you see | Why |
 | --- | --- |
-| `401 UNAUTHORIZED` everywhere | Not signed in. Today that is expected: ACC-04 is not merged |
-| Sign-in answers `404` | `POST /api/auth/login` does not exist yet |
+| `401 UNAUTHENTICATED` everywhere | Not signed in, or the cookie was not kept. Run the folder’s own sign-in request first |
 | Sign-in answers 200 but the next request is 401 | Postman did not keep the cookie. Check `NODE_ENV` is not `production`, since a `Secure` cookie is not stored over `http://` |
-| `401 SESSION_EXPIRED` after it worked | The session was revoked (logout, a password change, a suspension, an admin password reset) or idle for 30 minutes. Sign in again |
-| `403 FORBIDDEN_ROLE` | A `USER` cookie on an admin route. Sign in as the admin |
+| `401 UNAUTHENTICATED` after it worked | The account was suspended, deactivated, or had its password reset by an admin. The guard reloads the user every request, so it applies at once |
+| `403 FORBIDDEN` | A `USER` cookie on an admin route. Sign in as the seeded admin |
 | `403 PASSWORD_CHANGE_REQUIRED` | The account is on a temporary password. Call `PATCH /api/auth/change-password` first |
-| `403 ACCOUNT_SUSPENDED` / `ACCOUNT_DEACTIVATED` | Exactly what it says; a deactivated account cannot be brought back by an admin |
+| `403 ACCOUNT_SUSPENDED` / `ACCOUNT_DEACTIVATED` on login | Exactly what it says; a deactivated account cannot be brought back by an admin |
 | `501 BOOKING_TYPE_UNAVAILABLE` | No booking module is wired in. Expected until A1 or B2 lands |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Expected unless you are working on payments |
 | `400` on `role`, `email` or `amount` | Correct: the global pipe runs `forbidNonWhitelisted`, so an unknown field is refused rather than ignored |
 | `404` where you expected `403` | Correct: another account's row is indistinguishable from one that does not exist, so ids cannot be probed (ACC-11) |
 | Folder 00 says 7 currencies but got 0 | `npm run seed` has not been run |
-| `Configuration key "JWT_ACCESS_SECRET" does not exist` | Copy `backend/.env.example` to `.env` and fill it in |
+| `JWT_SECRET is required` | Copy `backend/.env.example` to `.env` and generate one (see the README) |
 
 ## 9. Cleaning up after yourself
 
