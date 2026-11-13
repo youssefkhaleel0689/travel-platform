@@ -1,12 +1,13 @@
 import { HttpException } from '@nestjs/common';
 import type { CookieOptions, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
-import { AuthService } from './auth.service';
+import { accountLocked, AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
 import type { AccessTokenService } from './tokens/access-token.service';
 import type {
   CreateUserInput,
+  CredentialCheck,
   UserProfile,
   UsersService,
 } from './users/users.service';
@@ -34,17 +35,16 @@ const dto: RegisterDto = {
 
 // Fake UsersService, AccessTokenService and response; the casts are done only here.
 // `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile).
-function setup(
-  options: { credentials?: { profile: UserProfile } | null } = {},
-) {
-  const credentials =
-    options.credentials === undefined
-      ? { profile: PROFILE }
-      : options.credentials;
+function setup(options: { credentials?: CredentialCheck } = {}) {
+  const credentials: CredentialCheck = options.credentials ?? {
+    kind: 'ok',
+    profile: PROFILE,
+  };
   const users = {
     create: jest.fn((_input: CreateUserInput) => Promise.resolve(PROFILE)),
-    verifyCredentials: jest.fn((_email: string, _password: string) =>
-      Promise.resolve(credentials),
+    verifyCredentials: jest.fn(
+      (_email: string, _password: string): Promise<CredentialCheck> =>
+        Promise.resolve(credentials),
     ),
     findById: jest.fn((_id: string): Promise<UserProfile | null> =>
       Promise.resolve(PROFILE),
@@ -171,29 +171,37 @@ describe('AuthService.login (ACC-04)', () => {
     );
   });
 
-  it.each<[string, { profile: UserProfile } | null, number, object]>([
+  it.each<[string, CredentialCheck, number, object]>([
     [
       'wrong credentials',
-      null,
+      { kind: 'invalid' },
       401,
       { code: 'INVALID_CREDENTIALS', message: 'invalid email or password' },
     ],
     [
       'a SUSPENDED account',
-      { profile: { ...PROFILE, status: UserStatus.SUSPENDED } },
+      {
+        kind: 'ok',
+        profile: { ...PROFILE, status: UserStatus.SUSPENDED },
+      },
       403,
       { code: 'ACCOUNT_SUSPENDED', message: 'account suspended' },
     ],
     [
       'a DEACTIVATED account',
-      { profile: { ...PROFILE, status: UserStatus.DEACTIVATED } },
+      {
+        kind: 'ok',
+        profile: { ...PROFILE, status: UserStatus.DEACTIVATED },
+      },
       403,
       { code: 'ACCOUNT_DEACTIVATED', message: 'account deactivated' },
     ],
   ])(
     'rejects %s without starting a session',
     async (_label, credentials, status, body) => {
-      const { service, accessTokens, res, response } = setup({ credentials });
+      const { service, accessTokens, res, response } = setup({
+        credentials,
+      });
       const startSession = jest.spyOn(service, 'startSession');
 
       const error = await rejection(service.login(loginDto, response));
@@ -204,6 +212,80 @@ describe('AuthService.login (ACC-04)', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('AuthService.login lockout (ACC-05)', () => {
+  // The counter lives entirely in UsersService.verifyCredentials (ticket design).
+  it.each<[string, CredentialCheck]>([
+    ['an ACTIVE login', { kind: 'ok', profile: PROFILE }],
+    [
+      'a SUSPENDED login',
+      { kind: 'ok', profile: { ...PROFILE, status: UserStatus.SUSPENDED } },
+    ],
+    ['a wrong password', { kind: 'invalid' }],
+    ['a locked account', { kind: 'locked', lockedUntil: new Date() }],
+  ])(
+    'calls nothing on UsersService but verifyCredentials for %s',
+    async (_label, credentials) => {
+      const { service, users, response } = setup({ credentials });
+      // Only the expected 401/403/423 are swallowed; a call to a missing method would throw
+      // a TypeError and fail the test.
+      await service.login(loginDto, response).catch((error: unknown) => {
+        if (!(error instanceof HttpException)) {
+          throw error;
+        }
+      });
+
+      expect(users.verifyCredentials).toHaveBeenCalledTimes(1);
+      expect(users.create).not.toHaveBeenCalled();
+      expect(users.findById).not.toHaveBeenCalled();
+      expect(Object.keys(users).sort()).toEqual(
+        ['create', 'findById', 'verifyCredentials'].sort(),
+      );
+    },
+  );
+
+  it('maps locked to 423 ACCOUNT_LOCKED with details and Retry-After seconds', async () => {
+    const lockedUntil = new Date(Date.now() + 14 * 60 * 1000 + 500);
+    const { service, accessTokens, res, response } = setup({
+      credentials: { kind: 'locked', lockedUntil },
+    });
+
+    const error = await rejection(service.login(loginDto, response));
+    expect(error.getStatus()).toBe(423);
+    const body = error.getResponse();
+    expect(body).toEqual({
+      code: 'ACCOUNT_LOCKED',
+      message: 'account locked, try again later',
+      details: { lockedUntil: lockedUntil.toISOString() },
+      retryAfterSeconds: expect.any(Number),
+    });
+    const seconds =
+      typeof body === 'object' && 'retryAfterSeconds' in body
+        ? body.retryAfterSeconds
+        : undefined;
+    expect(Number.isInteger(seconds)).toBe(true);
+    expect(seconds).toBeGreaterThanOrEqual(1);
+    expect(seconds).toBeLessThanOrEqual(900);
+    // Rounded up: 14 minutes and a half second is 841 seconds.
+    expect(seconds).toBe(841);
+
+    expect(accessTokens.sign).not.toHaveBeenCalled();
+    expect(res.cookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('accountLocked (ACC-05)', () => {
+  const NOW = Date.parse('2026-11-13T10:00:00.000Z');
+
+  it.each([
+    ['15 minutes ahead', NOW + 15 * 60 * 1000, 900],
+    ['a fraction of a second ahead, rounded up', NOW + 1, 1],
+    ['already in the past, at least 1', NOW - 5000, 1],
+  ])('gives Retry-After for a lock %s', (_label, until, seconds) => {
+    const body = accountLocked(new Date(until), NOW).getResponse();
+    expect(body).toMatchObject({ retryAfterSeconds: seconds });
+  });
 });
 
 describe('AuthService.currentProfile (ACC-04, ACC-19)', () => {

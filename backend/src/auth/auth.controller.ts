@@ -82,11 +82,13 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Log in with email and password (ACC-04)',
+    summary: 'Log in with email and password (ACC-04, ACC-05)',
     description:
       'Public. On success the response sets the httpOnly access_token cookie (30 minutes); ' +
       'the token is never in the body. A wrong password and an unknown email give the same ' +
-      '401, and the account status is checked only after the password matches.',
+      '401, and the account status is checked only after the password matches. After 5 ' +
+      'consecutive wrong passwords the account is locked for 15 minutes (423), and a ' +
+      'successful login resets the count.',
   })
   @ApiBody({ type: LoginDto })
   @ApiOkResponse({ type: UserResponseDto })
@@ -107,7 +109,9 @@ export class AuthController {
   })
   @ApiErrorResponse({
     status: 401,
-    description: 'Wrong email or password (INVALID_CREDENTIALS)',
+    description:
+      'Wrong email or password (INVALID_CREDENTIALS). The 5th consecutive wrong password ' +
+      'gets 423 instead, and so does any attempt while the account is locked.',
     examples: [
       {
         code: 'INVALID_CREDENTIALS',
@@ -130,6 +134,26 @@ export class AuthController {
         code: 'ACCOUNT_DEACTIVATED',
         message: 'account deactivated',
         path: '/api/auth/login',
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 423,
+    description:
+      'Too many failed attempts: the account is locked for 15 minutes',
+    headers: {
+      'Retry-After': {
+        description:
+          'Whole seconds until the lock ends (the same moment as details.lockedUntil)',
+        schema: { type: 'integer', minimum: 1 },
+      },
+    },
+    examples: [
+      {
+        code: 'ACCOUNT_LOCKED',
+        message: 'account locked, try again later',
+        path: '/api/auth/login',
+        details: { lockedUntil: '2026-11-13T10:15:00.000Z' },
       },
     ],
   })

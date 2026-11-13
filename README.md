@@ -136,6 +136,23 @@ All other errors have the same shape without `errors`:
 }
 ~~~
 
+Some 4xx errors also carry an optional `details` object with structured data the client needs, placed between `errors` and `path`. Today only `ACCOUNT_LOCKED` uses it; it also sends a `Retry-After` header (seconds until the lock ends):
+
+~~~
+HTTP/1.1 423 Locked
+Retry-After: 900
+
+{
+  "statusCode": 423,
+  "code": "ACCOUNT_LOCKED",
+  "error": "Locked",
+  "message": "account locked, try again later",
+  "details": { "lockedUntil": "2026-11-13T10:15:00.000Z" },
+  "path": "/api/auth/login",
+  "timestamp": "2026-11-13T10:00:00.000Z"
+}
+~~~
+
 Default `code` per status (used when you do not set your own):
 
 | Status | `code` |
@@ -156,6 +173,30 @@ throw new NotFoundException('Flight not found');
 throw new ConflictException({ code: 'SEAT_UNAVAILABLE', message: 'Only 1 seat left' });
 ~~~
 
+The filter reads only these fields from the object you pass; anything else is dropped:
+
+| Field | Rules |
+| --- | --- |
+| `code` | String; the default for the status when missing |
+| `message` | String (or an array of strings, joined with `; `); the status's reason phrase when missing |
+| `errors` | Array of `{ field, messages }` field errors |
+| `details` | Optional. A plain object (not an array, a `Date` or a class instance), kept only for a 4xx; a 5xx never carries `details`, so nothing internal can leak through them |
+| `retryAfterSeconds` | Optional. A positive whole number, sent as the `Retry-After` header and never in the body; any other value is ignored |
+
+For a status without a built-in exception class, such as 423, use `HttpException` with the status (see `accountLocked()` in `src/auth/auth.service.ts`):
+
+~~~
+throw new HttpException(
+  {
+    code: 'ACCOUNT_LOCKED',
+    message: 'account locked, try again later',
+    details: { lockedUntil: lockedUntil.toISOString() },
+    retryAfterSeconds: 900,
+  },
+  HttpStatus.LOCKED,
+);
+~~~
+
 Document error responses in Swagger with `@ApiErrorResponse` (see "Documenting errors in Swagger" below). The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
 
 ### Documenting errors in Swagger
@@ -173,6 +214,29 @@ Why: the examples on `ErrorResponseDto` are shared by every response that uses i
       code: 'AIRLINE_NOT_FOUND',
       message: 'Airline not found',
       path: '/api/airlines/6720f1c2a1b2c3d4e5f60718',
+    },
+  ],
+})
+~~~
+
+An example can also include `details`, and `@ApiErrorResponse` accepts `headers` to document response headers. The login 423 (`src/auth/auth.controller.ts`):
+
+~~~
+@ApiErrorResponse({
+  status: 423,
+  description: 'Too many failed attempts: the account is locked for 15 minutes',
+  headers: {
+    'Retry-After': {
+      description: 'Whole seconds until the lock ends (the same moment as details.lockedUntil)',
+      schema: { type: 'integer', minimum: 1 },
+    },
+  },
+  examples: [
+    {
+      code: 'ACCOUNT_LOCKED',
+      message: 'account locked, try again later',
+      path: '/api/auth/login',
+      details: { lockedUntil: '2026-11-13T10:15:00.000Z' },
     },
   ],
 })
@@ -417,14 +481,14 @@ Rules:
 
 The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
 
-## Accounts and authentication (ACC-01, ACC-04, ACC-11, ACC-19, GEN-13)
+## Accounts and authentication (ACC-01, ACC-04, ACC-05, ACC-11, ACC-19, GEN-13)
 
 A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session by setting the `access_token` cookie. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
 
 | Endpoint | Requirement | Access |
 | --- | --- | --- |
 | `POST /api/auth/register` | ACC-01, GEN-13 | Public |
-| `POST /api/auth/login` | ACC-04 | Public |
+| `POST /api/auth/login` | ACC-04, ACC-05 | Public |
 | `GET /api/auth/me` | ACC-04, ACC-19 | Logged in |
 | `GET /api/users/me` | ACC-11 | Logged in |
 
@@ -477,6 +541,7 @@ Login request body: `email` (valid email, trimmed and lower-cased, at most 254 c
 | Unknown email, or wrong password | 401 `INVALID_CREDENTIALS` (`invalid email or password`). Both give the same body, and an unknown email runs the same bcrypt work, so neither the response nor its timing reveals which emails are registered |
 | Right password, account `SUSPENDED` | 403 `ACCOUNT_SUSPENDED` (`account suspended`) |
 | Right password, account `DEACTIVATED` | 403 `ACCOUNT_DEACTIVATED` (`account deactivated`) |
+| The 5th consecutive failure, or any attempt while the account is locked | 423 `ACCOUNT_LOCKED` (see "Account lockout (ACC-05)" below) |
 | A field breaks a rule, or an unknown field | 400 `VALIDATION_FAILED` |
 
 The status is checked only after the password matches, so a wrong password for a suspended account still gives 401 and does not reveal the status. No error response sets a cookie.
@@ -540,7 +605,7 @@ const profile = await this.users.create({
 | `create(input)` | `UserProfile` | Takes the plain password and hashes it; trims and lower-cases the email; 409 `EMAIL_ALREADY_REGISTERED` on a duplicate email. `termsAcceptedAt` defaults to `null`, `mustChangePassword` to `false` |
 | `findById(id)` | `UserProfile` or `null` | `null` for an id that is not 24 hex characters, without querying |
 | `findByEmail(email)` | `UserProfile` or `null` | Trims and lower-cases the email before the query |
-| `verifyCredentials(email, password)` | `{ profile }` or `null` | For login only. Compares the password with the stored hash and never returns the hash; an unknown email runs a dummy bcrypt compare. Returns the profile whatever its status: the caller decides |
+| `verifyCredentials(email, password)` | `{ kind: 'ok', profile }`, `{ kind: 'invalid' }` or `{ kind: 'locked', lockedUntil }` | For login only. Applies the lockout (ACC-05), compares the password with the stored hash and never returns the hash; an unknown email runs a dummy bcrypt compare. Returns the profile whatever its status: the caller decides |
 
 `UserProfile` has `id`, `name`, `email`, `phone`, `preferredCurrency`, `role`, `status`, `mustChangePassword` and `createdAt`; it never contains `passwordHash` or the lockout fields.
 
@@ -552,8 +617,28 @@ Rules:
 - Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
 - `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
-- Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), and `/api/auth/me` and `/api/users/me` return the logged-in user. Still to come: account lockout after failed logins (ACC-05, PR 3); refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
-- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts` and `auth-me.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-` or `e2e-me-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
+- Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, and repeated failed logins lock the account (ACC-05). Still to come: refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
+- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts` and `auth-lockout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-` or `e2e-lockout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
+
+### Account lockout (ACC-05)
+
+5 consecutive failed logins lock the account for 15 minutes. A correct password resets the counter (`src/auth/users/login-lockout.ts` holds both numbers; they are fixed by the requirement, not set through `.env`).
+
+| Case | Result |
+| --- | --- |
+| Account locked | 423 `ACCOUNT_LOCKED` (`account locked, try again later`) with `details.lockedUntil` (ISO date) and a `Retry-After` header (whole seconds until the lock ends); the body is shown in "API error format" |
+| The 5th consecutive wrong password | 423 already, not 401 |
+| Correct password while locked | Still 423, and no cookie is set |
+| Unknown email, or wrong password before the 5th | The generic 401 `INVALID_CREDENTIALS`, unchanged |
+
+The lock only stops new logins: existing sessions (the `access_token` cookie) keep working until they expire. Once the lock ends, the next login starts with a fresh count; there is no scheduled job.
+
+Why the design: checking the lock and counting the failure after bcrypt would let parallel requests all pass the check before any failure is counted. Instead, each attempt first reserves a "ticket" with one atomic database update, before bcrypt, so parallel requests can never test more than 5 passwords per lock period. If a request holding the last ticket dies before writing the lock, the next attempt writes it, so the account unlocks after one lock period instead of staying locked forever.
+
+Testing:
+
+- Use a throwaway account, never the seeded admin: locking the shared admin locks it for the whole team.
+- To unlock early on a dev database, set the user's `lockedUntil` to a past date in Atlas (collection `users`), or wait 15 minutes.
 
 ### Admin account (ACC-18)
 
