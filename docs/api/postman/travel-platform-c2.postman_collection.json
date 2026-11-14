@@ -85,6 +85,46 @@
     {
       "key": "targetPassword",
       "value": "ManualTest123"
+    },
+    {
+      "key": "moderatorEmail",
+      "value": "",
+      "description": "Set by folder 55 request 03, fresh every run"
+    },
+    {
+      "key": "moderatorPassword",
+      "value": "Welcome2026",
+      "description": "The temporary password the admin sets in folder 55"
+    },
+    {
+      "key": "moderatorNewPassword",
+      "value": "Chosen2026",
+      "description": "What the moderator replaces it with in folder 55 request 13"
+    },
+    {
+      "key": "secondModeratorEmail",
+      "value": "",
+      "description": "Set by folder 55 request 04"
+    },
+    {
+      "key": "moderatorId",
+      "value": "",
+      "description": "Set by folder 55 request 03"
+    },
+    {
+      "key": "secondModeratorId",
+      "value": "",
+      "description": "Set by folder 55 request 04"
+    },
+    {
+      "key": "airlineId",
+      "value": "",
+      "description": "The airline folder 55 creates to link moderators to"
+    },
+    {
+      "key": "airlineIataCode",
+      "value": "",
+      "description": "Randomised by folder 55 request 02"
     }
   ],
   "item": [
@@ -1678,6 +1718,659 @@
                   "  });",
                   "  console.log('Temporary password: ' + body.temporaryPassword);",
                   "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "55 Create a moderator (ACC-13)",
+      "description": "ACC-13: an admin creates a hotel or airline moderator account linked to exactly one provider, with a temporary password the moderator must change at first login.\n\nThe folder is self-contained and re-runnable: it makes its own airline and generates a fresh moderator email each run, so nothing has to be edited between runs and no other folder's account is touched.\n\nOrder matters. Requests 01 to 10 run as the admin; request 11 signs in as the new moderator and replaces the cookie, and 12 to 15 are about what that moderator can and cannot do. To go back to the admin, re-run request 01.\n\nClean up afterwards: the two moderator accounts and the airline. See \"Cleaning up after yourself\" in POSTMAN.md.",
+      "item": [
+        {
+          "name": "01 Sign in as the seeded admin (ACC-18)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "description": "Only an admin may create a moderator, so the whole folder runs on this cookie. Later requests sign in as the new moderator and so replace it; request 11 is where that happens, and nothing after it needs the admin again."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminEmail')) {",
+                  "  pm.test.skip('set adminEmail and adminPassword from backend/.env (npm run seed:admin)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('the account really is an ADMIN', () =>",
+                  "    pm.expect(pm.response.json().role).to.eql('ADMIN'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Create an airline to link the moderator to (FLT-01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/airlines",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "airlines"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"test_c2_acc13 Airline\",\n  \"iataCode\": \"{{airlineIataCode}}\"\n}"
+            },
+            "description": "ACC-13 links a moderator to a provider that already exists, so the folder makes one of its own rather than borrowing a teammate's. IATA codes are two characters and unique across the shared collection, so the pre-request script picks a random one; on a 409 just send the request again. Delete this airline when you are done (see \"Cleaning up after yourself\")."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Two characters, unique across the whole shared collection.",
+                  "const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';",
+                  "const pick = () => chars[Math.floor(Math.random() * chars.length)];",
+                  "pm.collectionVariables.set('airlineIataCode', pick() + pick());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created (on 409 the random IATA code was taken: send it again)', () =>",
+                  "  pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('airlineId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Create an airline moderator",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "The requirement in one request: an account with a moderator role, linked to exactly one airline, on a temporary password the admin chose. The email is generated per run, so the folder can be run again without editing anything."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh address every run, with the test_c2_ prefix the shared",
+                  "// database rules require.",
+                  "pm.collectionVariables.set(",
+                  "  'moderatorEmail',",
+                  "  `test_c2_mod_${Date.now()}@example.com`,",
+                  ");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('the account has the moderator role', () =>",
+                  "  pm.expect(body.account.role).to.eql('AIRLINE_MODERATOR'));",
+                  "pm.test('it owes a password change (ACC-07a)', () =>",
+                  "  pm.expect(body.account.mustChangePassword).to.be.true);",
+                  "pm.test('it is linked to the airline we created', () =>",
+                  "  pm.expect(body.providerId).to.eql(",
+                  "    pm.collectionVariables.get('airlineId')));",
+                  "pm.test('the temporary password comes back once', () =>",
+                  "  pm.expect(body.temporaryPassword).to.eql(",
+                  "    pm.collectionVariables.get('moderatorPassword')));",
+                  "pm.test('no credential field leaks into the account', () => {",
+                  "  for (const field of ['passwordHash', 'password']) {",
+                  "    pm.expect(body.account).to.not.have.property(field);",
+                  "  }",
+                  "});",
+                  "pm.collectionVariables.set('moderatorId', body.account.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 A second moderator for the same airline is allowed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Second Moderator\",\n  \"email\": \"{{secondModeratorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\"\n}"
+            },
+            "description": "The unique index is on the moderator, not the airline: a moderator manages exactly one provider, while a provider may have several moderators. No password is sent here, so the server generates one and returns it."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(",
+                  "  'secondModeratorEmail',",
+                  "  `test_c2_mod2_${Date.now()}@example.com`,",
+                  ");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('a password was generated for us', () =>",
+                  "  pm.expect(body.temporaryPassword).to.be.a('string')",
+                  "    .with.length.of.at.least(8));",
+                  "pm.test('same airline as the first moderator', () =>",
+                  "  pm.expect(body.providerId).to.eql(",
+                  "    pm.collectionVariables.get('airlineId')));",
+                  "pm.collectionVariables.set('secondModeratorId', body.account.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 The same email again is a 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "The same unique email index that registration relies on."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('EMAIL_ALREADY_REGISTERED', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('EMAIL_ALREADY_REGISTERED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 An airline that does not exist is a 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Orphan Moderator\",\n  \"email\": \"test_c2_orphan@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"000000000000000000000000\"\n}"
+            },
+            "description": "The provider is checked before anything is written, so this creates no account at all. Re-run request 03 with the same email afterwards if you want to prove it: it succeeds, which it could not do had an account been left behind."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('AIRLINE_NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('AIRLINE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 A hotel moderator is a 501 until the hotels module lands",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Hotel Moderator\",\n  \"email\": \"test_c2_hotelmod@example.com\",\n  \"role\": \"HOTEL_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "The hotel half of ACC-13 is complete except for the one adapter the hotels module will provide (B1, HTL-01). Until then the route says so rather than failing in a way that looks like a bug. Nothing is created."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('501 Not Implemented', () => pm.response.to.have.status(501));",
+                  "pm.test('PROVIDER_TYPE_UNAVAILABLE', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('PROVIDER_TYPE_UNAVAILABLE'));",
+                  "pm.test('the message names the hotels module', () =>",
+                  "  pm.expect(pm.response.json().message).to.include('hotels module'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 This route cannot mint an admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Sneaky Admin\",\n  \"email\": \"test_c2_sneaky@example.com\",\n  \"role\": \"ADMIN\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "role accepts only the two moderator roles. Admins are seeded (ACC-18) and users register (ACC-01), so there is no path to an ADMIN account through the API at all. Try USER here too."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error points at role', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('role'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 A providerId that is not an id is a field error",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Bad Provider\",\n  \"email\": \"test_c2_badprovider@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"not-an-id\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "Caught by the DTO, so a malformed id never reaches the database as a cast error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error points at providerId', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('providerId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 A field the body does not define is refused outright",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Extra Field\",\n  \"email\": \"test_c2_extrafield@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\",\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "description": "forbidNonWhitelisted, so no client can choose an account's status or clear its pending password change. Try mustChangePassword: false here too."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error names the unknown field', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('status'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 Sign in as the new moderator (this replaces the admin cookie)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{moderatorEmail}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "The temporary password works for login and for nothing else. From here on Postman is the moderator, not the admin."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('signed in as the moderator', () =>",
+                  "  pm.expect(pm.response.json().role).to.eql('AIRLINE_MODERATOR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 On a temporary password, every other route is a 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "The second half of the requirement: the moderator MUST change the password first. Try any other route here - the notifications list, the profile edit - they all answer the same way."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('PASSWORD_CHANGE_REQUIRED', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('PASSWORD_CHANGE_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13 Setting its own password is the one route that works",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/change-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "change-password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{moderatorPassword}}\",\n  \"newPassword\": \"{{moderatorNewPassword}}\"\n}"
+            },
+            "description": "ACC-08, reached while the account can do nothing else. This clears mustChangePassword and opens the rest of the API."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14 The moderator can now use the API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "Same cookie as request 12, which was a 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('still a moderator', () =>",
+                  "  pm.expect(body.role).to.eql('AIRLINE_MODERATOR'));",
+                  "pm.test('the pending password change is gone', () =>",
+                  "  pm.expect(body.mustChangePassword).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15 A moderator cannot create another moderator",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Moderator By Moderator\",\n  \"email\": \"test_c2_modbymod@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "ACC-11. The guard is declared on the controller, so this is true of every route it holds, now and later. A plain USER gets the same answer: sign in with userEmail and send this again."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('FORBIDDEN', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
                 ]
               }
             }
