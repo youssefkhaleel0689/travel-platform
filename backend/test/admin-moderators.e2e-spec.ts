@@ -363,6 +363,18 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       expect(res.body.errors[0].field).toBe('password');
     }, SLOW_MS);
 
+    // "Optional" means "may be left out", not "may be null": a sent null is a
+    // mistake in the admin's body, not a request to generate a password.
+    it('rejects password: null rather than generating one', async () => {
+      const res = await request(app.getHttpServer())
+        .post(MODERATORS)
+        .set('Cookie', admin.cookie)
+        .send(body({ password: null }))
+        .expect(400);
+
+      expect(res.body.errors[0].field).toBe('password');
+    }, SLOW_MS);
+
     it('rejects a missing name and a bad email', async () => {
       const res = await request(app.getHttpServer())
         .post(MODERATORS)

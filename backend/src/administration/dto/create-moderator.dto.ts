@@ -5,13 +5,22 @@ import {
   IsIn,
   IsMongoId,
   IsNotEmpty,
-  IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { Role } from '../../common/auth/auth.enums';
 import { IsValidPassword } from '../../common/validation/password';
 import { trimLower, trimText } from '../../common/validation/text-transforms';
+
+/**
+ * "Optional" here means "may be left out", not "may be null". A sent null must
+ * still fail, which @IsOptional() would skip: `"password": null` is a mistake in
+ * the admin's body, not a request to generate one. Same predicate as the
+ * airlines DTOs use.
+ */
+const isSent = (_object: object, value: unknown): boolean =>
+  value !== undefined;
 
 /** The only two roles ACC-13 creates. ADMIN is seeded (ACC-18), USER registers (ACC-01). */
 export const MODERATOR_ROLES = [
@@ -77,7 +86,7 @@ export class CreateModeratorDto {
       'Same rules as registration: at least 8 characters, with at least one ' +
       'letter and one digit, and at most 72 bytes in UTF-8.',
   })
-  @IsOptional()
+  @ValidateIf(isSent)
   @IsValidPassword()
   password?: string;
 }

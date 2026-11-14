@@ -20,6 +20,12 @@ import { AirlineModeratorAssignmentAdapter } from './airline-moderator-assignmen
  * side of the moderator link, which belongs to the flights module, so it goes
  * through the service FlightsModule exports rather than the collection.
  *
+ * ModeratorAssignmentsGateway is provided here rather than in a module of its
+ * own under common/, which is where BookingsGateway lives. That is on purpose:
+ * BookingsModule exists because two modules consume it (auth for ACC-12 and
+ * payments), while this gateway has exactly one consumer. If a second module
+ * ever needs it, move it to a common/providers/providers.module.ts then.
+ *
  * HOTEL_MODERATOR_ASSIGNMENT_PORT is deliberately left unprovided: the hotels
  * module does not exist yet (B1, HTL-01), so asking for a hotel moderator
  * answers 501 rather than failing to start. Providing that token is all it
