@@ -65,6 +65,12 @@ export interface CreateUserInput {
   role: Role;
   termsAcceptedAt?: Date | null;
   mustChangePassword?: boolean;
+  /**
+   * ACC-13: when an admin issued the temporary password this account starts
+   * with. Registration (ACC-01) leaves it null, because the person chose their
+   * own password.
+   */
+  temporaryPasswordIssuedAt?: Date | null;
 }
 
 /**
@@ -144,6 +150,7 @@ export class UsersService {
         role: input.role,
         termsAcceptedAt: input.termsAcceptedAt ?? null,
         mustChangePassword: input.mustChangePassword ?? false,
+        temporaryPasswordIssuedAt: input.temporaryPasswordIssuedAt ?? null,
       });
       return this.toUserProfile(created.toObject());
     } catch (error) {
@@ -508,6 +515,23 @@ export class UsersService {
       result.items.map((item) => this.toUserProfile(item as unknown as User)),
       result.meta,
     );
+  }
+
+  /**
+   * Removes an account document outright. The ONLY caller is ACC-13, to undo
+   * its own create() when linking the new moderator to its provider fails
+   * afterwards; without it a half-made moderator would be left behind with
+   * nothing to manage and an email nobody can register again.
+   *
+   * This is not how accounts are closed. ACC-12 (the owner) and ACC-16 (an
+   * admin) change the status instead and keep the row, because bookings,
+   * payments and the audit log point at it.
+   */
+  async deleteById(id: string): Promise<void> {
+    if (!OBJECT_ID.test(id)) {
+      return;
+    }
+    await this.userModel.deleteOne({ _id: new Types.ObjectId(id) }).exec();
   }
 
   /** The profile, or 404. Used wherever an account id comes from a route. */
