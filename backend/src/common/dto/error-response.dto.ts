@@ -36,6 +36,16 @@ export class ErrorResponseDto {
   })
   errors?: FieldErrorDto[];
 
+  // No example here: a DTO example is shared by every response; each response documents
+  // its own example through @ApiErrorResponse.
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'Extra structured data for some errors, e.g. lockedUntil for ACCOUNT_LOCKED',
+  })
+  details?: Record<string, unknown>;
+
   @ApiProperty({ example: '/api/auth/register' })
   path: string;
 
