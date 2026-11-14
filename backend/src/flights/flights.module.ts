@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
+import { FlightSearchService } from './flight-search/flight-search.service';
 import {
   AirlineModeratorAssignment,
   AirlineModeratorAssignmentSchema,
@@ -21,9 +23,12 @@ import { Flight, FlightSchema } from './schemas/flight.schema';
         schema: AirlineModeratorAssignmentSchema,
       },
     ]),
+    // Search checks airports and reads their time zones (FLT-11, GEN-06).
+    ReferenceDataModule,
   ],
   controllers: [AirlinesController],
-  providers: [AirlinesService],
-  exports: [AirlinesService],
+  providers: [AirlinesService, FlightSearchService],
+  // FlightSearchService is exported for itineraries (ITN-26).
+  exports: [AirlinesService, FlightSearchService],
 })
 export class FlightsModule {}
