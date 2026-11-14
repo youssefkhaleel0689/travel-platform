@@ -6,12 +6,10 @@ import type { AirportDto } from '../../common/reference-data/dto/airport.dto';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import { FlightSearchQueryDto } from './dto/flight-search-query.dto';
+import type { FlightSearchItemDto } from './dto/flight-search-response.dto';
 import { FlightSortBy, SortOrder, TripType } from './flight-search.constants';
-import {
-  FlightSearchService,
-  type LegCriteria,
-  type LegFlight,
-} from './flight-search.service';
+import type { FlightMatch } from './flight-search.mapper';
+import { FlightSearchService, type LegCriteria } from './flight-search.service';
 
 // 23:30 UTC: already the 21st in Tokyo, still the 20th in New York.
 const NOW = new Date('2026-11-20T23:30:00.000Z');
@@ -56,7 +54,7 @@ function criteria(overrides: Partial<LegCriteria> = {}): LegCriteria {
 }
 
 // What the aggregation returns for one flight: airlineId, no airline yet.
-function match() {
+function match(overrides: Partial<FlightMatch> = {}): FlightMatch {
   const price = Types.Decimal128.fromString('450.00');
   return {
     _id: FLIGHT_ID,
@@ -76,16 +74,33 @@ function match() {
       },
     ],
     lowestPrice: price,
+    ...overrides,
   };
 }
 
 // A result of searchLeg, for the tests that replace it.
-function legFlight(flightNumber: string): LegFlight {
-  const { airlineId, ...flight } = match();
+function searchItem(flightNumber: string): FlightSearchItemDto {
   return {
-    ...flight,
+    id: FLIGHT_ID.toString(),
+    airline: { id: AIRLINE_ID.toString(), name: 'EgyptAir', iataCode: 'MS' },
     flightNumber,
-    airline: { id: airlineId.toString(), name: 'EgyptAir', iataCode: 'MS' },
+    departureAirportId: 'JFK',
+    arrivalAirportId: 'NRT',
+    departureLocalTime: '2026-11-20T22:00:00-05:00',
+    arrivalLocalTime: '2026-11-22T03:30:00+09:00',
+    departureAtUtc: '2026-11-21T03:00:00.000Z',
+    arrivalAtUtc: '2026-11-21T18:30:00.000Z',
+    durationMinutes: 930,
+    lowestPrice: '450.00',
+    cabins: [
+      {
+        category: CabinCategory.ECONOMY,
+        pricePerSeat: '450.00',
+        seatsAvailable: 40,
+        freeBaggageCount: 1,
+        maxBagWeightKg: 23,
+      },
+    ],
   };
 }
 
@@ -114,7 +129,7 @@ function query<R>(result: R) {
 function setup(
   options: {
     airlines?: Pick<Airline, '_id' | 'name' | 'iataCode'>[];
-    matches?: ReturnType<typeof match>[];
+    matches?: FlightMatch[];
   } = {},
 ) {
   const airlines = options.airlines ?? [
@@ -402,18 +417,50 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
     });
   });
 
-  it('replaces airlineId with the airline id, name and IATA code', async () => {
+  it('returns each flight as a search item, with local times at each airport', async () => {
     const { service } = setup();
-    const [flight] = await service.searchLeg(criteria());
+    const result = await service.searchLeg(criteria());
 
-    expect(flight).not.toHaveProperty('airlineId');
-    expect(flight.airline).toEqual({
-      id: AIRLINE_ID.toString(),
-      name: 'EgyptAir',
-      iataCode: 'MS',
+    // JFK is on UTC-5 and CAI on UTC+2 in November.
+    expect(result).toEqual([
+      {
+        id: FLIGHT_ID.toString(),
+        airline: {
+          id: AIRLINE_ID.toString(),
+          name: 'EgyptAir',
+          iataCode: 'MS',
+        },
+        flightNumber: 'MS986',
+        departureAirportId: 'JFK',
+        arrivalAirportId: 'CAI',
+        departureLocalTime: '2026-11-20T22:00:00-05:00',
+        arrivalLocalTime: '2026-11-21T16:30:00+02:00',
+        departureAtUtc: '2026-11-21T03:00:00.000Z',
+        arrivalAtUtc: '2026-11-21T14:30:00.000Z',
+        durationMinutes: 690,
+        lowestPrice: '450.00',
+        cabins: [
+          {
+            category: CabinCategory.ECONOMY,
+            pricePerSeat: '450.00',
+            seatsAvailable: 40,
+            freeBaggageCount: 1,
+            maxBagWeightKg: 23,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('uses the time zone of the airport each flight lands at (ITN-26)', async () => {
+    const { service } = setup({
+      matches: [match({ arrivalAirportId: 'NRT' })],
     });
-    expect(flight.flightNumber).toBe('MS986');
-    expect(flight.lowestPrice.toString()).toBe('450.00');
+    const [flight] = await service.searchLeg(
+      criteria({ arrivalAirportIds: ['CAI', 'NRT'] }),
+    );
+
+    expect(flight.arrivalLocalTime).toBe('2026-11-21T23:30:00+09:00');
   });
 });
 
@@ -428,7 +475,7 @@ describe('FlightSearchService.search (FLT-12)', () => {
 
   it('searches only the outbound leg for a one-way trip, with seats for adults and children', async () => {
     const { service } = setup();
-    const outbound = [legFlight('JL5')];
+    const outbound = [searchItem('JL5')];
     const searchLeg = jest
       .spyOn(service, 'searchLeg')
       .mockResolvedValueOnce(outbound);
@@ -468,8 +515,8 @@ describe('FlightSearchService.search (FLT-12)', () => {
     const { service } = setup();
     const searchLeg = jest
       .spyOn(service, 'searchLeg')
-      .mockResolvedValueOnce([legFlight('JL5')])
-      .mockResolvedValueOnce([legFlight('JL6')]);
+      .mockResolvedValueOnce([searchItem('JL5')])
+      .mockResolvedValueOnce([searchItem('JL6')]);
 
     const result = await service.search(
       searchQuery({
@@ -499,7 +546,7 @@ describe('FlightSearchService.search (FLT-12)', () => {
   it('pages each leg on its own: page for outbound, returnPage for inbound', async () => {
     const { service } = setup();
     const numbered = (prefix: string, count: number) =>
-      Array.from({ length: count }, (_, i) => legFlight(`${prefix}${i + 1}`));
+      Array.from({ length: count }, (_, i) => searchItem(`${prefix}${i + 1}`));
     jest
       .spyOn(service, 'searchLeg')
       .mockResolvedValueOnce(numbered('OUT', 12))

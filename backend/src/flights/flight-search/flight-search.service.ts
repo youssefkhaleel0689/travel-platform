@@ -2,14 +2,22 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import type { Model, PipelineStage } from 'mongoose';
-import type { PageDto } from '../../common/pagination/dto/page.dto';
 import { paginateArray } from '../../common/pagination/paginate';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { toAirportLocalDateKey } from '../../common/time/airport-time';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import type { FlightSearchQueryDto } from './dto/flight-search-query.dto';
+import type {
+  FlightSearchAirlineDto,
+  FlightSearchItemDto,
+  FlightSearchResponseDto,
+} from './dto/flight-search-response.dto';
 import { FlightSortBy, SortOrder, TripType } from './flight-search.constants';
+import {
+  type FlightMatch,
+  toFlightSearchItemDto,
+} from './flight-search.mapper';
 
 /** One leg of a search: from one airport, to one or more airports, on a local date. */
 export interface LegCriteria {
@@ -29,43 +37,6 @@ export interface LegCriteria {
   sortBy: FlightSortBy;
   sortOrder: SortOrder;
 }
-
-/** A cabin that has enough free seats for the whole party and fits the price range. */
-export interface LegCabin {
-  category: CabinCategory;
-  price: Types.Decimal128;
-  freeSeats: number;
-  freeBaggageCount: number;
-  maxBagWeightKg: number;
-}
-
-export interface LegAirline {
-  id: string;
-  name: string;
-  iataCode: string;
-}
-
-/** A bookable flight for a leg, with only the cabins that qualify. */
-export interface LegFlight {
-  _id: Types.ObjectId;
-  airline: LegAirline;
-  flightNumber: string;
-  departureAirportId: string;
-  arrivalAirportId: string;
-  departureAtUtc: Date;
-  arrivalAtUtc: Date;
-  cabins: LegCabin[];
-  // The cheapest qualifying cabin: the price a flight is sorted by (FLT-15).
-  lowestPrice: Types.Decimal128;
-}
-
-/** GET /flights/search: a page of each leg; the inbound leg only for a round trip. */
-export interface FlightSearchResult {
-  outbound: PageDto<LegFlight>;
-  inbound: PageDto<LegFlight> | null;
-}
-
-type LegMatch = Omit<LegFlight, 'airline'> & { airlineId: Types.ObjectId };
 
 // Free seats of the cabin in $$cabin, computed and never stored (FLT-22, option A).
 const FREE_SEATS = {
@@ -88,7 +59,7 @@ export class FlightSearchService {
    * A one-way or round-trip search (FLT-11, FLT-12). The return leg flies back between the
    * same two airports on returnDate, with the same passengers, cabin, price range and sort.
    */
-  async search(query: FlightSearchQueryDto): Promise<FlightSearchResult> {
+  async search(query: FlightSearchQueryDto): Promise<FlightSearchResponseDto> {
     const shared = {
       // Infants sit on an adult's lap, so only adults and children need seats (FLT-12).
       seats: query.adults + query.children,
@@ -133,13 +104,16 @@ export class FlightSearchService {
    * (the requested one, if any) with at least `seats` free seats and a price in the range.
    * Sorted as asked; ties go to the earlier departure, then the lower _id.
    */
-  async searchLeg(criteria: LegCriteria): Promise<LegFlight[]> {
+  async searchLeg(criteria: LegCriteria): Promise<FlightSearchItemDto[]> {
     // FLT-02: only seeded airports. The departure airport's zone decides what "today" is.
     const departure = await this.referenceData.getAirportOrThrow(
       criteria.departureAirportId,
     );
+    // Each arrival airport's zone, for the local arrival times (GEN-06).
+    const arrivalTimeZones = new Map<string, string>();
     for (const id of criteria.arrivalAirportIds) {
-      await this.referenceData.getAirportOrThrow(id);
+      const airport = await this.referenceData.getAirportOrThrow(id);
+      arrivalTimeZones.set(id, airport.timeZone);
     }
 
     const now = new Date();
@@ -161,7 +135,7 @@ export class FlightSearchService {
       return [];
     }
     const airlineById = new Map(
-      airlines.map((a): [string, LegAirline] => [
+      airlines.map((a): [string, FlightSearchAirlineDto] => [
         a._id.toString(),
         { id: a._id.toString(), name: a.name, iataCode: a.iataCode },
       ]),
@@ -169,14 +143,18 @@ export class FlightSearchService {
 
     const activeAirlineIds = airlines.map((a) => a._id);
     const matches = await this.flightModel
-      .aggregate<LegMatch>(this.legPipeline(criteria, now, activeAirlineIds))
+      .aggregate<FlightMatch>(this.legPipeline(criteria, now, activeAirlineIds))
       .exec();
 
-    return matches.map(({ airlineId, ...flight }) => ({
-      ...flight,
-      // Always found: the pipeline only matches these airlines.
-      airline: airlineById.get(airlineId.toString()) as LegAirline,
-    }));
+    // Both lookups always succeed: the pipeline only matches these airlines and airports.
+    return matches.map((flight) =>
+      toFlightSearchItemDto(
+        flight,
+        airlineById.get(flight.airlineId.toString()) as FlightSearchAirlineDto,
+        departure.timeZone,
+        arrivalTimeZones.get(flight.arrivalAirportId) as string,
+      ),
+    );
   }
 
   private legPipeline(
