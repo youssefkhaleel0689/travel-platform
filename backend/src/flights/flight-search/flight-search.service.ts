@@ -2,11 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import type { Model, PipelineStage } from 'mongoose';
+import type { PageDto } from '../../common/pagination/dto/page.dto';
+import { paginateArray } from '../../common/pagination/paginate';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { toAirportLocalDateKey } from '../../common/time/airport-time';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
-import { FlightSortBy, SortOrder } from './flight-search.constants';
+import type { FlightSearchQueryDto } from './dto/flight-search-query.dto';
+import { FlightSortBy, SortOrder, TripType } from './flight-search.constants';
 
 /** One leg of a search: from one airport, to one or more airports, on a local date. */
 export interface LegCriteria {
@@ -56,6 +59,12 @@ export interface LegFlight {
   lowestPrice: Types.Decimal128;
 }
 
+/** GET /flights/search: a page of each leg; the inbound leg only for a round trip. */
+export interface FlightSearchResult {
+  outbound: PageDto<LegFlight>;
+  inbound: PageDto<LegFlight> | null;
+}
+
 type LegMatch = Omit<LegFlight, 'airline'> & { airlineId: Types.ObjectId };
 
 // Free seats of the cabin in $$cabin, computed and never stored (FLT-22, option A).
@@ -66,7 +75,7 @@ const FREE_SEATS = {
   ],
 };
 
-// Flight search (FLT-11, FLT-12) and its reuse from itineraries (ITN-26).
+// Flight search (FLT-11, FLT-12, FLT-15) and its reuse from itineraries (ITN-26).
 @Injectable()
 export class FlightSearchService {
   constructor(
@@ -74,6 +83,49 @@ export class FlightSearchService {
     @InjectModel(Airline.name) private readonly airlineModel: Model<Airline>,
     private readonly referenceData: ReferenceDataService,
   ) {}
+
+  /**
+   * A one-way or round-trip search (FLT-11, FLT-12). The return leg flies back between the
+   * same two airports on returnDate, with the same passengers, cabin, price range and sort.
+   */
+  async search(query: FlightSearchQueryDto): Promise<FlightSearchResult> {
+    const shared = {
+      // Infants sit on an adult's lap, so only adults and children need seats (FLT-12).
+      seats: query.adults + query.children,
+      cabin: query.cabin,
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    };
+
+    // One leg after the other: an error in the outbound leg is reported first, and the
+    // return leg is not searched for nothing.
+    const outbound = await this.searchLeg({
+      ...shared,
+      departureAirportId: query.departureAirportId,
+      arrivalAirportIds: [query.arrivalAirportId],
+      departureDate: query.departureDate,
+      dateField: 'departureDate',
+    });
+    // The DTO requires returnDate for a ROUND_TRIP; the second check only narrows the type.
+    if (query.tripType === TripType.ONE_WAY || query.returnDate === undefined) {
+      return { outbound: paginateArray(outbound, query.page), inbound: null };
+    }
+
+    const inbound = await this.searchLeg({
+      ...shared,
+      departureAirportId: query.arrivalAirportId,
+      arrivalAirportIds: [query.departureAirportId],
+      departureDate: query.returnDate,
+      dateField: 'returnDate',
+    });
+    // A route has few flights on one date, so each leg is paged in memory (GEN-05).
+    return {
+      outbound: paginateArray(outbound, query.page),
+      inbound: paginateArray(inbound, query.returnPage),
+    };
+  }
 
   /**
    * The bookable flights of one leg. A flight qualifies when it

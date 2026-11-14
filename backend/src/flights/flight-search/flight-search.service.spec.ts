@@ -5,8 +5,13 @@ import type { ReferenceDataService } from '../../common/reference-data/reference
 import type { AirportDto } from '../../common/reference-data/dto/airport.dto';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
-import { FlightSortBy, SortOrder } from './flight-search.constants';
-import { FlightSearchService, type LegCriteria } from './flight-search.service';
+import { FlightSearchQueryDto } from './dto/flight-search-query.dto';
+import { FlightSortBy, SortOrder, TripType } from './flight-search.constants';
+import {
+  FlightSearchService,
+  type LegCriteria,
+  type LegFlight,
+} from './flight-search.service';
 
 // 23:30 UTC: already the 21st in Tokyo, still the 20th in New York.
 const NOW = new Date('2026-11-20T23:30:00.000Z');
@@ -72,6 +77,28 @@ function match() {
     ],
     lowestPrice: price,
   };
+}
+
+// A result of searchLeg, for the tests that replace it.
+function legFlight(flightNumber: string): LegFlight {
+  const { airlineId, ...flight } = match();
+  return {
+    ...flight,
+    flightNumber,
+    airline: { id: airlineId.toString(), name: 'EgyptAir', iataCode: 'MS' },
+  };
+}
+
+// A validated query: the DTO's defaults apply (ONE_WAY, 1 adult, page 1, price asc).
+function searchQuery(
+  overrides: Partial<FlightSearchQueryDto> = {},
+): FlightSearchQueryDto {
+  return Object.assign(new FlightSearchQueryDto(), {
+    departureAirportId: 'JFK',
+    arrivalAirportId: 'NRT',
+    departureDate: '2026-11-20',
+    ...overrides,
+  });
 }
 
 // A query stand-in: lean() and exec() resolve to the given result.
@@ -387,5 +414,163 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
     });
     expect(flight.flightNumber).toBe('MS986');
     expect(flight.lowestPrice.toString()).toBe('450.00');
+  });
+});
+
+describe('FlightSearchService.search (FLT-12)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: NOW });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('searches only the outbound leg for a one-way trip, with seats for adults and children', async () => {
+    const { service } = setup();
+    const outbound = [legFlight('JL5')];
+    const searchLeg = jest
+      .spyOn(service, 'searchLeg')
+      .mockResolvedValueOnce(outbound);
+
+    const result = await service.search(
+      searchQuery({
+        adults: 2,
+        children: 1,
+        infants: 2,
+        cabin: CabinCategory.BUSINESS,
+        minPrice: '100',
+        maxPrice: '900',
+        sortBy: FlightSortBy.DURATION,
+        sortOrder: SortOrder.DESC,
+      }),
+    );
+
+    expect(searchLeg).toHaveBeenCalledTimes(1);
+    expect(searchLeg).toHaveBeenCalledWith({
+      departureAirportId: 'JFK',
+      arrivalAirportIds: ['NRT'],
+      departureDate: '2026-11-20',
+      dateField: 'departureDate',
+      // Infants need no seat.
+      seats: 3,
+      cabin: CabinCategory.BUSINESS,
+      minPrice: '100',
+      maxPrice: '900',
+      sortBy: FlightSortBy.DURATION,
+      sortOrder: SortOrder.DESC,
+    });
+    expect(result.outbound.items).toEqual(outbound);
+    expect(result.inbound).toBeNull();
+  });
+
+  it('searches the return leg back between the same airports on returnDate', async () => {
+    const { service } = setup();
+    const searchLeg = jest
+      .spyOn(service, 'searchLeg')
+      .mockResolvedValueOnce([legFlight('JL5')])
+      .mockResolvedValueOnce([legFlight('JL6')]);
+
+    const result = await service.search(
+      searchQuery({
+        tripType: TripType.ROUND_TRIP,
+        returnDate: '2026-11-27',
+        cabin: CabinCategory.ECONOMY,
+        maxPrice: '900',
+      }),
+    );
+
+    expect(searchLeg).toHaveBeenCalledTimes(2);
+    expect(searchLeg).toHaveBeenLastCalledWith({
+      departureAirportId: 'NRT',
+      arrivalAirportIds: ['JFK'],
+      departureDate: '2026-11-27',
+      dateField: 'returnDate',
+      seats: 1,
+      cabin: CabinCategory.ECONOMY,
+      minPrice: undefined,
+      maxPrice: '900',
+      sortBy: FlightSortBy.PRICE,
+      sortOrder: SortOrder.ASC,
+    });
+    expect(result.inbound?.items.map((f) => f.flightNumber)).toEqual(['JL6']);
+  });
+
+  it('pages each leg on its own: page for outbound, returnPage for inbound', async () => {
+    const { service } = setup();
+    const numbered = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, i) => legFlight(`${prefix}${i + 1}`));
+    jest
+      .spyOn(service, 'searchLeg')
+      .mockResolvedValueOnce(numbered('OUT', 12))
+      .mockResolvedValueOnce(numbered('IN', 15));
+
+    const result = await service.search(
+      searchQuery({
+        tripType: TripType.ROUND_TRIP,
+        returnDate: '2026-11-27',
+        page: 2,
+        returnPage: 1,
+      }),
+    );
+
+    expect(result.outbound.items.map((f) => f.flightNumber)).toEqual([
+      'OUT11',
+      'OUT12',
+    ]);
+    expect(result.outbound.meta).toMatchObject({ page: 2, totalItems: 12 });
+    expect(result.inbound?.items).toHaveLength(10);
+    expect(result.inbound?.meta).toMatchObject({
+      page: 1,
+      totalItems: 15,
+      totalPages: 2,
+    });
+  });
+
+  it('does not search the return leg when the outbound leg fails', async () => {
+    const { service } = setup();
+    const searchLeg = jest
+      .spyOn(service, 'searchLeg')
+      .mockRejectedValueOnce(
+        new BadRequestException({ code: 'UNKNOWN_AIRPORT' }),
+      );
+
+    const error = await failure(
+      service.search(
+        searchQuery({
+          tripType: TripType.ROUND_TRIP,
+          returnDate: '2026-11-27',
+        }),
+      ),
+    );
+
+    expect(error.getResponse()).toMatchObject({ code: 'UNKNOWN_AIRPORT' });
+    expect(searchLeg).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a return date already past at the return airport, on returnDate', async () => {
+    const { service } = setup();
+    // Still the 20th in New York, already the 21st in Tokyo, where the return flight leaves.
+    const error = await failure(
+      service.search(
+        searchQuery({
+          tripType: TripType.ROUND_TRIP,
+          departureDate: '2026-11-20',
+          returnDate: '2026-11-20',
+        }),
+      ),
+    );
+
+    expect(error.getStatus()).toBe(400);
+    expect(error.getResponse()).toEqual({
+      code: 'DEPARTURE_DATE_IN_PAST',
+      message: 'returnDate must not be before today at NRT',
+      errors: [
+        {
+          field: 'returnDate',
+          messages: ['returnDate must not be before today at NRT'],
+        },
+      ],
+    });
   });
 });
