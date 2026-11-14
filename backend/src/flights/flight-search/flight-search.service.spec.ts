@@ -5,6 +5,7 @@ import type { ReferenceDataService } from '../../common/reference-data/reference
 import type { AirportDto } from '../../common/reference-data/dto/airport.dto';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
+import { FlightSortBy, SortOrder } from './flight-search.constants';
 import { FlightSearchService, type LegCriteria } from './flight-search.service';
 
 // 23:30 UTC: already the 21st in Tokyo, still the 20th in New York.
@@ -43,6 +44,8 @@ function criteria(overrides: Partial<LegCriteria> = {}): LegCriteria {
     departureDate: '2026-11-20',
     dateField: 'departureDate',
     seats: 2,
+    sortBy: FlightSortBy.PRICE,
+    sortOrder: SortOrder.ASC,
     ...overrides,
   };
 }
@@ -271,17 +274,17 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
     });
   });
 
-  it('keeps any cabin with enough free seats when no cabin is asked for', async () => {
+  it('keeps any cabin with enough free seats when no cabin or price is given', async () => {
     const { service, flightModel } = setup();
     await service.searchLeg(criteria({ seats: 3 }));
 
     const filter = projectionOf(flightModel).$project.cabins.$map.input.$filter;
     expect(filter.input).toBe('$cabinInventory');
-    expect(filter.cond.$and).toEqual([true, { $gte: [FREE_SEATS, 3] }]);
+    expect(filter.cond.$and).toEqual([{ $gte: [FREE_SEATS, 3] }]);
     expect(pipelineOf(flightModel).slice(2)).toEqual([
       { $match: { 'cabins.0': { $exists: true } } },
       { $addFields: { lowestPrice: { $min: '$cabins.price' } } },
-      { $sort: { departureAtUtc: 1, _id: 1 } },
+      { $sort: { lowestPrice: 1, departureAtUtc: 1, _id: 1 } },
     ]);
   });
 
@@ -291,8 +294,69 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
 
     const filter = projectionOf(flightModel).$project.cabins.$map.input.$filter;
     expect(filter.cond.$and).toEqual([
-      { $eq: ['$$cabin.category', CabinCategory.BUSINESS] },
       { $gte: [FREE_SEATS, 2] },
+      { $eq: ['$$cabin.category', CabinCategory.BUSINESS] },
+    ]);
+  });
+
+  it('keeps only cabins priced within the inclusive range (FLT-15)', async () => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(criteria({ minPrice: '100', maxPrice: '250.50' }));
+
+    const filter = projectionOf(flightModel).$project.cabins.$map.input.$filter;
+    expect(filter.cond.$and).toEqual([
+      { $gte: [FREE_SEATS, 2] },
+      { $gte: ['$$cabin.price', Types.Decimal128.fromString('100')] },
+      { $lte: ['$$cabin.price', Types.Decimal128.fromString('250.50')] },
+    ]);
+  });
+
+  it('applies a single bound when only one is given', async () => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(criteria({ maxPrice: '99.99' }));
+
+    const filter = projectionOf(flightModel).$project.cabins.$map.input.$filter;
+    expect(filter.cond.$and).toEqual([
+      { $gte: [FREE_SEATS, 2] },
+      { $lte: ['$$cabin.price', Types.Decimal128.fromString('99.99')] },
+    ]);
+  });
+
+  it('sorts by the lowest price, highest first, when asked', async () => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(criteria({ sortOrder: SortOrder.DESC }));
+
+    expect(pipelineOf(flightModel).slice(4)).toEqual([
+      { $sort: { lowestPrice: -1, departureAtUtc: 1, _id: 1 } },
+    ]);
+  });
+
+  it.each([
+    [SortOrder.ASC, 1],
+    [SortOrder.DESC, -1],
+  ])('sorts by departure time (%s)', async (sortOrder, direction) => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(
+      criteria({ sortBy: FlightSortBy.DEPARTURE_TIME, sortOrder }),
+    );
+
+    expect(pipelineOf(flightModel).slice(4)).toEqual([
+      { $sort: { departureAtUtc: direction, _id: 1 } },
+    ]);
+  });
+
+  it('sorts by a duration it computes and then removes', async () => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(criteria({ sortBy: FlightSortBy.DURATION }));
+
+    expect(pipelineOf(flightModel).slice(4)).toEqual([
+      {
+        $addFields: {
+          durationMs: { $subtract: ['$arrivalAtUtc', '$departureAtUtc'] },
+        },
+      },
+      { $sort: { durationMs: 1, departureAtUtc: 1, _id: 1 } },
+      { $unset: 'durationMs' },
     ]);
   });
 

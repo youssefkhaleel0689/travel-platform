@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import type { Model, PipelineStage, Types } from 'mongoose';
+import { Types } from 'mongoose';
+import type { Model, PipelineStage } from 'mongoose';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { toAirportLocalDateKey } from '../../common/time/airport-time';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
+import { FlightSortBy, SortOrder } from './flight-search.constants';
 
 /** One leg of a search: from one airport, to one or more airports, on a local date. */
 export interface LegCriteria {
@@ -18,9 +20,14 @@ export interface LegCriteria {
   // Adults + children. Infants sit on a lap and need no seat (FLT-12).
   seats: number;
   cabin?: CabinCategory;
+  // Inclusive bounds on the price per seat, as validated money strings (FLT-15).
+  minPrice?: string;
+  maxPrice?: string;
+  sortBy: FlightSortBy;
+  sortOrder: SortOrder;
 }
 
-/** A cabin that has enough free seats for the whole party. */
+/** A cabin that has enough free seats for the whole party and fits the price range. */
 export interface LegCabin {
   category: CabinCategory;
   price: Types.Decimal128;
@@ -45,7 +52,7 @@ export interface LegFlight {
   departureAtUtc: Date;
   arrivalAtUtc: Date;
   cabins: LegCabin[];
-  // The cheapest qualifying cabin: the price a flight is filtered and sorted by (FLT-15).
+  // The cheapest qualifying cabin: the price a flight is sorted by (FLT-15).
   lowestPrice: Types.Decimal128;
 }
 
@@ -69,9 +76,10 @@ export class FlightSearchService {
   ) {}
 
   /**
-   * The bookable flights of one leg, earliest departure first. A flight qualifies when it
+   * The bookable flights of one leg. A flight qualifies when it
    * is SCHEDULED, has not departed, belongs to an ACTIVE airline (ACC-15) and has a cabin
-   * (the requested one, if any) with at least `seats` free seats.
+   * (the requested one, if any) with at least `seats` free seats and a price in the range.
+   * Sorted as asked; ties go to the earlier departure, then the lower _id.
    */
   async searchLeg(criteria: LegCriteria): Promise<LegFlight[]> {
     // FLT-02: only seeded airports. The departure airport's zone decides what "today" is.
@@ -124,9 +132,24 @@ export class FlightSearchService {
     now: Date,
     activeAirlineIds: Types.ObjectId[],
   ): PipelineStage[] {
-    const cabinMatches = criteria.cabin
-      ? { $eq: ['$$cabin.category', criteria.cabin] }
-      : true;
+    // Every condition a cabin must meet to stay in the result.
+    const cabinConditions: Record<string, unknown>[] = [
+      { $gte: [FREE_SEATS, criteria.seats] },
+    ];
+    if (criteria.cabin) {
+      cabinConditions.push({ $eq: ['$$cabin.category', criteria.cabin] });
+    }
+    // Decimal128 compares exactly inside MongoDB: "100" is never read as below "99.99".
+    if (criteria.minPrice !== undefined) {
+      cabinConditions.push({
+        $gte: ['$$cabin.price', Types.Decimal128.fromString(criteria.minPrice)],
+      });
+    }
+    if (criteria.maxPrice !== undefined) {
+      cabinConditions.push({
+        $lte: ['$$cabin.price', Types.Decimal128.fromString(criteria.maxPrice)],
+      });
+    }
 
     return [
       // The first four fields are the search index of the flight schema, in its order.
@@ -141,7 +164,7 @@ export class FlightSearchService {
           airlineId: { $in: activeAirlineIds },
         },
       },
-      // Keep only the cabins with room for the whole party; counters are not returned.
+      // Keep only the qualifying cabins; the seat counters are not returned.
       {
         $project: {
           airlineId: 1,
@@ -156,12 +179,7 @@ export class FlightSearchService {
                 $filter: {
                   input: '$cabinInventory',
                   as: 'cabin',
-                  cond: {
-                    $and: [
-                      cabinMatches,
-                      { $gte: [FREE_SEATS, criteria.seats] },
-                    ],
-                  },
+                  cond: { $and: cabinConditions },
                 },
               },
               as: 'cabin',
@@ -176,12 +194,35 @@ export class FlightSearchService {
           },
         },
       },
-      // A flight without a qualifying cabin is not bookable for this party.
+      // A flight without a qualifying cabin is not a result for this search.
       { $match: { 'cabins.0': { $exists: true } } },
-      // Decimal128 compares exactly inside MongoDB, so no floating-point money in code.
       { $addFields: { lowestPrice: { $min: '$cabins.price' } } },
-      // Stable order; FLT-15 sorting replaces it in the next step.
-      { $sort: { departureAtUtc: 1, _id: 1 } },
+      ...sortStages(criteria.sortBy, criteria.sortOrder),
     ];
+  }
+}
+
+// FLT-15 sorting. The tie-breakers stay ascending so the order is stable across pages.
+function sortStages(
+  sortBy: FlightSortBy,
+  sortOrder: SortOrder,
+): PipelineStage[] {
+  const direction = sortOrder === SortOrder.DESC ? -1 : 1;
+  switch (sortBy) {
+    case FlightSortBy.PRICE:
+      return [{ $sort: { lowestPrice: direction, departureAtUtc: 1, _id: 1 } }];
+    case FlightSortBy.DEPARTURE_TIME:
+      return [{ $sort: { departureAtUtc: direction, _id: 1 } }];
+    case FlightSortBy.DURATION:
+      // Duration is never stored; it is only needed here to order the results.
+      return [
+        {
+          $addFields: {
+            durationMs: { $subtract: ['$arrivalAtUtc', '$departureAtUtc'] },
+          },
+        },
+        { $sort: { durationMs: direction, departureAtUtc: 1, _id: 1 } },
+        { $unset: 'durationMs' },
+      ];
   }
 }
