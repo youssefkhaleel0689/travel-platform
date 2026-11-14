@@ -24,9 +24,13 @@ import {
   testEmail,
 } from './support/auth-test-helper';
 
-// Registering and logging accounts in over HTTP happens in beforeAll, on top of
-// connecting to Atlas and building indexes, so this is generous.
-const CONNECT_TIMEOUT_MS = 120_000;
+// beforeAll does more than any other suite's: a Nest app against the shared
+// Atlas cluster, two accounts registered and logged in over HTTP with a bcrypt
+// hash each, and an airline created through the real FLT-01 endpoint. Suites run
+// one at a time (--runInBand), so this one starts after a queue of twenty others
+// and the cluster is at its slowest by then. 120s was not enough on a full run
+// even though the suite finishes in about 30s on its own; do not lower this.
+const CONNECT_TIMEOUT_MS = 180_000;
 // Every created moderator costs at least one bcrypt hash.
 const SLOW_MS = 60_000;
 
@@ -52,8 +56,8 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
   let plainUser: SignedInUser;
   /** The airline every happy-path moderator is linked to. */
   let airlineId: string;
-  /** A deactivated airline, for the PROVIDER_DEACTIVATED case. */
-  let deactivatedAirlineId: string;
+  /** Made on demand by deactivatedAirline(); only one test needs it. */
+  let deactivatedAirlineId: string | undefined;
 
   const createdUserIds: string[] = [];
   const createdAirlineIds: string[] = [];
@@ -82,6 +86,37 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       }
     }
     throw new Error('Could not find a free IATA code for the test airline');
+  }
+
+  /**
+   * A deactivated airline, made on first use rather than in beforeAll.
+   *
+   * Only one test needs it, and beforeAll already does more setup than any
+   * other suite in the project (a Nest app against Atlas, two accounts over
+   * HTTP with a bcrypt hash each, and an airline). Running one airline fewer
+   * in the hook is what keeps it inside its timeout when this suite starts at
+   * the back of a --runInBand queue.
+   */
+  async function deactivatedAirline(): Promise<string> {
+    if (deactivatedAirlineId) {
+      return deactivatedAirlineId;
+    }
+    const id = await createAirline('acc13-dead-airline');
+    // ACC-15 (deactivate a provider) is not built yet, so the status is set
+    // directly for this one case.
+    await airlineModel
+      .updateOne(
+        { _id: new Types.ObjectId(id) },
+        {
+          $set: {
+            status: AirlineStatus.DEACTIVATED,
+            deactivatedAt: new Date(),
+          },
+        },
+      )
+      .exec();
+    deactivatedAirlineId = id;
+    return id;
   }
 
   /** The body ACC-13 expects, with a fresh email every time. */
@@ -134,15 +169,6 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
     createdUserIds.push(admin.userId, plainUser.userId);
 
     airlineId = await createAirline('acc13-airline');
-    deactivatedAirlineId = await createAirline('acc13-dead-airline');
-    // ACC-15 (deactivate a provider) is not built yet, so the status is set
-    // directly for this one case.
-    await airlineModel
-      .updateOne(
-        { _id: new Types.ObjectId(deactivatedAirlineId) },
-        { $set: { status: AirlineStatus.DEACTIVATED, deactivatedAt: new Date() } },
-      )
-      .exec();
   }, CONNECT_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -276,10 +302,16 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
 
     // ACC-15: a deactivated provider gets no new moderator.
     it('answers 400 PROVIDER_DEACTIVATED for a deactivated airline', async () => {
+      // Resolved before the request is built, never inside .send(): supertest
+      // binds to an ephemeral listener as soon as request() is called, and a
+      // second supertest call awaited inside the argument list closes the
+      // listener the outer one is holding.
+      const providerId = await deactivatedAirline();
+
       const res = await request(app.getHttpServer())
         .post(MODERATORS)
         .set('Cookie', admin.cookie)
-        .send(body({ providerId: deactivatedAirlineId }))
+        .send(body({ providerId }))
         .expect(400);
 
       expect(res.body.code).toBe('PROVIDER_DEACTIVATED');
