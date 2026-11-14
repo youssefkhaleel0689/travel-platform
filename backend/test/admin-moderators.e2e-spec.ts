@@ -397,6 +397,144 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
     );
   });
 
+  // The point of ACC-13 is not the row in `users`: it is that the account it
+  // creates can do a moderator's job and nothing else. That crosses into the
+  // flights module, so it is checked here rather than assumed.
+  describe('the account ACC-13 creates actually works (FLT-01)', () => {
+    /** A moderator past its first-login password change, ready to use the API. */
+    async function readyModerator(): Promise<string> {
+      const created = await createModerator({ password: 'Welcome2026' });
+      expect(created.status).toBe(201);
+      const cookie = await login(
+        app,
+        created.body.account.email,
+        'Welcome2026',
+      );
+      await request(app.getHttpServer())
+        .patch(CHANGE_PASSWORD)
+        .set('Cookie', cookie)
+        .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
+        .expect(200);
+      return cookie;
+    }
+
+    it('can edit the airline it was assigned to', async () => {
+      const cookie = await readyModerator();
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/airlines/${airlineId}`)
+        .set('Cookie', cookie)
+        .send({ name: 'test_c2_acc13 Airline Renamed' })
+        .expect(200);
+
+      expect(res.body.name).toBe('test_c2_acc13 Airline Renamed');
+    }, SLOW_MS);
+
+    // ACC-11, and the reason the link is a collection rather than a flag: the
+    // moderator's own row says nothing about which airline it manages, so the
+    // only thing that can grant this is the assignment document.
+    it('cannot edit an airline it was not assigned to', async () => {
+      const cookie = await readyModerator();
+      const otherAirlineId = await createAirline('acc13-other-airline');
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/airlines/${otherAirlineId}`)
+        .set('Cookie', cookie)
+        .send({ name: 'test_c2_should_not_happen' })
+        .expect(403);
+
+      expect(res.body.code).toBe('FORBIDDEN');
+    }, SLOW_MS);
+
+    it('cannot create an airline: that stays admin-only', async () => {
+      const cookie = await readyModerator();
+
+      await request(app.getHttpServer())
+        .post('/api/airlines')
+        .set('Cookie', cookie)
+        .send({ name: 'test_c2_acc13 Not Allowed', iataCode: randomIataCode() })
+        .expect(403);
+    }, SLOW_MS);
+  });
+
+  // A moderator is a new kind of account, so the admin routes built for
+  // ACC-07a, ACC-14 and ACC-16 have to handle it like any other.
+  describe('the admin account routes handle a moderator (ACC-07a, ACC-14, ACC-16)', () => {
+    it('lists it under the AIRLINE_MODERATOR role filter (ACC-14)', async () => {
+      const created = await createModerator();
+      expect(created.status).toBe(201);
+
+      const res = await request(app.getHttpServer())
+        .get(
+          `/api/admin/accounts?role=${Role.AIRLINE_MODERATOR}` +
+            `&search=${encodeURIComponent(created.body.account.email)}`,
+        )
+        .set('Cookie', admin.cookie)
+        .expect(200);
+
+      expect(res.body.meta.totalItems).toBe(1);
+      expect(res.body.items[0].id).toBe(created.body.account.id);
+      expect(res.body.items[0].role).toBe(Role.AIRLINE_MODERATOR);
+    }, SLOW_MS);
+
+    it('resets its password back to a temporary one (ACC-07a)', async () => {
+      const created = await createModerator({ password: 'Welcome2026' });
+      const id = created.body.account.id as string;
+
+      const reset = await request(app.getHttpServer())
+        .post(`/api/admin/users/${id}/reset-password`)
+        .set('Cookie', admin.cookie)
+        .expect(200);
+
+      // Back to owing a password change, exactly as ACC-13 left it.
+      const cookie = await login(
+        app,
+        created.body.account.email,
+        reset.body.temporaryPassword as string,
+      );
+      const blocked = await request(app.getHttpServer())
+        .get(ME)
+        .set('Cookie', cookie)
+        .expect(403);
+      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    }, SLOW_MS);
+
+    it('suspends it, and the suspension stops it editing its airline (ACC-16)', async () => {
+      const created = await createModerator({ password: 'Welcome2026' });
+      const id = created.body.account.id as string;
+      const cookie = await login(
+        app,
+        created.body.account.email,
+        'Welcome2026',
+      );
+      await request(app.getHttpServer())
+        .patch(CHANGE_PASSWORD)
+        .set('Cookie', cookie)
+        .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
+        .expect(200);
+
+      const suspended = await request(app.getHttpServer())
+        .patch(`/api/admin/accounts/${id}/suspend`)
+        .set('Cookie', admin.cookie)
+        .expect(200);
+      expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
+
+      // The guard reloads the account every request, so the cookie it already
+      // holds stops working without anything being revoked. The assignment row
+      // stays: suspension is not unassignment.
+      await request(app.getHttpServer())
+        .patch(`/api/airlines/${airlineId}`)
+        .set('Cookie', cookie)
+        .send({ name: 'test_c2_acc13 Airline Suspended Edit' })
+        .expect(401);
+
+      const links = await assignmentModel
+        .countDocuments({ moderatorId: new Types.ObjectId(id) })
+        .exec();
+      expect(links).toBe(1);
+    }, SLOW_MS);
+  });
+
   describe('access (ACC-11)', () => {
     it('rejects an anonymous request (401)', async () => {
       await request(app.getHttpServer())
