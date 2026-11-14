@@ -125,6 +125,7 @@ Run the folders in order. Each row says what the folder proves.
 | 30 Change password | ACC-08 | The current password is required; the rules are enforced; the caller stays signed in while other sessions do not |
 | 40 Notifications | GEN-01 | Pages of 10, the unread filter, marking read twice is harmless, another account's notification is a 404 |
 | 50 Admin accounts | ACC-07a, ACC-14, ACC-16 | Role enforcement, search and filters, a regex matched literally, suspension revoking sessions, the self and admin refusals, a one-time temporary password |
+| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
 | 60 Account deactivation | ACC-12 | `confirm: true` is required; the row survives with a date; the cookie dies |
 | 70 Policies | PAY-02 | The booking's own terms and the version the user must echo back |
 | 80 Payments | PAY-01 | The amount is never taken from the client; the webhook refuses anything Stripe did not sign |
@@ -141,6 +142,17 @@ Run the folders in order. Each row says what the folder proves.
 - **See the temporary-password lockout.** Run 50/10, then sign in as that
   account and call `GET /users/me`: 403 `PASSWORD_CHANGE_REQUIRED`. Only
   `PATCH /api/auth/change-password` works until it sets its own password.
+  Folder 55 drives the same thing end to end for a moderator (requests 11 to
+  14), which is the case the requirement actually names.
+- **Check that a failed moderator creation leaves nothing behind.** Run folder
+  55 request 06 (a 404 for an airline that does not exist), then request 03
+  again with that same email in `moderatorEmail`. It succeeds, which it could
+  not do if a half-made account were holding the address.
+- **Look at the link itself.** After folder 55 request 03, open the
+  `airlineModeratorAssignment` collection in Atlas: there is exactly one
+  document for that `moderatorId`, and the moderator's own `users` row says
+  nothing about which airline it manages. That is deliberate (schema section
+  2.2): one place holds the link.
 - **Watch a password change end other sessions.** Sign in twice (two
   browsers, or Postman plus Swagger), change the password in one, and the other
   cookie stops working while yours keeps going.
@@ -210,6 +222,8 @@ Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 | `403 PASSWORD_CHANGE_REQUIRED` | The account is on a temporary password. Call `PATCH /api/auth/change-password` first |
 | `403 ACCOUNT_SUSPENDED` / `ACCOUNT_DEACTIVATED` on login | Exactly what it says; a deactivated account cannot be brought back by an admin |
 | `501 BOOKING_TYPE_UNAVAILABLE` | No booking module is wired in. Expected until A1 or B2 lands |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | Folder 55 asked for a `HOTEL_MODERATOR`. Expected until the hotels module lands (HTL-01) |
+| `409` on folder 55 request 02 | The random two-character IATA code was already taken. Send the request again |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Expected unless you are working on payments |
 | `400` on `role`, `email` or `amount` | Correct: the global pipe runs `forbidNonWhitelisted`, so an unknown field is refused rather than ignored |
 | `404` where you expected `403` | Correct: another account's row is indistinguishable from one that does not exist, so ids cannot be probed (ACC-11) |
@@ -222,3 +236,13 @@ Everything you create is on the **shared** Atlas database. Accounts named
 `test_c2_*` are yours; delete them when you are done, along with their
 sessions and notifications. Never drop a collection, and never delete a row
 you did not create.
+
+Folder 55 creates three things that are easy to forget, because two of them
+are outside the `users` collection:
+
+- the two moderator accounts (`test_c2_mod_*` and `test_c2_mod2_*`);
+- their rows in `airlineModeratorAssignment`, matched on `moderatorId`;
+- the airline it made, named `test_c2_acc13 Airline`. Delete the assignment
+  rows first, then the airline, then the accounts. The airline holds a
+  two-character IATA code, and the pool is small, so leaving it behind makes
+  the next run collide more often.

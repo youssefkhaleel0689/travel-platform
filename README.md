@@ -108,6 +108,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
 | `501 BOOKING_TYPE_UNAVAILABLE` | No booking module provides a `BookingsPort` yet; expected until A1 or B2 lands |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a hotel moderator; expected until the hotels module (HTL-01) lands |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `querySrv ECONNREFUSED` | Your machine's DNS resolver will not answer the SRV lookup `mongodb+srv://` needs. Use the non-SRV form of the string (`mongodb://host1,host2,host3/db?replicaSet=...&authSource=admin&ssl=true`) in your own `.env` |
@@ -333,7 +334,7 @@ Feature modules:
 
 Where bookings live is decided at the data-model review.
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Notifications were planned for `src/common/notifications/` but live in the feature module `src/notifications/` instead: GEN-01 has four endpoints, and a controller needs the guards and DTO wiring that a feature module provides. Other modules use it the normal way, through its exported `NotificationsService`.
 
@@ -760,7 +761,7 @@ await request(app.getHttpServer())
 
 The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, the guards and the `User` schema are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
 
-## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16)
+## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
 Login, the cookie and the guards are described under "Accounts and
 authentication" above. This section covers the account endpoints built on top
@@ -775,6 +776,7 @@ of them.
 | `PATCH /api/admin/accounts/:id/suspend` | ACC-16, ACC-15 | Keeps the account's bookings valid and notifies the owner |
 | `PATCH /api/admin/accounts/:id/reactivate` | ACC-16, ACC-15 | Also clears a login lockout |
 | `POST /api/admin/users/:id/reset-password` | ACC-07a | Returns a temporary password once; stored only as a hash |
+| `POST /api/admin/moderators` | ACC-13 | Admin only; creates an airline or hotel moderator linked to exactly one provider |
 
 Rules worth knowing before you touch these:
 
@@ -810,6 +812,50 @@ Rules worth knowing before you touch these:
 password change cannot yet revoke the tokens already issued to the account's
 other devices. When sessions land, `UsersService.changeOwnPassword` should
 revoke every session but the caller's; the place is marked in the code.
+
+### Creating a moderator (ACC-13)
+
+`POST /api/admin/moderators` is the only route that creates an account rather
+than acting on one that exists, and the only one that reaches into a provider
+module. Body: `name`, `email`, `role` (`AIRLINE_MODERATOR` or
+`HOTEL_MODERATOR`), `providerId`, and an optional `password`.
+
+- `role` is restricted to the two moderator roles by `@IsIn`, so this route can
+  never mint an `ADMIN`. Admins are seeded (ACC-18) and users register
+  (ACC-01).
+- `password` is the temporary password the admin sets. Leave it out and the
+  server generates one the same way ACC-07a does. Either way it is in the
+  response once and nowhere else; the database holds only a bcrypt hash.
+- The account is created with `mustChangePassword: true`, which is what makes
+  "must change the password on first login" real: `JwtAuthGuard` answers 403
+  `PASSWORD_CHANGE_REQUIRED` to every route but
+  `PATCH /api/auth/change-password` while the flag is set.
+- The link to the one airline or hotel lives **only** in the provider module's
+  assignment collection (schema section 2.2). It is never copied onto the user,
+  so there is one place that says which provider a moderator manages.
+
+Two collections in two modules are written, with no transaction across them, so
+the order makes a half-done creation either impossible or repairable:
+
+1. the provider is checked first, so a `providerId` that does not exist (404) or
+   is deactivated (400 `PROVIDER_DEACTIVATED`) costs nothing;
+2. the account is created, which is where a duplicate email becomes 409;
+3. the link is written. If that fails, the account is deleted again before the
+   error is rethrown, so the admin can retry with the same email.
+   `UsersService.deleteById` exists for this one caller and nothing else:
+   accounts are closed by changing their status, never by deleting the row.
+
+**The `ModeratorAssignmentPort`.** Administration does not touch either
+assignment collection. `src/common/providers/moderator-assignment.port.ts`
+declares the two methods (`assertAssignable`, `assign`) and
+`ModeratorAssignmentsGateway` routes a role to the module that owns it, the same
+shape as `BookingsPort`. The airline side is wired today by
+`AirlineModeratorAssignmentAdapter`, on top of the `AirlinesService` that
+`FlightsModule` exports. `HOTEL_MODERATOR_ASSIGNMENT_PORT` is deliberately
+unprovided until the hotels module exists (B1, HTL-01), so asking for a hotel
+moderator answers **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of the app
+refusing to start. Providing that token in `HotelsModule` is all it takes to
+finish the hotel half; nothing in administration changes.
 
 ## Notifications (GEN-01)
 
@@ -991,6 +1037,7 @@ The booking is confirmed when the webhook arrives, not when the command returns.
 | `test/users-profile.e2e-spec.ts` | ACC-09, ACC-11 |
 | `test/account-deactivation.e2e-spec.ts` | ACC-12 |
 | `test/admin-accounts.e2e-spec.ts` | ACC-07a, ACC-14, ACC-16 |
+| `test/admin-moderators.e2e-spec.ts` | ACC-13 |
 | `test/notifications.e2e-spec.ts` | GEN-01 |
 | `test/booking-policies.e2e-spec.ts` | PAY-02 |
 | `test/payments.e2e-spec.ts` | PAY-01, GEN-11 |
