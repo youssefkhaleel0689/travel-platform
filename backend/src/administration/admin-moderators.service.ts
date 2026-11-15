@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { UsersService } from '../auth/users/users.service';
 import { PasswordService } from '../auth/password/password.service';
+import { Role } from '../common/auth/auth.enums';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
 import type { ModeratorRole } from '../common/providers/moderator-assignments.gateway';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
@@ -44,10 +45,11 @@ export class AdminModeratorsService {
     dto: CreateModeratorDto,
   ): Promise<ModeratorCreatedDto> {
     const role: ModeratorRole = dto.role;
+    const providerId = this.providerIdFor(dto);
 
     // Step 1. Both the 501 for an unbuilt provider module and the 404/400 for
     // a bad provider id happen here, before anything is written.
-    await this.assignments.assertAssignable(role, dto.providerId, actingAdminId);
+    await this.assignments.assertAssignable(role, providerId, actingAdminId);
 
     // The admin may set the temporary password; otherwise one is generated the
     // same way ACC-07a generates its reset passwords.
@@ -68,13 +70,42 @@ export class AdminModeratorsService {
 
     // Step 3, with the compensating delete described above.
     try {
-      await this.assignments.assign(role, profile.id, dto.providerId);
+      await this.assignments.assign(role, profile.id, providerId);
     } catch (error) {
       await this.rollback(profile.id);
       throw error;
     }
 
-    return ModeratorCreatedDto.from(profile, dto.providerId, temporaryPassword);
+    return ModeratorCreatedDto.from(profile, providerId, temporaryPassword);
+  }
+
+  /**
+   * The body names the provider by role - airlineId or hotelId - while the
+   * ports underneath take one generic providerId, so the two meet here. This is
+   * the only place that knows the request field names; the gateway, the ports
+   * and the adapters stay provider-shaped rather than request-shaped.
+   *
+   * CreateModeratorDto already requires the id that matches the role and
+   * rejects the other one, so over HTTP the guard below cannot fire. It is here
+   * because this service is exported from AdministrationModule: another module
+   * calling it with a hand-built object would otherwise reach the provider
+   * lookup with undefined.
+   */
+  private providerIdFor(dto: CreateModeratorDto): string {
+    const field = dto.role === Role.AIRLINE_MODERATOR ? 'airlineId' : 'hotelId';
+    const providerId =
+      dto.role === Role.AIRLINE_MODERATOR ? dto.airlineId : dto.hotelId;
+
+    if (providerId === undefined) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        errors: [
+          { field, messages: [`${field} is required when role is ${dto.role}`] },
+        ],
+      });
+    }
+    return providerId;
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import {
+  ApiBody,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiOperation,
@@ -39,18 +40,52 @@ export class AdminModeratorsController {
     summary: 'Create an airline or hotel moderator account (ACC-13)',
     description:
       'Creates the account and links it to exactly one airline or hotel, ' +
-      'which must already exist and must not be deactivated. The temporary ' +
+      'which must already exist and must not be deactivated. Name it with ' +
+      'airlineId when role is AIRLINE_MODERATOR, or with hotelId when role ' +
+      'is HOTEL_MODERATOR; sending the id that does not match the role is a ' +
+      '400. The temporary ' +
       'password is returned once: either the one sent in the body or, if none ' +
       'was sent, a generated one. Until the moderator replaces it through ' +
       'PATCH /api/auth/change-password, every other endpoint answers 403 ' +
       'PASSWORD_CHANGE_REQUIRED (ACC-07a).',
+  })
+  // Two named examples rather than the schema's own sample body. Swagger UI
+  // builds that sample from every property, which for this body means both
+  // airlineId and hotelId at once - a body the endpoint refuses. These give
+  // Try it out a request that is valid as it stands, and the example picker
+  // doubles as the choice between an airline and a hotel moderator.
+  @ApiBody({
+    type: CreateModeratorDto,
+    examples: {
+      airline: {
+        summary: 'Airline moderator',
+        value: {
+          name: 'Omar Fathy',
+          email: 'omar@airline.example.com',
+          role: Role.AIRLINE_MODERATOR,
+          airlineId: '6720f1c2a1b2c3d4e5f60718',
+          password: 'Welcome2026',
+        },
+      },
+      hotel: {
+        summary: 'Hotel moderator (501 until the hotels module lands)',
+        value: {
+          name: 'Omar Fathy',
+          email: 'omar@hotel.example.com',
+          role: Role.HOTEL_MODERATOR,
+          hotelId: '6720f1c2a1b2c3d4e5f60718',
+          password: 'Welcome2026',
+        },
+      },
+    },
   })
   @ApiCreatedResponse({ type: ModeratorCreatedDto })
   @ApiErrorResponse({
     status: 400,
     description:
       'Invalid body, unknown field, a role other than the two moderator ' +
-      'roles, or a deactivated provider',
+      'roles, a provider id that does not match the role, or a deactivated ' +
+      'provider',
     examples: [
       {
         code: 'VALIDATION_FAILED',
@@ -67,7 +102,7 @@ export class AdminModeratorsController {
   })
   @ApiErrorResponse({
     status: 404,
-    description: 'No airline or hotel has that providerId',
+    description: 'No airline has that airlineId, or no hotel has that hotelId',
     examples: [
       { code: 'AIRLINE_NOT_FOUND', message: 'Airline not found', path: PATH },
     ],
