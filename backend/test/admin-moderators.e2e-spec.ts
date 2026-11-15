@@ -119,15 +119,32 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
     return id;
   }
 
-  /** The body ACC-13 expects, with a fresh email every time. */
+  /**
+   * The body ACC-13 expects, with a fresh email every time.
+   *
+   * The provider id follows the role, because the DTO requires the one that
+   * matches it and rejects the other: airlineId for an airline moderator,
+   * hotelId for a hotel one. A hotel body gets an id that exists nowhere,
+   * which is harmless while the hotels module is unwired - the 501 is raised
+   * before any hotel is looked up.
+   */
   function body(overrides: Record<string, unknown> = {}) {
+    const role = overrides.role ?? Role.AIRLINE_MODERATOR;
     return {
       name: 'Omar Fathy',
       email: testEmail('mod'),
-      role: Role.AIRLINE_MODERATOR,
-      providerId: airlineId,
+      role,
+      ...(role === Role.HOTEL_MODERATOR
+        ? { hotelId: new Types.ObjectId().toString() }
+        : { airlineId }),
       ...overrides,
     };
+  }
+
+  /** The field names a 400 VALIDATION_FAILED body complains about. */
+  function fieldsOf(responseBody: unknown): string[] {
+    const errors = (responseBody as { errors?: { field: string }[] }).errors;
+    return (errors ?? []).map((error) => error.field);
   }
 
   /** POSTs a moderator and remembers the account for cleanup. */
@@ -294,7 +311,7 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(MODERATORS)
         .set('Cookie', admin.cookie)
-        .send(body({ providerId: new Types.ObjectId().toString() }))
+        .send(body({ airlineId: new Types.ObjectId().toString() }))
         .expect(404);
 
       expect(res.body.code).toBe('AIRLINE_NOT_FOUND');
@@ -306,12 +323,12 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       // binds to an ephemeral listener as soon as request() is called, and a
       // second supertest call awaited inside the argument list closes the
       // listener the outer one is holding.
-      const providerId = await deactivatedAirline();
+      const deactivatedId = await deactivatedAirline();
 
       const res = await request(app.getHttpServer())
         .post(MODERATORS)
         .set('Cookie', admin.cookie)
-        .send(body({ providerId }))
+        .send(body({ airlineId: deactivatedId }))
         .expect(400);
 
       expect(res.body.code).toBe('PROVIDER_DEACTIVATED');
@@ -325,7 +342,7 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       await request(app.getHttpServer())
         .post(MODERATORS)
         .set('Cookie', admin.cookie)
-        .send(body({ email, providerId: new Types.ObjectId().toString() }))
+        .send(body({ email, airlineId: new Types.ObjectId().toString() }))
         .expect(404);
 
       // Nothing was created, so the same email still works.
@@ -367,15 +384,74 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
     );
 
     it.each(['not-an-id', '123', ''])(
-      'rejects providerId %s with a field error',
-      async (providerId) => {
+      'rejects airlineId %s with a field error',
+      async (airlineIdValue) => {
         const res = await request(app.getHttpServer())
           .post(MODERATORS)
           .set('Cookie', admin.cookie)
-          .send(body({ providerId }))
+          .send(body({ airlineId: airlineIdValue }))
           .expect(400);
 
-        expect(res.body.errors[0].field).toBe('providerId');
+        expect(res.body.errors[0].field).toBe('airlineId');
+      },
+      SLOW_MS,
+    );
+
+    // The role decides which provider id the body carries. The generic
+    // providerId the endpoint used to take is now an unknown field, and the id
+    // belonging to the other kind of provider is refused by name, so a body
+    // meant for a hotel cannot quietly create an airline moderator.
+    it('rejects the providerId the endpoint used to take', async () => {
+      const res = await request(app.getHttpServer())
+        .post(MODERATORS)
+        .set('Cookie', admin.cookie)
+        .send({
+          name: 'Omar Fathy',
+          email: testEmail('mod'),
+          role: Role.AIRLINE_MODERATOR,
+          providerId: airlineId,
+        })
+        .expect(400);
+
+      expect(res.body.code).toBe('VALIDATION_FAILED');
+      expect(fieldsOf(res.body)).toContain('providerId');
+    }, SLOW_MS);
+
+    it('rejects hotelId on an airline moderator', async () => {
+      const res = await request(app.getHttpServer())
+        .post(MODERATORS)
+        .set('Cookie', admin.cookie)
+        .send(body({ hotelId: new Types.ObjectId().toString() }))
+        .expect(400);
+
+      expect(res.body.code).toBe('VALIDATION_FAILED');
+      expect(res.body.errors[0].field).toBe('hotelId');
+      expect(res.body.errors[0].messages[0]).toContain('HOTEL_MODERATOR');
+    }, SLOW_MS);
+
+    it('rejects airlineId on a hotel moderator', async () => {
+      const res = await request(app.getHttpServer())
+        .post(MODERATORS)
+        .set('Cookie', admin.cookie)
+        .send(body({ role: Role.HOTEL_MODERATOR, airlineId }))
+        .expect(400);
+
+      expect(res.body.code).toBe('VALIDATION_FAILED');
+      expect(res.body.errors[0].field).toBe('airlineId');
+    }, SLOW_MS);
+
+    it.each([Role.AIRLINE_MODERATOR, Role.HOTEL_MODERATOR])(
+      'rejects %s with no provider id at all',
+      async (role) => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send({ name: 'Omar Fathy', email: testEmail('mod'), role })
+          .expect(400);
+
+        expect(fieldsOf(res.body)).toEqual([
+          role === Role.AIRLINE_MODERATOR ? 'airlineId' : 'hotelId',
+        ]);
       },
       SLOW_MS,
     );
@@ -414,7 +490,7 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
         .send({
           email: 'not-an-email',
           role: Role.AIRLINE_MODERATOR,
-          providerId: airlineId,
+          airlineId,
         })
         .expect(400);
 
