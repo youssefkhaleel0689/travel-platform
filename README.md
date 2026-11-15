@@ -818,11 +818,22 @@ revoke every session but the caller's; the place is marked in the code.
 `POST /api/admin/moderators` is the only route that creates an account rather
 than acting on one that exists, and the only one that reaches into a provider
 module. Body: `name`, `email`, `role` (`AIRLINE_MODERATOR` or
-`HOTEL_MODERATOR`), `providerId`, and an optional `password`.
+`HOTEL_MODERATOR`), the provider id that matches the role - `airlineId` or
+`hotelId` - and an optional `password`.
 
 - `role` is restricted to the two moderator roles by `@IsIn`, so this route can
   never mint an `ADMIN`. Admins are seeded (ACC-18) and users register
   (ACC-01).
+- The provider is named by `airlineId` or `hotelId` rather than one generic
+  `providerId`, so the body says which collection the id has to come from. One
+  validator in `CreateModeratorDto` holds both halves of the rule: the id that
+  matches the role is required, and the one that does not is rejected by name,
+  so a body meant for a hotel cannot quietly create an airline moderator. Both
+  properties appear in the Swagger schema because Swagger UI cannot hide one
+  body property based on another's value; send only the matching one. The
+  response still carries `providerId`, because `account.role` already says
+  which kind of id it is and a pair with one half always null says less. The
+  ports underneath stay generic for the same reason.
 - `password` is the temporary password the admin sets. Leave it out and the
   server generates one the same way ACC-07a does. Either way it is in the
   response once and nowhere else; the database holds only a bcrypt hash.
@@ -837,7 +848,7 @@ module. Body: `name`, `email`, `role` (`AIRLINE_MODERATOR` or
 Two collections in two modules are written, with no transaction across them, so
 the order makes a half-done creation either impossible or repairable:
 
-1. the provider is checked first, so a `providerId` that does not exist (404) or
+1. the provider is checked first, so a provider id that does not exist (404) or
    is deactivated (400 `PROVIDER_DEACTIVATED`) costs nothing;
 2. the account is created, which is where a duplicate email becomes 409;
 3. the link is written. If that fails, the account is deleted again before the

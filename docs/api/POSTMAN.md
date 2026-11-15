@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 58 requests in 10 folders, each with assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, each with assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -125,7 +125,7 @@ Run the folders in order. Each row says what the folder proves.
 | 30 Change password | ACC-08 | The current password is required; the rules are enforced; the caller stays signed in while other sessions do not |
 | 40 Notifications | GEN-01 | Pages of 10, the unread filter, marking read twice is harmless, another account's notification is a 404 |
 | 50 Admin accounts | ACC-07a, ACC-14, ACC-16 | Role enforcement, search and filters, a regex matched literally, suspension revoking sessions, the self and admin refusals, a one-time temporary password |
-| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
+| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
 | 60 Account deactivation | ACC-12 | `confirm: true` is required; the row survives with a date; the cookie dies |
 | 70 Policies | PAY-02 | The booking's own terms and the version the user must echo back |
 | 80 Payments | PAY-01 | The amount is never taken from the client; the webhook refuses anything Stripe did not sign |
@@ -142,8 +142,8 @@ Run the folders in order. Each row says what the folder proves.
 - **See the temporary-password lockout.** Run 50/10, then sign in as that
   account and call `GET /users/me`: 403 `PASSWORD_CHANGE_REQUIRED`. Only
   `PATCH /api/auth/change-password` works until it sets its own password.
-  Folder 55 drives the same thing end to end for a moderator (requests 11 to
-  14), which is the case the requirement actually names.
+  Folder 55 drives the same thing end to end for a moderator (requests 13 to
+  16), which is the case the requirement actually names.
 - **Check that a failed moderator creation leaves nothing behind.** Run folder
   55 request 06 (a 404 for an airline that does not exist), then request 03
   again with that same email in `moderatorEmail`. It succeeds, which it could
@@ -224,6 +224,7 @@ Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 | `501 BOOKING_TYPE_UNAVAILABLE` | No booking module is wired in. Expected until A1 or B2 lands |
 | `501 PROVIDER_TYPE_UNAVAILABLE` | Folder 55 asked for a `HOTEL_MODERATOR`. Expected until the hotels module lands (HTL-01) |
 | `409` on folder 55 request 02 | The random two-character IATA code was already taken. Send the request again |
+| `400` on `providerId` | Correct since the role-specific body landed: name the provider with `airlineId` or `hotelId` instead, matching `role` |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Expected unless you are working on payments |
 | `400` on `role`, `email` or `amount` | Correct: the global pipe runs `forbidNonWhitelisted`, so an unknown field is refused rather than ignored |
 | `404` where you expected `403` | Correct: another account's row is indistinguishable from one that does not exist, so ids cannot be probed (ACC-11) |
@@ -246,3 +247,9 @@ are outside the `users` collection:
   rows first, then the airline, then the accounts. The airline holds a
   two-character IATA code, and the pool is small, so leaving it behind makes
   the next run collide more often.
+
+**Keep the seeded admin.** `ADMIN_EMAIL` in `backend/.env` is itself a
+`test_c2_*` address, so a sweep of "every `test_c2_` account" takes the admin
+with it and the next run dies on request 01 with `INVALID_CREDENTIALS` instead
+of signing in. Either leave that one account alone, or run
+`npm run seed:admin` again afterwards - it is idempotent.
