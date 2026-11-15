@@ -10,6 +10,7 @@ describe('AdminModeratorsService (ACC-13)', () => {
   const ADMIN_ID = '6720f1c2a1b2c3d4e5f60001';
   const MODERATOR_ID = '6720f1c2a1b2c3d4e5f60002';
   const AIRLINE_ID = '6720f1c2a1b2c3d4e5f60777';
+  const HOTEL_ID = '6720f1c2a1b2c3d4e5f60788';
 
   let users: jest.Mocked<Pick<UsersService, 'create' | 'deleteById'>>;
   let passwords: jest.Mocked<Pick<PasswordService, 'generateTemporary'>>;
@@ -35,12 +36,19 @@ describe('AdminModeratorsService (ACC-13)', () => {
     };
   }
 
-  function body(overrides: Partial<CreateModeratorDto> = {}): CreateModeratorDto {
+  // The provider id follows the role, the way CreateModeratorDto requires it:
+  // airlineId for an airline moderator, hotelId for a hotel one.
+  function body(
+    overrides: Partial<CreateModeratorDto> = {},
+  ): CreateModeratorDto {
+    const role = overrides.role ?? Role.AIRLINE_MODERATOR;
     return {
       name: 'Omar Fathy',
       email: 'omar@airline.example.com',
-      role: Role.AIRLINE_MODERATOR,
-      providerId: AIRLINE_ID,
+      role,
+      ...(role === Role.HOTEL_MODERATOR
+        ? { hotelId: HOTEL_ID }
+        : { airlineId: AIRLINE_ID }),
       ...overrides,
     } as CreateModeratorDto;
   }
@@ -178,13 +186,33 @@ describe('AdminModeratorsService (ACC-13)', () => {
 
     expect(assignments.assertAssignable).toHaveBeenCalledWith(
       Role.HOTEL_MODERATOR,
-      AIRLINE_ID,
+      HOTEL_ID,
       ADMIN_ID,
     );
     expect(assignments.assign).toHaveBeenCalledWith(
       Role.HOTEL_MODERATOR,
       MODERATOR_ID,
-      AIRLINE_ID,
+      HOTEL_ID,
     );
+  });
+
+  // Defence in depth for the one caller the DTO cannot protect: another module
+  // using the exported service with an object it built itself.
+  it('refuses a body whose role-specific provider id is missing', async () => {
+    await expect(
+      service.create(ADMIN_ID, {
+        name: 'Omar Fathy',
+        email: 'omar@airline.example.com',
+        role: Role.AIRLINE_MODERATOR,
+      } as CreateModeratorDto),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        code: 'VALIDATION_FAILED',
+        errors: [{ field: 'airlineId' }],
+      },
+    });
+    expect(assignments.assertAssignable).not.toHaveBeenCalled();
+    expect(users.create).not.toHaveBeenCalled();
   });
 });

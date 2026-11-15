@@ -36,9 +36,7 @@ export class AirlineModeratorAssignmentAdapter
       throw new BadRequestException({
         code: 'PROVIDER_DEACTIVATED',
         message: 'This airline is deactivated and cannot be given a moderator',
-        errors: [
-          { field: 'providerId', messages: ['airline is deactivated'] },
-        ],
+        errors: [{ field: 'airlineId', messages: ['airline is deactivated'] }],
       });
     }
   }

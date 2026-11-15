@@ -1846,7 +1846,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "The requirement in one request: an account with a moderator role, linked to exactly one airline, on a temporary password the admin chose. The email is generated per run, so the folder can be run again without editing anything."
           },
@@ -1915,7 +1915,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Second Moderator\",\n  \"email\": \"{{secondModeratorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Second Moderator\",\n  \"email\": \"{{secondModeratorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\"\n}"
             },
             "description": "The unique index is on the moderator, not the airline: a moderator manages exactly one provider, while a provider may have several moderators. No password is sent here, so the server generates one and returns it."
           },
@@ -1973,7 +1973,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Airline Moderator\",\n  \"email\": \"{{moderatorEmail}}\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "The same unique email index that registration relies on."
           },
@@ -2013,7 +2013,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Orphan Moderator\",\n  \"email\": \"test_c2_orphan@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"000000000000000000000000\"\n}"
+              "raw": "{\n  \"name\": \"C2 Orphan Moderator\",\n  \"email\": \"test_c2_orphan@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"000000000000000000000000\"\n}"
             },
             "description": "The provider is checked before anything is written, so this creates no account at all. Re-run request 03 with the same email afterwards if you want to prove it: it succeeds, which it could not do had an account been left behind."
           },
@@ -2053,7 +2053,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Hotel Moderator\",\n  \"email\": \"test_c2_hotelmod@example.com\",\n  \"role\": \"HOTEL_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Hotel Moderator\",\n  \"email\": \"test_c2_hotelmod@example.com\",\n  \"role\": \"HOTEL_MODERATOR\",\n  \"hotelId\": \"000000000000000000000000\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "The hotel half of ACC-13 is complete except for the one adapter the hotels module will provide (B1, HTL-01). Until then the route says so rather than failing in a way that looks like a bug. Nothing is created."
           },
@@ -2095,7 +2095,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Sneaky Admin\",\n  \"email\": \"test_c2_sneaky@example.com\",\n  \"role\": \"ADMIN\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Sneaky Admin\",\n  \"email\": \"test_c2_sneaky@example.com\",\n  \"role\": \"ADMIN\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "role accepts only the two moderator roles. Admins are seeded (ACC-18) and users register (ACC-01), so there is no path to an ADMIN account through the API at all. Try USER here too."
           },
@@ -2114,7 +2114,7 @@
           ]
         },
         {
-          "name": "09 A providerId that is not an id is a field error",
+          "name": "09 An airlineId that is not an id is a field error",
           "request": {
             "method": "POST",
             "header": [
@@ -2135,7 +2135,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Bad Provider\",\n  \"email\": \"test_c2_badprovider@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"not-an-id\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Bad Provider\",\n  \"email\": \"test_c2_badprovider@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"not-an-id\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "Caught by the DTO, so a malformed id never reaches the database as a cast error."
           },
@@ -2146,15 +2146,99 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
-                  "pm.test('the error points at providerId', () =>",
-                  "  pm.expect(pm.response.json().errors[0].field).to.eql('providerId'));"
+                  "pm.test('the error points at airlineId', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('airlineId'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "10 A field the body does not define is refused outright",
+          "name": "10 The providerId the endpoint used to take is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Old Field\",\n  \"email\": \"test_c2_oldfield@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const fields = pm.response.json().errors.map((e) => e.field);",
+                  "pm.test('providerId is an unknown field now', () =>",
+                  "  pm.expect(fields).to.include('providerId'));",
+                  "pm.test('and the airline id it should have used is missing', () =>",
+                  "  pm.expect(fields).to.include('airlineId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 The id of the other kind of provider is refused",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 Wrong Provider Field\",\n  \"email\": \"test_c2_wrongfield@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"hotelId\": \"000000000000000000000000\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/moderators",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "moderators"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const error = pm.response.json().errors[0];",
+                  "pm.test('the error names hotelId', () =>",
+                  "  pm.expect(error.field).to.eql('hotelId'));",
+                  "pm.test('and says which role it belongs to', () =>",
+                  "  pm.expect(error.messages[0]).to.include('HOTEL_MODERATOR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 A field the body does not define is refused outright",
           "request": {
             "method": "POST",
             "header": [
@@ -2175,7 +2259,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Extra Field\",\n  \"email\": \"test_c2_extrafield@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\",\n  \"status\": \"ACTIVE\"\n}"
+              "raw": "{\n  \"name\": \"C2 Extra Field\",\n  \"email\": \"test_c2_extrafield@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\",\n  \"status\": \"ACTIVE\"\n}"
             },
             "description": "forbidNonWhitelisted, so no client can choose an account's status or clear its pending password change. Try mustChangePassword: false here too."
           },
@@ -2194,7 +2278,7 @@
           ]
         },
         {
-          "name": "11 Sign in as the new moderator (this replaces the admin cookie)",
+          "name": "13 Sign in as the new moderator (this replaces the admin cookie)",
           "request": {
             "method": "POST",
             "header": [
@@ -2234,7 +2318,7 @@
           ]
         },
         {
-          "name": "12 On a temporary password, every other route is a 403",
+          "name": "14 On a temporary password, every other route is a 403",
           "request": {
             "method": "GET",
             "header": [],
@@ -2265,7 +2349,7 @@
           ]
         },
         {
-          "name": "13 Setting its own password is the one route that works",
+          "name": "15 Setting its own password is the one route that works",
           "request": {
             "method": "PATCH",
             "header": [
@@ -2303,7 +2387,7 @@
           ]
         },
         {
-          "name": "14 The moderator can now use the API",
+          "name": "16 The moderator can now use the API",
           "request": {
             "method": "GET",
             "header": [],
@@ -2337,7 +2421,7 @@
           ]
         },
         {
-          "name": "15 A moderator cannot create another moderator",
+          "name": "17 A moderator cannot create another moderator",
           "request": {
             "method": "POST",
             "header": [
@@ -2358,7 +2442,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"C2 Moderator By Moderator\",\n  \"email\": \"test_c2_modbymod@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"providerId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+              "raw": "{\n  \"name\": \"C2 Moderator By Moderator\",\n  \"email\": \"test_c2_modbymod@example.com\",\n  \"role\": \"AIRLINE_MODERATOR\",\n  \"airlineId\": \"{{airlineId}}\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
             "description": "ACC-11. The guard is declared on the controller, so this is true of every route it holds, now and later. A plain USER gets the same answer: sign in with userEmail and send this again."
           },
