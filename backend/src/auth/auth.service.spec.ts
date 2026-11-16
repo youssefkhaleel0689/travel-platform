@@ -4,6 +4,7 @@ import { Role, UserStatus } from '../common/auth/auth.enums';
 import { accountLocked, AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
+import type { SessionsService } from './sessions/sessions.service';
 import type { AccessTokenService } from './tokens/access-token.service';
 import type {
   CreateUserInput,
@@ -25,6 +26,10 @@ const PROFILE: UserProfile = {
 };
 
 const TOKEN = 'signed.access.token';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60799';
+const REFRESH_TOKEN = 'refresh-token-from-the-session-service-0123';
+// Far enough ahead that the refresh cookie's maxAge is positive whatever the clock says.
+const SESSION_EXPIRES_AT = new Date(Date.now() + 5 * 60 * 60 * 1000);
 
 const dto: RegisterDto = {
   name: 'Sara Ahmed',
@@ -33,7 +38,8 @@ const dto: RegisterDto = {
   acceptTerms: true,
 };
 
-// Fake UsersService, AccessTokenService and response; the casts are done only here.
+// Fake UsersService, AccessTokenService, SessionsService and response; the casts are done
+// only here.
 // `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile).
 function setup(options: { credentials?: CredentialCheck } = {}) {
   const credentials: CredentialCheck = options.credentials ?? {
@@ -51,7 +57,18 @@ function setup(options: { credentials?: CredentialCheck } = {}) {
     ),
   };
   const accessTokens = {
-    sign: jest.fn((_userId: string) => Promise.resolve(TOKEN)),
+    sign: jest.fn((_userId: string, _sessionId: string) =>
+      Promise.resolve(TOKEN),
+    ),
+  };
+  const sessions = {
+    create: jest.fn((_userId: string) =>
+      Promise.resolve({
+        sessionId: SESSION_ID,
+        refreshToken: REFRESH_TOKEN,
+        expiresAt: SESSION_EXPIRES_AT,
+      }),
+    ),
   };
   const res = {
     cookie: jest.fn(
@@ -61,11 +78,13 @@ function setup(options: { credentials?: CredentialCheck } = {}) {
   const service = new AuthService(
     users as unknown as UsersService,
     accessTokens as unknown as AccessTokenService,
+    sessions as unknown as SessionsService,
   );
   return {
     service,
     users,
     accessTokens,
+    sessions,
     res,
     response: res as unknown as Response,
   };
@@ -96,16 +115,22 @@ describe('AuthService.register (ACC-01)', () => {
     expect(users.create.mock.calls[0][0].role).toBe(Role.USER);
   });
 
-  it('logs the new user in: signs a token for its id and sets the cookie', async () => {
-    const { service, accessTokens, res, response } = setup();
+  it('logs the new user in: starts a session, signs a token for it and sets both cookies', async () => {
+    const { service, accessTokens, sessions, res, response } = setup();
     await service.register(dto, response);
 
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
-    expect(res.cookie).toHaveBeenCalledTimes(1);
+    expect(sessions.create).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(res.cookie).toHaveBeenCalledTimes(2);
     expect(res.cookie).toHaveBeenCalledWith(
       'access_token',
       TOKEN,
       expect.objectContaining({ httpOnly: true, maxAge: 1_800_000 }),
+    );
+    expect(res.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      REFRESH_TOKEN,
+      expect.objectContaining({ httpOnly: true, path: '/api/auth' }),
     );
   });
 
@@ -114,24 +139,60 @@ describe('AuthService.register (ACC-01)', () => {
     await expect(service.register(dto, response)).resolves.toBe(PROFILE);
   });
 
-  it('sets no cookie when the user cannot be created', async () => {
-    const { service, users, accessTokens, res, response } = setup();
+  it('starts no session and sets no cookie when the user cannot be created', async () => {
+    const { service, users, accessTokens, sessions, res, response } = setup();
     users.create.mockRejectedValueOnce(new Error('duplicate'));
 
     await expect(service.register(dto, response)).rejects.toThrow('duplicate');
+    expect(sessions.create).not.toHaveBeenCalled();
     expect(accessTokens.sign).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
   });
 });
 
-describe('AuthService.startSession (ACC-04, ACC-19)', () => {
-  it('sets the signed token as the cookie and returns the profile', async () => {
-    const { service, accessTokens, res, response } = setup();
+describe('AuthService.startSession (ACC-04, ACC-06, ACC-19)', () => {
+  it('creates the session first, then signs the token for that session', async () => {
+    const { service, accessTokens, sessions, response } = setup();
     await expect(service.startSession(response, PROFILE)).resolves.toBe(
       PROFILE,
     );
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
-    expect(res.cookie.mock.calls[0][1]).toBe(TOKEN);
+    expect(sessions.create).toHaveBeenCalledTimes(1);
+    expect(sessions.create).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(sessions.create.mock.invocationCallOrder[0]).toBeLessThan(
+      accessTokens.sign.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('sets the access token and the refresh token cookies', async () => {
+    const { service, res, response } = setup();
+    const before = Date.now();
+    await service.startSession(response, PROFILE);
+    const after = Date.now();
+
+    expect(res.cookie).toHaveBeenCalledTimes(2);
+    const access = res.cookie.mock.calls.find((c) => c[0] === 'access_token');
+    expect(access?.[1]).toBe(TOKEN);
+
+    const refresh = res.cookie.mock.calls.find((c) => c[0] === 'refresh_token');
+    expect(refresh?.[1]).toBe(REFRESH_TOKEN);
+    expect(refresh?.[2]).toMatchObject({
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/api/auth',
+    });
+    // Until the session's expiresAt, in whole seconds.
+    const maxAge = refresh?.[2].maxAge ?? -1;
+    expect(maxAge % 1000).toBe(0);
+    expect(maxAge).toBeLessThanOrEqual(SESSION_EXPIRES_AT.getTime() - before);
+    expect(maxAge).toBeGreaterThan(SESSION_EXPIRES_AT.getTime() - after - 1000);
+  });
+
+  it('puts the refresh token in its cookie only, never in the returned profile', async () => {
+    const { service, response } = setup();
+    const returned = await service.startSession(response, PROFILE);
+    expect(JSON.stringify(returned)).not.toContain(REFRESH_TOKEN);
   });
 });
 
@@ -163,7 +224,7 @@ describe('AuthService.login (ACC-04)', () => {
       'Travel2026',
     );
     expect(startSession).toHaveBeenCalledWith(response, PROFILE);
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
     expect(res.cookie).toHaveBeenCalledWith(
       'access_token',
       TOKEN,
@@ -199,7 +260,7 @@ describe('AuthService.login (ACC-04)', () => {
   ])(
     'rejects %s without starting a session',
     async (_label, credentials, status, body) => {
-      const { service, accessTokens, res, response } = setup({
+      const { service, accessTokens, sessions, res, response } = setup({
         credentials,
       });
       const startSession = jest.spyOn(service, 'startSession');
@@ -208,6 +269,8 @@ describe('AuthService.login (ACC-04)', () => {
       expect(error.getStatus()).toBe(status);
       expect(error.getResponse()).toEqual(body);
       expect(startSession).not.toHaveBeenCalled();
+      // ACC-06: a session is created only after a fully successful login.
+      expect(sessions.create).not.toHaveBeenCalled();
       expect(accessTokens.sign).not.toHaveBeenCalled();
       expect(res.cookie).not.toHaveBeenCalled();
     },
@@ -247,7 +310,7 @@ describe('AuthService.login lockout (ACC-05)', () => {
 
   it('maps locked to 423 ACCOUNT_LOCKED with details and Retry-After seconds', async () => {
     const lockedUntil = new Date(Date.now() + 14 * 60 * 1000 + 500);
-    const { service, accessTokens, res, response } = setup({
+    const { service, accessTokens, sessions, res, response } = setup({
       credentials: { kind: 'locked', lockedUntil },
     });
 
@@ -270,6 +333,7 @@ describe('AuthService.login lockout (ACC-05)', () => {
     // Rounded up: 14 minutes and a half second is 841 seconds.
     expect(seconds).toBe(841);
 
+    expect(sessions.create).not.toHaveBeenCalled();
     expect(accessTokens.sign).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
   });

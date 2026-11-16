@@ -10,6 +10,7 @@ import { UserStatus } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { IS_PUBLIC_KEY } from '../../common/auth/public.decorator';
 import { ACCESS_TOKEN_COOKIE } from '../auth.constants';
+import { SessionsService } from '../sessions/sessions.service';
 import { AccessTokenService } from '../tokens/access-token.service';
 import { UsersService } from '../users/users.service';
 
@@ -43,8 +44,9 @@ function accessTokenCookie(request: Request): string | undefined {
  * user (GET /api/airlines/:id shows a deactivated airline to its admin or moderator). A
  * missing or bad cookie on a public route is never rejected; request.user stays undefined.
  *
- * On a protected route every failure (no cookie, bad or expired token, unknown user, a
- * status other than ACTIVE) gives the same 401, so the response does not reveal which.
+ * On a protected route every failure (no cookie, bad or expired token, a session that is
+ * revoked, idle or past its end (ACC-06), unknown user, a status other than ACTIVE) gives the
+ * same 401, so the response does not reveal which.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -52,6 +54,7 @@ export class JwtAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly accessTokens: AccessTokenService,
     private readonly users: UsersService,
+    private readonly sessions: SessionsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -84,10 +87,24 @@ export class JwtAuthGuard implements CanActivate {
     if (!verified) {
       return undefined;
     }
+    // ACC-06: the token's session must be live (not revoked, idle or past its end). This
+    // also records activity for the idle timeout.
+    const live = await this.sessions.validateForRequest(
+      verified.sessionId,
+      verified.userId,
+    );
+    if (!live) {
+      return undefined;
+    }
     const profile = await this.users.findById(verified.userId);
     if (!profile || profile.status !== UserStatus.ACTIVE) {
       return undefined;
     }
-    return { userId: profile.id, role: profile.role };
+    // sessionId comes only from the verified token.
+    return {
+      userId: profile.id,
+      role: profile.role,
+      sessionId: verified.sessionId,
+    };
   }
 }

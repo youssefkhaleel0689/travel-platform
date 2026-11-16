@@ -41,7 +41,8 @@ export class AuthController {
       'Public. Creates an ACTIVE account with the USER role; the role cannot be chosen. ' +
       'acceptTerms must be true. The password is stored only as a bcrypt hash (GEN-13). ' +
       'On success the user is logged in: the response sets the httpOnly access_token ' +
-      'cookie (30 minutes); the token is never in the body.',
+      'cookie (30 minutes) and the httpOnly refresh_token cookie (path /api/auth, until the ' +
+      'session ends); neither token is ever in the body.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiCreatedResponse({ type: UserResponseDto })
@@ -72,7 +73,7 @@ export class AuthController {
   })
   async register(
     @Body() dto: RegisterDto,
-    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.register(dto, res));
@@ -84,8 +85,9 @@ export class AuthController {
   @ApiOperation({
     summary: 'Log in with email and password (ACC-04, ACC-05)',
     description:
-      'Public. On success the response sets the httpOnly access_token cookie (30 minutes); ' +
-      'the token is never in the body. A wrong password and an unknown email give the same ' +
+      'Public. On success the response sets the httpOnly access_token cookie (30 minutes) ' +
+      'and the httpOnly refresh_token cookie (path /api/auth, until the session ends); ' +
+      'neither token is ever in the body. A wrong password and an unknown email give the same ' +
       '401, and the account status is checked only after the password matches. After 5 ' +
       'consecutive wrong passwords the account is locked for 15 minutes (423), and a ' +
       'successful login resets the count.',
@@ -159,7 +161,7 @@ export class AuthController {
   })
   async login(
     @Body() dto: LoginDto,
-    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.login(dto, res));

@@ -10,8 +10,12 @@ import { Role, UserStatus } from '../common/auth/auth.enums';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { unauthenticated } from './guards/jwt-auth.guard';
+import { SessionsService } from './sessions/sessions.service';
 import { AccessTokenService } from './tokens/access-token.service';
-import { setAccessTokenCookie } from './tokens/auth-cookie';
+import {
+  setAccessTokenCookie,
+  setRefreshTokenCookie,
+} from './tokens/auth-cookie';
 import { UserProfile, UsersService } from './users/users.service';
 
 /**
@@ -43,6 +47,7 @@ export class AuthService {
   constructor(
     private readonly users: UsersService,
     private readonly accessTokens: AccessTokenService,
+    private readonly sessions: SessionsService,
   ) {}
 
   /**
@@ -61,7 +66,8 @@ export class AuthService {
   }
 
   /**
-   * ACC-04: logs a user in with email and password and sets the access token cookie.
+   * ACC-04: logs a user in with email and password, starts a session (ACC-06) and sets the
+   * access and refresh token cookies.
    *
    * The status is checked only after the password matches, so a wrong password never
    * reveals whether an account exists or is suspended: it is always 401 INVALID_CREDENTIALS.
@@ -110,15 +116,20 @@ export class AuthService {
   }
 
   /**
-   * The only place that starts a session (ACC-04, ACC-19): signs the access token for the
-   * user and sets it as the httpOnly cookie. Login (step F) and register use it.
+   * The only place that starts a session (ACC-04, ACC-06, ACC-19): creates the session,
+   * signs the access token for the user and the session, and sets both httpOnly cookies
+   * (access_token, and refresh_token limited to /api/auth). Login and register call it only
+   * after every check has passed. The refresh token goes only into its cookie: never into
+   * the response body or a log.
    */
   async startSession(
     res: Response,
     profile: UserProfile,
   ): Promise<UserProfile> {
-    const token = await this.accessTokens.sign(profile.id);
+    const session = await this.sessions.create(profile.id);
+    const token = await this.accessTokens.sign(profile.id, session.sessionId);
     setAccessTokenCookie(res, token);
+    setRefreshTokenCookie(res, session.refreshToken, session.expiresAt);
     return profile;
   }
 }
