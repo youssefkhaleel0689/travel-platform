@@ -1,10 +1,13 @@
 import { HttpException } from '@nestjs/common';
-import type { CookieOptions, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
 import { accountLocked, AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
-import type { SessionsService } from './sessions/sessions.service';
+import type {
+  RotatedSession,
+  SessionsService,
+} from './sessions/sessions.service';
 import type { AccessTokenService } from './tokens/access-token.service';
 import type {
   CreateUserInput,
@@ -30,6 +33,13 @@ const SESSION_ID = '6720f1c2a1b2c3d4e5f60799';
 const REFRESH_TOKEN = 'refresh-token-from-the-session-service-0123';
 // Far enough ahead that the refresh cookie's maxAge is positive whatever the clock says.
 const SESSION_EXPIRES_AT = new Date(Date.now() + 5 * 60 * 60 * 1000);
+const OLD_REFRESH_TOKEN = 'the-refresh-token-sent-by-the-browser-01234';
+const ROTATED: RotatedSession = {
+  sessionId: SESSION_ID,
+  userId: PROFILE.id,
+  refreshToken: 'the-new-refresh-token-after-rotation-567890',
+  expiresAt: SESSION_EXPIRES_AT,
+};
 
 const dto: RegisterDto = {
   name: 'Sara Ahmed',
@@ -40,12 +50,22 @@ const dto: RegisterDto = {
 
 // Fake UsersService, AccessTokenService, SessionsService and response; the casts are done
 // only here.
-// `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile).
-function setup(options: { credentials?: CredentialCheck } = {}) {
+// `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile);
+// `rotated` what SessionsService.rotate resolves to (default: a successful rotation);
+// `stored` what UsersService.findById resolves to (default: the ACTIVE profile).
+function setup(
+  options: {
+    credentials?: CredentialCheck;
+    rotated?: RotatedSession | null;
+    stored?: UserProfile | null;
+  } = {},
+) {
   const credentials: CredentialCheck = options.credentials ?? {
     kind: 'ok',
     profile: PROFILE,
   };
+  const rotated = options.rotated === undefined ? ROTATED : options.rotated;
+  const stored = options.stored === undefined ? PROFILE : options.stored;
   const users = {
     create: jest.fn((_input: CreateUserInput) => Promise.resolve(PROFILE)),
     verifyCredentials: jest.fn(
@@ -53,7 +73,7 @@ function setup(options: { credentials?: CredentialCheck } = {}) {
         Promise.resolve(credentials),
     ),
     findById: jest.fn((_id: string): Promise<UserProfile | null> =>
-      Promise.resolve(PROFILE),
+      Promise.resolve(stored),
     ),
   };
   const accessTokens = {
@@ -69,11 +89,16 @@ function setup(options: { credentials?: CredentialCheck } = {}) {
         expiresAt: SESSION_EXPIRES_AT,
       }),
     ),
+    rotate: jest.fn((_token: string): Promise<RotatedSession | null> =>
+      Promise.resolve(rotated),
+    ),
+    revoke: jest.fn((_sessionId: string) => Promise.resolve()),
   };
   const res = {
     cookie: jest.fn(
       (_name: string, _value: string, _options: CookieOptions) => undefined,
     ),
+    clearCookie: jest.fn((_name: string, _options: CookieOptions) => undefined),
   };
   const service = new AuthService(
     users as unknown as UsersService,
@@ -349,6 +374,151 @@ describe('accountLocked (ACC-05)', () => {
   ])('gives Retry-After for a lock %s', (_label, until, seconds) => {
     const body = accountLocked(new Date(until), NOW).getResponse();
     expect(body).toMatchObject({ retryAfterSeconds: seconds });
+  });
+});
+
+// A request carrying only the given cookies; the cast is done only here.
+function requestWith(cookies?: Record<string, unknown>): Request {
+  return { cookies } as unknown as Request;
+}
+
+describe('AuthService.refresh (ACC-06)', () => {
+  it('rotates the refresh token, checks the user, signs for the same session and sets both cookies', async () => {
+    const { service, users, sessions, accessTokens, res, response } = setup();
+    const before = Date.now();
+
+    await expect(
+      service.refresh(
+        requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+        response,
+      ),
+    ).resolves.toBe(PROFILE);
+
+    expect(sessions.rotate).toHaveBeenCalledTimes(1);
+    expect(sessions.rotate).toHaveBeenCalledWith(OLD_REFRESH_TOKEN);
+    expect(users.findById).toHaveBeenCalledWith(ROTATED.userId);
+    // Same session: the sid does not change on refresh.
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
+
+    expect(res.cookie).toHaveBeenCalledTimes(2);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'access_token',
+      TOKEN,
+      expect.objectContaining({ httpOnly: true, path: '/', maxAge: 1_800_000 }),
+    );
+    const refresh = res.cookie.mock.calls.find((c) => c[0] === 'refresh_token');
+    expect(refresh?.[1]).toBe(ROTATED.refreshToken);
+    expect(refresh?.[2]).toMatchObject({ httpOnly: true, path: '/api/auth' });
+    // Until the session's expiresAt, not a fresh lifetime.
+    expect(refresh?.[2].maxAge ?? 0).toBeLessThanOrEqual(
+      SESSION_EXPIRES_AT.getTime() - before,
+    );
+  });
+
+  it('never puts either token in the returned profile', async () => {
+    const { service, response } = setup();
+    const returned = await service.refresh(
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+    const json = JSON.stringify(returned);
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain(ROTATED.refreshToken);
+    expect(json).not.toContain(OLD_REFRESH_TOKEN);
+  });
+
+  it('gives 401 and clears both cookies when the rotation fails', async () => {
+    const { service, users, sessions, accessTokens, res, response } = setup({
+      rotated: null,
+    });
+
+    const error = await rejection(
+      service.refresh(
+        requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+        response,
+      ),
+    );
+    expect(error.getStatus()).toBe(401);
+    expect(error.getResponse()).toEqual({
+      code: 'UNAUTHENTICATED',
+      message: 'Authentication required',
+    });
+    expect(res.clearCookie.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'access_token',
+      'refresh_token',
+    ]);
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.objectContaining({ path: '/api/auth' }),
+    );
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(users.findById).not.toHaveBeenCalled();
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(accessTokens.sign).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, Record<string, unknown> | undefined]>([
+    ['no cookies at all', undefined],
+    ['no refresh_token cookie', { access_token: 'x' }],
+    ['a refresh_token that is not a string', { refresh_token: 42 }],
+  ])('passes an empty token to rotate for %s', async (_label, cookies) => {
+    const { service, sessions, response } = setup({ rotated: null });
+    await rejection(service.refresh(requestWith(cookies), response));
+    expect(sessions.rotate).toHaveBeenCalledWith('');
+  });
+
+  it.each<[string, UserProfile | null]>([
+    ['an unknown user', null],
+    ['a SUSPENDED user', { ...PROFILE, status: UserStatus.SUSPENDED }],
+    ['a DEACTIVATED user', { ...PROFILE, status: UserStatus.DEACTIVATED }],
+  ])(
+    'revokes the session, gives the same 401 and clears both cookies for %s',
+    async (_label, stored) => {
+      const { service, sessions, accessTokens, res, response } = setup({
+        stored,
+      });
+
+      const error = await rejection(
+        service.refresh(
+          requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+          response,
+        ),
+      );
+      expect(error.getStatus()).toBe(401);
+      expect(error.getResponse()).toEqual({
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      });
+      expect(sessions.revoke).toHaveBeenCalledTimes(1);
+      expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+      expect(res.clearCookie).toHaveBeenCalledTimes(2);
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(accessTokens.sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<[string, NonNullable<Parameters<typeof setup>[0]>]>([
+    ['a successful refresh', {}],
+    ['a failed rotation', { rotated: null }],
+    [
+      'a suspended user',
+      { stored: { ...PROFILE, status: UserStatus.SUSPENDED } },
+    ],
+  ])('never touches the login lockout for %s', async (_label, options) => {
+    const { service, users, response } = setup(options);
+    await service
+      .refresh(requestWith({ refresh_token: OLD_REFRESH_TOKEN }), response)
+      .catch((error: unknown) => {
+        if (!(error instanceof HttpException)) {
+          throw error;
+        }
+      });
+    // verifyCredentials holds the whole lockout (ACC-05); refresh checks no password.
+    expect(users.verifyCredentials).not.toHaveBeenCalled();
+    expect(users.create).not.toHaveBeenCalled();
   });
 });
 

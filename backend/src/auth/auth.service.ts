@@ -5,18 +5,33 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import { REFRESH_TOKEN_COOKIE } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { unauthenticated } from './guards/jwt-auth.guard';
 import { SessionsService } from './sessions/sessions.service';
 import { AccessTokenService } from './tokens/access-token.service';
 import {
+  clearAccessTokenCookie,
+  clearRefreshTokenCookie,
   setAccessTokenCookie,
   setRefreshTokenCookie,
 } from './tokens/auth-cookie';
 import { UserProfile, UsersService } from './users/users.service';
+
+// The refresh_token cookie, or '' when it is missing or not a string. cookie-parser sets
+// request.cookies and types it loosely, so it is narrowed here (as in JwtAuthGuard).
+// SessionsService.rotate refuses '' without querying.
+function refreshTokenCookie(request: Request): string {
+  const cookies: unknown = request.cookies;
+  if (typeof cookies !== 'object' || cookies === null) {
+    return '';
+  }
+  const token: unknown = Reflect.get(cookies, REFRESH_TOKEN_COOKIE);
+  return typeof token === 'string' ? token : '';
+}
 
 /**
  * ACC-05: 423 for a locked account. details.lockedUntil tells the client when to retry, and
@@ -113,6 +128,43 @@ export class AuthService {
       throw unauthenticated();
     }
     return profile;
+  }
+
+  /**
+   * ACC-06: exchanges the refresh_token cookie for a new access token and a new refresh
+   * token, in the same session. Reads nothing but that cookie.
+   *
+   * The refresh token is rotated first, in one atomic update (SessionsService.rotate), so
+   * the old one stops working at once and of two concurrent refreshes exactly one succeeds.
+   * Then the user must still exist and be ACTIVE; otherwise the session is revoked. Every
+   * failure gives the same 401 UNAUTHENTICATED and clears both cookies, so the response
+   * does not reveal why. Neither token ever goes into the body or a log. The login lockout
+   * (ACC-05) is not involved: no password is checked here.
+   */
+  async refresh(request: Request, res: Response): Promise<UserProfile> {
+    const rotated = await this.sessions.rotate(refreshTokenCookie(request));
+    if (!rotated) {
+      throw this.endSessionCookies(res);
+    }
+
+    const profile = await this.users.findById(rotated.userId);
+    if (!profile || profile.status !== UserStatus.ACTIVE) {
+      await this.sessions.revoke(rotated.sessionId);
+      throw this.endSessionCookies(res);
+    }
+
+    const token = await this.accessTokens.sign(profile.id, rotated.sessionId);
+    setAccessTokenCookie(res, token);
+    setRefreshTokenCookie(res, rotated.refreshToken, rotated.expiresAt);
+    return profile;
+  }
+
+  // A failed refresh: clears both cookies (they are useless now) and returns the generic
+  // 401 for the caller to throw.
+  private endSessionCookies(res: Response): UnauthorizedException {
+    clearAccessTokenCookie(res);
+    clearRefreshTokenCookie(res);
+    return unauthenticated();
   }
 
   /**

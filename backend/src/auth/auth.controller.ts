@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
@@ -15,7 +16,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { Public } from '../common/auth/public.decorator';
@@ -25,8 +26,8 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
-// Account endpoints: register (ACC-01), login (ACC-04) and me (ACC-04, ACC-19); the rest
-// come in later PRs.
+// Account endpoints: register (ACC-01), login (ACC-04), refresh (ACC-06) and me (ACC-04,
+// ACC-19); the rest come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -165,6 +166,40 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.login(dto, res));
+  }
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get a new access token from the refresh token (ACC-06)',
+    description:
+      'Public, no body. Uses only the httpOnly refresh_token cookie (path /api/auth) and ' +
+      'rotates it: the response sets a new access_token cookie and a new refresh_token ' +
+      'cookie for the same session, and the old refresh token stops working at once. ' +
+      'Neither token is ever in the body. Any failure (no or unknown cookie, a session that ' +
+      'is revoked, idle for 30 minutes or past its end, an account that is not active) ' +
+      'gives the same 401 and clears both cookies.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'No valid refresh token, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/auth/refresh',
+      },
+    ],
+  })
+  async refresh(
+    @Req() req: Request,
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.refresh(req, res));
   }
 
   @Get('me')
