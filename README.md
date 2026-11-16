@@ -90,6 +90,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run build` | Compile and catch TypeScript errors |
 | `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
 | `npm run seed:admin` | Build, then create the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (it boots the app, so it also needs `MONGODB_URI` and `JWT_SECRET`). Safe to run again: an existing admin is left unchanged |
+| `npm run test:e2e -- <name>` | Run the e2e test files whose name contains `<name>` (needs `.env` when the test uses the database) |
 
 ### Troubleshooting
 
@@ -317,14 +318,14 @@ Feature modules:
 | Module | Contains |
 | --- | --- |
 | `auth` | Registration, login, sessions, users |
-| `flights` | Airlines, flights, cabins, prices, seat holds |
+| `flights` | Airlines, flights, cabins, prices, seat holds, flight bookings |
 | `hotels` | Hotels, rooms, availability, room holds, reviews |
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
 | `blog` | Posts, comments, likes |
 | `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
 
-Where bookings live is decided at the data-model review.
+Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
 Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
@@ -750,6 +751,58 @@ await request(app.getHttpServer())
 ~~~
 
 The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, the guards and the `User` schema are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+
+## Seat inventory and flight bookings (FLT-22)
+
+A flight booking holds seats for 10 minutes while the user pays. The seat counters live in each flight's `cabinInventory[]` (`totalSeats`, `bookedSeats`, `heldSeats`); free seats are always computed as `totalSeats - bookedSeats - heldSeats` and never stored. Only `SeatInventoryService` (`src/flights/seat-inventory/`) writes `bookedSeats` and `heldSeats`, each change in one conditional update, so concurrent requests can never oversell.
+
+| Method | Moves seats | Called by |
+| --- | --- | --- |
+| `hold(change, session?)` | free -> held | FLT-22 hold |
+| `releaseHeld(change, session?)` | held -> free | hold expiry, failed payment, FLT-06 (pending holds) |
+| `convertHeldToBooked(change, session?)` | held -> booked | FLT-23 after a verified payment |
+| `releaseBooked(change, session?)` | booked -> free | FLT-26, FLT-06 (confirmed bookings) |
+
+`change` is `{ flightId, category, seats }`, where `seats` counts adults and children (infants take no seat).
+
+Change the booking status and the counters in one transaction, and change the status only if it still has the expected value, so a release or conversion happens exactly once:
+
+~~~
+await this.connection.transaction(async (session) => {
+  // e.g. PENDING_PAYMENT -> EXPIRED, only if it is still PENDING_PAYMENT
+  for (const segment of booking.segments) {
+    await this.seatInventory.releaseHeld(
+      { flightId: segment.flightId, category: segment.cabinCategory, seats: segment.seatsRequired },
+      session,
+    );
+  }
+});
+~~~
+
+| Case | Result |
+| --- | --- |
+| Not enough free seats | 409 `SEAT_UNAVAILABLE` ("Only 1 seat left in ECONOMY") |
+| Flight not SCHEDULED or already departed | 409 `FLIGHT_NOT_BOOKABLE` |
+| The flight has no such cabin | 400 `CABIN_NOT_OFFERED` |
+| No such flight | 404 `FLIGHT_NOT_FOUND` |
+| A release or conversion finds too few seats | 500: the counters and the bookings disagree, which is a bug; the transaction rolls back |
+
+Booking flow:
+
+1. `POST /api/flight-bookings` (FLT-19, FLT-21) validates passengers and baggage and returns the summary. Nothing is stored.
+2. `POST /api/flight-bookings/hold` (FLT-22) takes the same body, re-validates and re-prices it, and in one transaction holds every segment and creates the `PENDING_PAYMENT` booking with `holdExpiresAt` 10 minutes ahead.
+3. Policies are accepted (PAY-02) and the booking is paid (PAY-01) with the booking id.
+4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released.
+
+The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
+
+Rules:
+
+- Never write `bookedSeats` or `heldSeats` outside `SeatInventoryService`, and never read, check, then save: two requests can both pass the check.
+- Never accept a booking status from the client (GEN-11).
+- `documentNumber` is personal data: never return it in lists or the passenger export.
+
+`test/seat-inventory.e2e-spec.ts` proves the concurrency rules on the shared database: 20 simultaneous holds for the last seat give exactly one winner, and a round trip whose return flight is full leaves both flights unchanged. It creates its own flights (random `airlineId`, flight numbers starting with `KE`, dates in 2099) and deletes only those. Run it with `npm run test:e2e -- seat-inventory`.
 
 ## Team workflow
 
