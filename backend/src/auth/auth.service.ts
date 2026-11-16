@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { REFRESH_TOKEN_COOKIE } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -157,6 +158,34 @@ export class AuthService {
     setAccessTokenCookie(res, token);
     setRefreshTokenCookie(res, rotated.refreshToken, rotated.expiresAt);
     return profile;
+  }
+
+  /**
+   * ACC-06: ends the current session and always clears both cookies. Idempotent and never
+   * fails for a missing or ended session, so the response does not reveal whether one
+   * existed.
+   *
+   * - A valid access cookie: `user` is set by JwtAuthGuard (this route is @Public), and its
+   *   sessionId comes only from the verified token; that session is revoked.
+   * - A refresh_token cookie: the session holding it is revoked too, which covers a logout
+   *   after the access token has expired.
+   * Both may run; revoking an already revoked session changes nothing.
+   */
+  async logout(
+    user: AuthenticatedUser | undefined,
+    request: Request,
+    res: Response,
+  ): Promise<void> {
+    // Cleared first, so the browser drops both cookies even if a revoke below fails.
+    clearAccessTokenCookie(res);
+    clearRefreshTokenCookie(res);
+    if (user) {
+      await this.sessions.revoke(user.sessionId);
+    }
+    const refreshToken = refreshTokenCookie(request);
+    if (refreshToken !== '') {
+      await this.sessions.revokeByRefreshToken(refreshToken);
+    }
   }
 
   // A failed refresh: clears both cookies (they are useless now) and returns the generic

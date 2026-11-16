@@ -12,13 +12,17 @@ import {
   ApiBody,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
-import { CurrentUser } from '../common/auth/current-user.decorator';
+import {
+  CurrentUser,
+  OptionalUser,
+} from '../common/auth/current-user.decorator';
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
@@ -26,8 +30,8 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
-// Account endpoints: register (ACC-01), login (ACC-04), refresh (ACC-06) and me (ACC-04,
-// ACC-19); the rest come in later PRs.
+// Account endpoints: register (ACC-01), login (ACC-04), refresh and logout (ACC-06) and me
+// (ACC-04, ACC-19); the rest come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -200,6 +204,30 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.refresh(req, res));
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Log out of the current session (ACC-06)',
+    description:
+      'Public, no body, always 204. Ends the current session found through the ' +
+      'access_token cookie or the refresh_token cookie (either is enough), and always ' +
+      'clears both cookies. Never fails for a missing or already ended session.',
+  })
+  @ApiNoContentResponse({
+    description:
+      'Logged out. Both auth cookies are cleared. Returned whether or not a session existed.',
+  })
+  async logout(
+    // Set by JwtAuthGuard from a valid access cookie; undefined otherwise.
+    @OptionalUser() user: AuthenticatedUser | undefined,
+    @Req() req: Request,
+    // passthrough lets Nest still send the 204 while the service clears the cookies.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.auth.logout(user, req, res);
   }
 
   @Get('me')

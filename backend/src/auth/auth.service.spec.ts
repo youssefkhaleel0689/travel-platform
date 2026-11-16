@@ -1,6 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import type { CookieOptions, Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { accountLocked, AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
@@ -93,6 +94,7 @@ function setup(
       Promise.resolve(rotated),
     ),
     revoke: jest.fn((_sessionId: string) => Promise.resolve()),
+    revokeByRefreshToken: jest.fn((_token: string) => Promise.resolve()),
   };
   const res = {
     cookie: jest.fn(
@@ -519,6 +521,118 @@ describe('AuthService.refresh (ACC-06)', () => {
     // verifyCredentials holds the whole lockout (ACC-05); refresh checks no password.
     expect(users.verifyCredentials).not.toHaveBeenCalled();
     expect(users.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.logout (ACC-06)', () => {
+  const USER: AuthenticatedUser = {
+    userId: PROFILE.id,
+    role: Role.USER,
+    sessionId: SESSION_ID,
+  };
+
+  // Both cookies cleared, with the options they were set with.
+  function expectBothCookiesCleared(res: ReturnType<typeof setup>['res']) {
+    expect(res.clearCookie).toHaveBeenCalledTimes(2);
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'access_token',
+      expect.objectContaining({ path: '/' }),
+    );
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.objectContaining({ path: '/api/auth' }),
+    );
+    expect(res.cookie).not.toHaveBeenCalled();
+  }
+
+  it('revokes the session of the logged-in user, by the sessionId from the token', async () => {
+    const { service, sessions, res, response } = setup();
+    await expect(
+      service.logout(USER, requestWith({}), response),
+    ).resolves.toBeUndefined();
+
+    expect(sessions.revoke).toHaveBeenCalledTimes(1);
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+    expect(sessions.revokeByRefreshToken).not.toHaveBeenCalled();
+    expectBothCookiesCleared(res);
+  });
+
+  it('revokes by the refresh token when there is only the refresh cookie', async () => {
+    const { service, sessions, res, response } = setup();
+    await service.logout(
+      undefined,
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledTimes(1);
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledWith(
+      OLD_REFRESH_TOKEN,
+    );
+    expectBothCookiesCleared(res);
+  });
+
+  it('does both when the user and the refresh cookie are present', async () => {
+    const { service, sessions, res, response } = setup();
+    await service.logout(
+      USER,
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledWith(
+      OLD_REFRESH_TOKEN,
+    );
+    expectBothCookiesCleared(res);
+  });
+
+  it.each<[string, Record<string, unknown> | undefined]>([
+    ['no cookies at all', undefined],
+    ['an empty refresh cookie', { refresh_token: '' }],
+    ['a refresh cookie that is not a string', { refresh_token: 42 }],
+  ])(
+    'revokes nothing but still clears both cookies with %s',
+    async (_label, cookies) => {
+      const { service, sessions, res, response } = setup();
+      await expect(
+        service.logout(undefined, requestWith(cookies), response),
+      ).resolves.toBeUndefined();
+
+      expect(sessions.revoke).not.toHaveBeenCalled();
+      expect(sessions.revokeByRefreshToken).not.toHaveBeenCalled();
+      expectBothCookiesCleared(res);
+    },
+  );
+
+  it('ignores a session id anywhere but the authenticated user', async () => {
+    const { service, sessions, response } = setup();
+    const forged = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    const request = {
+      cookies: { sid: forged, sessionId: forged },
+      body: { sessionId: forged },
+      query: { sessionId: forged },
+      params: { sessionId: forged },
+      headers: { 'x-session-id': forged },
+    } as unknown as Request;
+
+    await service.logout(undefined, request, response);
+    expect(sessions.revoke).not.toHaveBeenCalled();
+
+    await service.logout(USER, request, response);
+    expect(sessions.revoke).toHaveBeenCalledTimes(1);
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('clears the cookies before revoking, so they are dropped even if a revoke fails', async () => {
+    const { service, sessions, res, response } = setup();
+    sessions.revoke.mockRejectedValueOnce(new Error('database down'));
+
+    await expect(
+      service.logout(USER, requestWith({}), response),
+    ).rejects.toThrow('database down');
+    expect(res.clearCookie).toHaveBeenCalledTimes(2);
   });
 });
 
