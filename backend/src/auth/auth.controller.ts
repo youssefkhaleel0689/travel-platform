@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -27,16 +28,22 @@ import { AllowWhenPasswordChangeRequired } from '../common/auth/password-change.
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { MessageResponseDto } from './dto/message-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { UsersService } from './users/users.service';
 
 // Account endpoints: register (ACC-01), login (ACC-04), refresh and logout (ACC-06) and me
 // (ACC-04, ACC-19); the rest come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly users: UsersService,
+  ) {}
 
   @Post('register')
   @Public()
@@ -256,5 +263,71 @@ export class AuthController {
   })
   async me(@CurrentUser() user: AuthenticatedUser): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.currentProfile(user.userId));
+  }
+
+  @Patch('change-password')
+  // The one authenticated route an account on a temporary password may reach
+  // (ACC-07a), which is how it gets out of that state.
+  @AllowWhenPasswordChangeRequired()
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth('access_token')
+  @ApiOperation({
+    summary: 'Change your own password (ACC-08)',
+    description:
+      'Requires the current password, so a stolen cookie on its own cannot ' +
+      'take over the account. The new password goes through the same rules as ' +
+      'registration and must differ from the current one. Clears the ' +
+      'temporary-password state set by an admin reset (ACC-07a).\n\n' +
+      'Every other session of the account is signed out (ACC-06); the ' +
+      'device that made the change stays logged in.',
+  })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiOkResponse({ type: MessageResponseDto })
+  @ApiErrorResponse({
+    status: 400,
+    description:
+      'The new password breaks the rules, or equals the current one (PASSWORD_UNCHANGED)',
+    examples: [
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Validation failed',
+        path: '/api/auth/change-password',
+        errors: [
+          {
+            field: 'newPassword',
+            messages: ['password must be at least 8 characters'],
+          },
+        ],
+      },
+      {
+        code: 'PASSWORD_UNCHANGED',
+        message: 'The new password must be different from the current one',
+        path: '/api/auth/change-password',
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'Not logged in (UNAUTHENTICATED), or the current password is wrong ' +
+      '(INVALID_CURRENT_PASSWORD)',
+    examples: [
+      {
+        code: 'INVALID_CURRENT_PASSWORD',
+        message: 'Current password is incorrect',
+        path: '/api/auth/change-password',
+      },
+    ],
+  })
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<MessageResponseDto> {
+    await this.auth.changeOwnPassword(
+      user,
+      dto.currentPassword,
+      dto.newPassword,
+    );
+    return new MessageResponseDto('Password changed');
   }
 }

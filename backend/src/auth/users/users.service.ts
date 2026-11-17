@@ -1,7 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, QueryFilter, Types } from 'mongoose';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
+import { PageDto } from '../../common/pagination/dto/page.dto';
+import { paginateQuery } from '../../common/pagination/paginate';
 import { PasswordService } from '../password/password.service';
 import { User } from '../schemas/user.schema';
 import {
@@ -20,6 +28,34 @@ export interface UserProfile {
   status: UserStatus;
   mustChangePassword: boolean;
   createdAt: Date;
+  // ACC-12, ACC-16: when the status last changed, so the admin list and the
+  // profile can show it. Null while the account has never been in that state.
+  suspendedAt: Date | null;
+  deactivatedAt: Date | null;
+}
+
+/** ACC-09: the only three fields an account may edit on itself. */
+export interface ProfileUpdateInput {
+  name?: string;
+  phone?: string | null;
+  preferredCurrency?: string | null;
+}
+
+/** ACC-14: how the admin account list is narrowed. */
+export interface AccountListFilters {
+  /** Case-insensitive partial match on the name or the email. */
+  search?: string;
+  role?: Role;
+  status?: UserStatus;
+}
+
+/**
+ * Escapes every regular-expression metacharacter, so a search term is matched
+ * literally. Without this, a term such as "(.*)+$" would be compiled as a
+ * pattern and could be used to stall the server.
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export interface CreateUserInput {
@@ -29,6 +65,12 @@ export interface CreateUserInput {
   role: Role;
   termsAcceptedAt?: Date | null;
   mustChangePassword?: boolean;
+  /**
+   * ACC-13: when an admin issued the temporary password this account starts
+   * with. Registration (ACC-01) leaves it null, because the person chose their
+   * own password.
+   */
+  temporaryPasswordIssuedAt?: Date | null;
 }
 
 /**
@@ -108,6 +150,7 @@ export class UsersService {
         role: input.role,
         termsAcceptedAt: input.termsAcceptedAt ?? null,
         mustChangePassword: input.mustChangePassword ?? false,
+        temporaryPasswordIssuedAt: input.temporaryPasswordIssuedAt ?? null,
       });
       return this.toUserProfile(created.toObject());
     } catch (error) {
@@ -289,6 +332,220 @@ export class UsersService {
       .exec();
   }
 
+  /**
+   * ACC-08: changes the account's own password.
+   *
+   * The current password is required, so a stolen cookie on its own cannot take
+   * over the account, and the new one must differ from it.
+   *
+   * This writes the users collection and nothing else. Ending the account's
+   * other sessions (ACC-06) is AuthService.changeOwnPassword, which calls this
+   * first and only revokes once the write has succeeded.
+   */
+  async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.userModel
+      .findById(userId)
+      .select('+passwordHash')
+      .exec();
+    if (!user) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+      });
+    }
+
+    if (!(await this.passwordService.verify(currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException({
+        code: 'INVALID_CURRENT_PASSWORD',
+        message: 'Current password is incorrect',
+      });
+    }
+    if (await this.passwordService.verify(newPassword, user.passwordHash)) {
+      throw new BadRequestException({
+        code: 'PASSWORD_UNCHANGED',
+        message: 'The new password must be different from the current one',
+      });
+    }
+
+    await this.userModel
+      .updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            passwordHash: await this.passwordService.hash(newPassword),
+            // Choosing a password clears the temporary-password state (ACC-07a).
+            mustChangePassword: false,
+            temporaryPasswordIssuedAt: null,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        },
+      )
+      .exec();
+  }
+
+  /**
+   * ACC-07a: an admin resets the password to a temporary one. The account can
+   * then do nothing but set a new password, and the temporary password is
+   * returned once and never stored in readable form.
+   */
+  async resetPasswordToTemporary(
+    userId: string,
+    now = new Date(),
+  ): Promise<{ profile: UserProfile; temporaryPassword: string }> {
+    const profile = await this.findByIdOrThrow(userId);
+    const temporaryPassword = this.passwordService.generateTemporary();
+
+    await this.userModel
+      .updateOne(
+        { _id: profile.id },
+        {
+          $set: {
+            passwordHash: await this.passwordService.hash(temporaryPassword),
+            mustChangePassword: true,
+            temporaryPasswordIssuedAt: now,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        },
+      )
+      .exec();
+
+    return { profile, temporaryPassword };
+  }
+
+  /** ACC-09: name, phone and preferred currency. Email and role never change here. */
+  async updateProfile(
+    userId: string,
+    input: ProfileUpdateInput,
+  ): Promise<UserProfile> {
+    const update: Record<string, unknown> = {};
+    if (input.name !== undefined) {
+      update.name = input.name;
+    }
+    if (input.phone !== undefined) {
+      update.phone = input.phone;
+    }
+    if (input.preferredCurrency !== undefined) {
+      update.preferredCurrency = input.preferredCurrency;
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(
+        userId,
+        { $set: update },
+        { returnDocument: 'after', runValidators: true },
+      )
+      .lean<User>()
+      .exec();
+    if (!updated) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+      });
+    }
+    return this.toUserProfile(updated);
+  }
+
+  /**
+   * ACC-12, ACC-16: changes the account status. Returns null when the status
+   * already was the requested one, so callers stay idempotent.
+   *
+   * Nothing is deleted. The global guard reloads the user on every request, so
+   * a suspended or deactivated account stops working at once without any token
+   * having to be revoked.
+   */
+  async setStatus(
+    userId: string,
+    status: UserStatus,
+    now = new Date(),
+  ): Promise<UserProfile | null> {
+    const current = await this.findByIdOrThrow(userId);
+    if (current.status === status) {
+      return null;
+    }
+
+    const update: Record<string, unknown> = {
+      status,
+      suspendedAt: status === UserStatus.SUSPENDED ? now : null,
+      deactivatedAt: status === UserStatus.DEACTIVATED ? now : null,
+    };
+    if (status === UserStatus.ACTIVE) {
+      // Reactivation also clears a lockout, so the person can log in at once.
+      update.failedLoginAttempts = 0;
+      update.lockedUntil = null;
+    }
+
+    const updated = await this.userModel
+      .findByIdAndUpdate(userId, { $set: update }, { returnDocument: 'after' })
+      .lean<User>()
+      .exec();
+    return updated ? this.toUserProfile(updated) : null;
+  }
+
+  /**
+   * ACC-14: one page of accounts for the admin list, newest registration first,
+   * optionally narrowed by a name or email fragment, a role and a status.
+   */
+  async listAccounts(
+    page: number,
+    filters: AccountListFilters = {},
+  ): Promise<PageDto<UserProfile>> {
+    const filter: QueryFilter<User> = {};
+    if (filters.role) {
+      filter.role = filters.role;
+    }
+    if (filters.status) {
+      filter.status = filters.status;
+    }
+    if (filters.search) {
+      const term = new RegExp(escapeRegExp(filters.search.trim()), 'i');
+      filter.$or = [{ name: term }, { email: term }];
+    }
+
+    const result = await paginateQuery(this.userModel, filter, {
+      page,
+      sort: { createdAt: -1, _id: -1 },
+    });
+    return new PageDto(
+      result.items.map((item) => this.toUserProfile(item as unknown as User)),
+      result.meta,
+    );
+  }
+
+  /**
+   * Removes an account document outright. The ONLY caller is ACC-13, to undo
+   * its own create() when linking the new moderator to its provider fails
+   * afterwards; without it a half-made moderator would be left behind with
+   * nothing to manage and an email nobody can register again.
+   *
+   * This is not how accounts are closed. ACC-12 (the owner) and ACC-16 (an
+   * admin) change the status instead and keep the row, because bookings,
+   * payments and the audit log point at it.
+   */
+  async deleteById(id: string): Promise<void> {
+    if (!OBJECT_ID.test(id)) {
+      return;
+    }
+    await this.userModel.deleteOne({ _id: new Types.ObjectId(id) }).exec();
+  }
+
+  /** The profile, or 404. Used wherever an account id comes from a route. */
+  async findByIdOrThrow(id: string): Promise<UserProfile> {
+    const profile = await this.findById(id);
+    if (!profile) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+      });
+    }
+    return profile;
+  }
+
   // select:false only affects queries; create() returns the document with passwordHash,
   // so every result goes through this mapper. Fields are listed one by one.
   private toUserProfile(user: User): UserProfile {
@@ -302,6 +559,8 @@ export class UsersService {
       status: user.status,
       mustChangePassword: user.mustChangePassword,
       createdAt: user.createdAt,
+      suspendedAt: user.suspendedAt ?? null,
+      deactivatedAt: user.deactivatedAt ?? null,
     };
   }
 }
