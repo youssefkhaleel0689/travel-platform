@@ -18,7 +18,7 @@ import {
   HotelBooking,
   HotelBookingStatus,
 } from './../src/hotel-bookings/schemas/hotel-booking.schema';
-import { Hotel, HotelStatus } from './../src/hotel-core/schemas/hotel.schema';
+import { Hotel, HotelStatus } from './../src/hotels/schemas/hotel.schema';
 import { Room } from './../src/rooms/schemas/room.schema';
 
 const CONNECT_TIMEOUT_MS = 30_000;

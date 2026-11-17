@@ -12,7 +12,6 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 
 // B2 (Hotel side) — feature modules live flat in src/.
-import { HotelCoreModule } from './hotel-core/hotel-core.module';
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { AvailabilityModule } from './availability/availability.module';
@@ -38,10 +37,10 @@ import { ReviewsModule } from './reviews/reviews.module';
       }),
     }),
 
-    // HotelSearchModule must stay before a future GET /hotels/:id controller so
-    // GET /hotels/search is registered first.
-    HotelCoreModule,
+    // HotelSearchModule must stay before HotelsModule so GET /hotels/search is
+    // registered before GET /hotels/:id (otherwise "search" is read as an id).
     HotelSearchModule,
+    HotelsModule,
     RoomsModule,
     AvailabilityModule,
     HotelPoliciesModule,
@@ -50,7 +49,6 @@ import { ReviewsModule } from './reviews/reviews.module';
     ReferenceDataModule,
     AuthModule,
     FlightsModule,
-    HotelsModule,
     NotificationsModule,
     AdministrationModule,
     PaymentsModule,

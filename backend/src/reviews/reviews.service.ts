@@ -4,7 +4,7 @@ import { Model, Types } from 'mongoose';
 import { HotelReview, HotelReviewDocument, ReviewModerationState } from './schemas/hotel-review.schema';
 import { HotelBooking, HotelBookingDocument, HotelBookingStatus } from '../hotel-bookings/schemas/hotel-booking.schema';
 import { CreateHotelReviewDto, ReplyReviewDto, UpdateHotelReviewDto } from './dto/review.dto';
-import { HotelsService } from '../hotel-core/hotels.service';
+import { HotelsService } from '../hotels/hotels.service';
 import { UsersService } from '../auth/users/users.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { oid, rethrowDuplicate } from '../common/mongo';
@@ -80,7 +80,7 @@ export class ReviewsService {
   async reply(user: AuthenticatedUser, id: string, dto: ReplyReviewDto) {
     const review = await this.reviewModel.findOne({ _id: oid(id, 'id'), moderationState: ReviewModerationState.VISIBLE }).exec();
     if (!review) throw new NotFoundException('Review not found');
-    await this.hotels.assertModeratorOwnsHotel(user, String(review.hotelId));
+    await this.hotels.assertManagesHotel(user, String(review.hotelId));
     review.reply = { body: dto.body.trim(), moderatorId: oid(user.userId), repliedAt: new Date() };
     await review.save();
     return review;
@@ -144,7 +144,7 @@ export class ReviewsService {
    */
   async recalculateHotelRating(hotelId: Types.ObjectId) {
     const { ratingAverage, ratingCount } = await this.aggregate(hotelId);
-    await this.hotels.setRatingAggregate(hotelId, ratingAverage, ratingCount);
+    await this.hotels.setRatingAggregate(String(hotelId), ratingAverage, ratingCount);
     return { ratingAverage, ratingCount };
   }
 }

@@ -5,7 +5,7 @@ import { Availability, AvailabilityDocument, AvailabilityStatus } from './schema
 import { Room, RoomDocument } from '../rooms/schemas/room.schema';
 import { CreateAvailabilityDto, RoomStatusQueryDto, UpdateAvailabilityDto } from './dto/availability.dto';
 import { InventoryService } from '../inventory/inventory.service';
-import { HotelsService } from '../hotel-core/hotels.service';
+import { HotelsService } from '../hotels/hotels.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { addDays, DAY_MS, parseDateOnly, toDateKey } from '../common/dates';
 import { oid } from '../common/mongo';
@@ -84,7 +84,7 @@ export class AvailabilityService {
   }
 
   async create(user: AuthenticatedUser, hotelId: string, roomId: string, dto: CreateAvailabilityDto) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoom(hotelId, roomId);
     const range = this.parseRange(dto.startDate, dto.endDate);
 
@@ -100,14 +100,14 @@ export class AvailabilityService {
   }
 
   async findForRoom(user: AuthenticatedUser, hotelId: string, roomId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId, true);
+    await this.hotels.assertManagesHotel(user, hotelId, true);
     const room = await this.getRoom(hotelId, roomId);
     return this.availabilityModel.find({ roomId: room._id }).sort({ startDate: 1 }).exec();
   }
 
   /** HTL-05: update an existing availability/blocked range. */
   async update(user: AuthenticatedUser, hotelId: string, roomId: string, dto: UpdateAvailabilityDto) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoom(hotelId, roomId);
 
     return this.connection.transaction(async (session: ClientSession) => {
@@ -139,7 +139,7 @@ export class AvailabilityService {
   }
 
   async remove(user: AuthenticatedUser, hotelId: string, roomId: string, availabilityId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoom(hotelId, roomId);
 
     return this.connection.transaction(async (session: ClientSession) => {
@@ -162,7 +162,7 @@ export class AvailabilityService {
    * Nights where no availability range was ever defined are simply not listed (the room is not offered then).
    */
   async roomStatusView(user: AuthenticatedUser, hotelId: string, q: RoomStatusQueryDto) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId, true);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId, true);
     const from = parseDateOnly(q.startDate, 'startDate');
     const to = parseDateOnly(q.endDate, 'endDate');
     if (to <= from) throw new BadRequestException('endDate must be after startDate');

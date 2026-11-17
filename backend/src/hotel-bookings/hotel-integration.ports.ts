@@ -1,6 +1,7 @@
-// Integration "ports" to modules owned by other team members (Payments / Notifications).
-// They are OPTIONAL: if the team has not provided them yet, B2 logs a warning and carries on,
-// so B2 can be run and tested on its own. See README for how to provide them.
+// What the hotel reservations need from the Payments (C2, PAY-03) and
+// Notifications (C2, GEN-01) modules. HotelBookingsModule provides both tokens
+// with the adapters in hotel-integration.adapters.ts. They stay @Optional in
+// the service, so a unit test can leave them out.
 
 export const HOTEL_NOTIFICATIONS = 'HOTEL_NOTIFICATIONS';
 export const HOTEL_PAYMENTS = 'HOTEL_PAYMENTS';
@@ -26,6 +27,4 @@ export interface HotelPaymentsPort {
     reason: string;
     policySnapshot: unknown;
   }): Promise<{ refundId: string } | null>;
-  /** PAY-01: when a hold expires the PaymentIntent must be cancelled. */
-  cancelPaymentForBooking(bookingId: string): Promise<void>;
 }

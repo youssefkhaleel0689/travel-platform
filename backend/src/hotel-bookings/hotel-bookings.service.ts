@@ -13,7 +13,7 @@ import {
 } from './dto/hotel-booking.dto';
 import { InventoryService } from '../inventory/inventory.service';
 import { HotelPoliciesService } from '../hotel-policies/hotel-policies.service';
-import { HotelsService, HotelBrief } from '../hotel-core/hotels.service';
+import { HotelsService, HotelBrief } from '../hotels/hotels.service';
 import { UsersService } from '../auth/users/users.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { HOLD_MINUTES, PLATFORM_CURRENCY } from '../common/constants';
@@ -23,8 +23,8 @@ import { centsToDecimal128, centsToString, pickRefundPercentage, refundCents, to
 import { oid } from '../common/mongo';
 import { PageDto, PageMetaDto } from '../common/pagination/dto/page.dto';
 import { PAGE_SIZE } from '../common/pagination/pagination.constants';
-import { HOTEL_NOTIFICATIONS, HOTEL_PAYMENTS } from '../common/ports';
-import type { HotelNotificationsPort, HotelPaymentsPort } from '../common/ports';
+import { HOTEL_NOTIFICATIONS, HOTEL_PAYMENTS } from './hotel-integration.ports';
+import type { HotelNotificationsPort, HotelPaymentsPort } from './hotel-integration.ports';
 
 @Injectable()
 export class HotelBookingsService {
@@ -192,16 +192,8 @@ export class HotelBookingsService {
       return { confirmed: true, reason: undefined, fresh: true, booking };
     });
 
-    if (result.fresh) {
-      await this.safeNotify({
-        userId: String(result.booking.userId),
-        type: 'BOOKING_CONFIRMED',
-        title: 'Hotel reservation confirmed',
-        message: `Your reservation ${result.booking.bookingReference} is confirmed.`,
-        resourceType: 'HOTEL_BOOKING',
-        resourceId: String(result.booking._id),
-      });
-    }
+    // The BOOKING_CONFIRMED notice is sent by the Stripe webhook (C2, PAY-01)
+    // right after this returns, so it is not sent here as well.
     return { confirmed: result.confirmed, reason: result.reason, booking: result.booking };
   }
 
@@ -245,11 +237,10 @@ export class HotelBookingsService {
         { _id, status: HotelBookingStatus.PENDING_PAYMENT, holdExpiresAt: { $lte: now } }, // state guard: runs once
         { $set: { status: HotelBookingStatus.EXPIRED, expiredAt: now } },
       ).exec();
-      if (res.modifiedCount === 1) {
-        count++;
-        try { await this.payments?.cancelPaymentForBooking(String(_id)); }
-        catch (e) { this.logger.warn(`Could not cancel PaymentIntent for ${_id}: ${(e as Error).message}`); }
-      }
+      // The open PaymentIntent of an expired hold is cancelled by C2's
+      // PaymentExpiryService sweep (PAY-01), which sees the booking is no
+      // longer payable.
+      if (res.modifiedCount === 1) count++;
     }
     return count;
   }
@@ -320,7 +311,7 @@ export class HotelBookingsService {
     const isOwner = String(booking.userId) === user.userId;
     const isAdmin = user.role === Role.ADMIN;
     if (!isOwner && !isAdmin) {
-      if (user.role === Role.HOTEL_MODERATOR) await this.hotels.assertModeratorOwnsHotel(user, String(booking.hotelId));
+      if (user.role === Role.HOTEL_MODERATOR) await this.hotels.assertManagesHotel(user, String(booking.hotelId));
       else throw new NotFoundException('Hotel booking not found');
     }
     return this.withHotel(booking, await this.hotels.briefs([booking.hotelId]));
@@ -417,7 +408,7 @@ export class HotelBookingsService {
   // ---------------------------------------------------------------- HTL-22: moderator dashboard
 
   async listForHotel(user: AuthenticatedUser, hotelId: string, q: ReservationsQueryDto) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId, true);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId, true);
     await this.expireDueHolds({ hotelId: hotel._id });
     await this.completeDueBookings({ hotelId: hotel._id });
 
@@ -458,7 +449,9 @@ export class HotelBookingsService {
 
   /** Idempotent PENDING_PAYMENT -> EXPIRED. Inventory is derived from booking status. */
   async releaseHoldForPort(bookingId: string): Promise<void> {
-    const updated = await this.bookingModel
+    // Called by Payments (C2) itself, which has already cancelled the
+    // PaymentIntent, so there is nothing to call back.
+    await this.bookingModel
       .updateOne(
         {
           _id: oid(bookingId, 'bookingId'),
@@ -473,13 +466,6 @@ export class HotelBookingsService {
         },
       )
       .exec();
-    if (updated.modifiedCount === 1 && this.payments) {
-      try {
-        await this.payments.cancelPaymentForBooking(bookingId);
-      } catch (e) {
-        this.logger.warn(`Could not cancel PaymentIntent for ${bookingId}: ${(e as Error).message}`);
-      }
-    }
   }
 
   /** ACC-12: a confirmed stay whose check-out has not passed yet. */

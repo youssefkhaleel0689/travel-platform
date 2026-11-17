@@ -7,7 +7,7 @@ import { HotelBooking, HotelBookingDocument } from '../hotel-bookings/schemas/ho
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { InventoryService } from '../inventory/inventory.service';
-import { HotelsService } from '../hotel-core/hotels.service';
+import { HotelsService } from '../hotels/hotels.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { oid, rethrowDuplicate } from '../common/mongo';
 import { centsToDecimal128, centsToString, toCents } from '../common/money';
@@ -30,7 +30,7 @@ export class RoomsService {
 
   /** HTL-03 */
   async create(user: AuthenticatedUser, hotelId: string, dto: CreateRoomDto) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId);
     try {
       return await this.roomModel.create({
         hotelId: hotel._id,
@@ -47,7 +47,7 @@ export class RoomsService {
   }
 
   async findByHotel(user: AuthenticatedUser, hotelId: string, page: number) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId, true);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId, true);
     const filter = { hotelId: hotel._id };
     const [items, total] = await Promise.all([
       this.roomModel.find(filter).sort({ roomNumber: 1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).exec(),
@@ -57,7 +57,7 @@ export class RoomsService {
   }
 
   async findOne(user: AuthenticatedUser, hotelId: string, roomId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId, true);
+    await this.hotels.assertManagesHotel(user, hotelId, true);
     return this.getRoomOfHotel(hotelId, roomId);
   }
 
@@ -70,7 +70,7 @@ export class RoomsService {
 
   /** HTL-05: edit beds, occupancy, price (and other attributes). Existing reservations keep their snapshot. */
   async update(user: AuthenticatedUser, hotelId: string, roomId: string, dto: UpdateRoomDto) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
 
     const set: Record<string, unknown> = {};
@@ -99,13 +99,13 @@ export class RoomsService {
   }
 
   async deactivate(user: AuthenticatedUser, hotelId: string, roomId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
     return this.setActive(room._id, false, {});
   }
 
   async activate(user: AuthenticatedUser, hotelId: string, roomId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
     const updated = await this.roomModel.findByIdAndUpdate(room._id, { $set: { isActive: true } }, { new: true }).exec();
     return updated!;
@@ -133,7 +133,7 @@ export class RoomsService {
 
   /** HTL-06: delete only if the room has never been reserved (an EXPIRED hold is still a reservation record). */
   async remove(user: AuthenticatedUser, hotelId: string, roomId: string) {
-    await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
 
     return this.connection.transaction(async (session: ClientSession) => {

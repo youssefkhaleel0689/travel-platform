@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { HotelPolicy, HotelPolicyDocument } from './schemas/hotel-policy.schema';
 import { UpsertHotelPolicyDto } from './dto/upsert-hotel-policy.dto';
-import { HotelsService } from '../hotel-core/hotels.service';
+import { HotelsService } from '../hotels/hotels.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME } from '../common/constants';
 import { oid, rethrowDuplicate } from '../common/mongo';
@@ -24,7 +24,7 @@ export class HotelPoliciesService {
 
   /** HTL-09 / HTL-10: only the assigned moderator may change the policy; version increments atomically. */
   async upsert(user: AuthenticatedUser, hotelId: string, dto: UpsertHotelPolicyDto) {
-    const hotel = await this.hotels.assertModeratorOwnsHotel(user, hotelId);
+    const hotel = await this.hotels.assertManagesHotel(user, hotelId);
 
     const thresholds = dto.cancellationTiers.map((t) => t.daysBeforeCheckIn);
     if (new Set(thresholds).size !== thresholds.length) {

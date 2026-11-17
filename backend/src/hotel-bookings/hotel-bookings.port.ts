@@ -5,79 +5,25 @@ import {
 } from '@nestjs/common';
 import { HotelBookingsService } from './hotel-bookings.service';
 
+import {
+  BookingStatus,
+  BookingType,
+  ProviderType,
+} from '../common/bookings/booking-status';
+import type {
+  BookingConfirmation,
+  BookingPolicies,
+  BookingsPort,
+  HoldReleaseReason,
+  PayableBooking,
+} from '../common/bookings/bookings.port';
+
 /**
- * B2 side of the shared booking contract used by C2's Stripe webhook
- * (src/common/bookings/bookings.port.ts on the payments branch). The shapes and
- * the token are kept identical to that contract; once those shared files are
- * on develop this file can import the types instead of mirroring them.
- *
- * C2's gateway calls confirmAfterPayment(bookingType, bookingId, paymentId);
- * this port receives (bookingId, paymentId).
+ * The hotel side of the shared BookingsPort (GEN-11, PAY-01, PAY-02, ACC-12),
+ * provided as HOTEL_BOOKINGS_PORT by HotelBookingsModule. C2's gateway calls
+ * confirmAfterPayment(bookingType, bookingId, paymentId); this port receives
+ * (bookingId, paymentId).
  */
-export const HOTEL_BOOKINGS_PORT = 'HOTEL_BOOKINGS_PORT';
-
-export enum BookingStatus {
-  PENDING_PAYMENT = 'PENDING_PAYMENT',
-  CONFIRMED = 'CONFIRMED',
-  COMPLETED = 'COMPLETED',
-  EXPIRED = 'EXPIRED',
-  CANCELLED = 'CANCELLED',
-}
-
-export enum BookingType {
-  FLIGHT = 'FLIGHT',
-  HOTEL = 'HOTEL',
-}
-
-export enum ProviderType {
-  AIRLINE = 'AIRLINE',
-  HOTEL = 'HOTEL',
-}
-
-export enum HoldReleaseReason {
-  HOLD_EXPIRED = 'HOLD_EXPIRED',
-  PAYMENT_FAILED = 'PAYMENT_FAILED',
-}
-
-export interface PayableBooking {
-  bookingId: string;
-  bookingType: BookingType;
-  userId: string;
-  status: BookingStatus;
-  totalAmount: string;
-  currency: string;
-  holdExpiresAt: Date | null;
-  bookingReference: string | null;
-  providerType: ProviderType;
-  providerId: string;
-}
-
-export interface BookingPolicies {
-  bookingId: string;
-  bookingType: BookingType;
-  providerType: ProviderType;
-  providerId: string;
-  policyVersion: number;
-  policySnapshot: Record<string, unknown>;
-}
-
-export interface BookingConfirmation {
-  bookingId: string;
-  status: BookingStatus;
-  bookingReference: string;
-}
-
-export interface BookingsPort {
-  findPayable(bookingId: string): Promise<PayableBooking | null>;
-  findPolicies(bookingId: string): Promise<BookingPolicies | null>;
-  confirmAfterPayment(
-    bookingId: string,
-    paymentId: string,
-  ): Promise<BookingConfirmation>;
-  releaseHold(bookingId: string, reason: HoldReleaseReason): Promise<void>;
-  hasUpcomingConfirmedBookings(userId: string): Promise<boolean>;
-}
-
 @Injectable()
 export class HotelBookingsPort implements BookingsPort {
   constructor(private readonly bookings: HotelBookingsService) {}
@@ -89,7 +35,7 @@ export class HotelBookingsPort implements BookingsPort {
       bookingId: String(booking._id),
       bookingType: BookingType.HOTEL,
       userId: String(booking.userId),
-      status: booking.status as unknown as BookingStatus,
+      status: booking.status,
       totalAmount: booking.totalPrice.toString(),
       currency: booking.currency,
       holdExpiresAt: booking.holdExpiresAt ?? null,

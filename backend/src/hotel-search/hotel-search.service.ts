@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Room, RoomDocument } from '../rooms/schemas/room.schema';
 import { InventoryService } from '../inventory/inventory.service';
-import { HotelsService } from '../hotel-core/hotels.service';
+import { HotelsService } from '../hotels/hotels.service';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { HotelSearchDto, HotelSortBy, SortOrder } from './dto/hotel-search.dto';
 import { parseStay } from '../common/dates';

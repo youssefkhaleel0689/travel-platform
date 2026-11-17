@@ -4,7 +4,7 @@ import { HotelReview, HotelReviewSchema } from './schemas/hotel-review.schema';
 import { ReviewsController } from './reviews.controller';
 import { ReviewsService } from './reviews.service';
 import { InventoryModule } from '../inventory/inventory.module';
-import { HotelCoreModule } from '../hotel-core/hotel-core.module';
+import { HotelsModule } from '../hotels/hotels.module';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -13,7 +13,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: HotelReview.name, schema: HotelReviewSchema },
     ]),
     InventoryModule,
-    HotelCoreModule,
+    HotelsModule,
     AuthModule,
   ],
   controllers: [ReviewsController],

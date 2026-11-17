@@ -1,16 +1,15 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
+import { BookingStatus } from '../../common/bookings/booking-status';
 import { jsonTransform } from '../../common/mongo';
 
 export type HotelBookingDocument = HydratedDocument<HotelBooking>;
 
-export enum HotelBookingStatus {
-  PENDING_PAYMENT = 'PENDING_PAYMENT',
-  CONFIRMED = 'CONFIRMED',
-  COMPLETED = 'COMPLETED',
-  EXPIRED = 'EXPIRED',
-  CANCELLED = 'CANCELLED',
-}
+// GEN-11: hotel reservations use the one shared BookingStatus from
+// common/bookings/booking-status.ts (flight bookings use it too). The
+// HotelBookingStatus name is kept as an alias so the hotel code reads the same.
+export const HotelBookingStatus = BookingStatus;
+export type HotelBookingStatus = BookingStatus;
 
 export enum GuestType {
   ADULT = 'ADULT',

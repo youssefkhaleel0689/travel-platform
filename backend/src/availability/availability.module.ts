@@ -2,10 +2,10 @@ import { Module } from '@nestjs/common';
 import { AvailabilityController } from './availability.controller';
 import { AvailabilityService } from './availability.service';
 import { InventoryModule } from '../inventory/inventory.module';
-import { HotelCoreModule } from '../hotel-core/hotel-core.module';
+import { HotelsModule } from '../hotels/hotels.module';
 
 @Module({
-  imports: [InventoryModule, HotelCoreModule],
+  imports: [InventoryModule, HotelsModule],
   controllers: [AvailabilityController],
   providers: [AvailabilityService],
   exports: [AvailabilityService],
