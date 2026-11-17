@@ -95,7 +95,7 @@ export class AdminAccountsController {
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
     ],
   })
   suspend(
@@ -125,7 +125,7 @@ export class AdminAccountsController {
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
     ],
   })
   reactivate(
@@ -161,7 +161,7 @@ export class AdminAccountsController {
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such account', path: '/api/admin/accounts' },
+      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
     ],
   })
   resetPassword(

@@ -20,6 +20,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { PLATFORM_CURRENCY } from '../common/money/money';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import {
   forbidden,
@@ -77,23 +78,73 @@ export class PaymentsController {
   @ApiErrorResponse(forbidden('/api/payments'))
   @ApiErrorResponse({
     status: 404,
-    description: 'No such booking for this account',
+    description:
+      'No booking of that type and id belongs to this account. The same 404 ' +
+      'covers a booking that does not exist and one that is not yours, so ' +
+      'booking ids cannot be probed (ACC-11).',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such booking for this account', path: '/api/payments' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Booking not found',
+        path: '/api/payments',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 409,
-    description: 'HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT or',
+    description:
+      'The booking is not in a state that can be paid for. Pick the code in ' +
+      'the dropdown to see each body.',
     examples: [
-      { code: 'CONFLICT', message: 'HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT or', path: '/api/payments' },
+      {
+        code: 'BOOKING_NOT_AWAITING_PAYMENT',
+        message: 'This booking is CONFIRMED and cannot be paid for',
+        path: '/api/payments',
+      },
+      {
+        code: 'HOLD_EXPIRED',
+        message:
+          'The hold on this booking has expired. Start a new booking to ' +
+          'reserve the seats or rooms again.',
+        path: '/api/payments',
+      },
+      {
+        code: 'ALREADY_PAID',
+        message: 'This booking has already been paid for',
+        path: '/api/payments',
+      },
+      {
+        code: 'PAYMENT_ATTEMPT_CLOSED',
+        message:
+          'The last payment attempt is closed. Retry it with POST ' +
+          '/api/payments/{id}/retry.',
+        path: '/api/payments',
+      },
+      {
+        code: 'UNSUPPORTED_BOOKING_CURRENCY',
+        message: `Bookings must be priced in ${PLATFORM_CURRENCY}`,
+        path: '/api/payments',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 503,
-    description: 'PAYMENTS_UNAVAILABLE (no Stripe key) or STRIPE_UNAVAILABLE',
+    description:
+      'Payments are switched off on this server, or Stripe itself could not ' +
+      'be reached. Nothing was charged either way.',
     examples: [
-      { code: 'PAYMENTS_UNAVAILABLE', message: 'PAYMENTS_UNAVAILABLE (no Stripe key) or STRIPE_UNAVAILABLE', path: '/api/payments' },
+      {
+        code: 'PAYMENTS_UNAVAILABLE',
+        message:
+          'Payments are not configured on this server: STRIPE_SECRET_KEY is ' +
+          'missing',
+        path: '/api/payments',
+      },
+      {
+        code: 'STRIPE_UNAVAILABLE',
+        message: 'The payment provider is unavailable, please try again',
+        path: '/api/payments',
+      },
     ],
   })
   create(
@@ -124,23 +175,62 @@ export class PaymentsController {
   @ApiErrorResponse(unauthenticated('/api/payments'))
   @ApiErrorResponse({
     status: 404,
-    description: 'No such payment for this account',
+    description:
+      'No payment of that id belongs to this account - the same 404 as one ' +
+      'that does not exist (ACC-11).',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such payment for this account', path: '/api/payments' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Payment not found',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 409,
-    description: 'ALREADY_PAID, HOLD_EXPIRED or BOOKING_NOT_AWAITING_PAYMENT',
+    description:
+      'There is nothing left to retry, or the booking can no longer be paid ' +
+      'for. The status is refreshed from Stripe first, so a payment that ' +
+      'succeeded while the page was open is reported as ALREADY_PAID rather ' +
+      'than charged twice.',
     examples: [
-      { code: 'CONFLICT', message: 'ALREADY_PAID, HOLD_EXPIRED or BOOKING_NOT_AWAITING_PAYMENT', path: '/api/payments' },
+      {
+        code: 'ALREADY_PAID',
+        message: 'This payment already succeeded',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
+      {
+        code: 'HOLD_EXPIRED',
+        message:
+          'The hold on this booking has expired. Start a new booking to ' +
+          'reserve the seats or rooms again.',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
+      {
+        code: 'BOOKING_NOT_AWAITING_PAYMENT',
+        message: 'This booking is CANCELLED and cannot be paid for',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 503,
-    description: 'Request refused',
+    description:
+      'Payments are switched off on this server, or Stripe itself could not ' +
+      'be reached. Nothing was charged either way.',
     examples: [
-      { code: 'PAYMENTS_UNAVAILABLE', message: 'Request refused', path: '/api/payments' },
+      {
+        code: 'PAYMENTS_UNAVAILABLE',
+        message:
+          'Payments are not configured on this server: STRIPE_SECRET_KEY is ' +
+          'missing',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
+      {
+        code: 'STRIPE_UNAVAILABLE',
+        message: 'The payment provider is unavailable, please try again',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910/retry',
+      },
     ],
   })
   retry(
@@ -164,16 +254,35 @@ export class PaymentsController {
   @ApiErrorResponse(unauthenticated('/api/payments'))
   @ApiErrorResponse({
     status: 404,
-    description: 'No such payment for this account',
+    description:
+      'No payment of that id belongs to this account - the same 404 as one ' +
+      'that does not exist (ACC-11).',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such payment for this account', path: '/api/payments' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Payment not found',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 503,
-    description: 'Request refused',
+    description:
+      'Payments are switched off on this server, or Stripe could not be ' +
+      'reached for the status refresh.',
     examples: [
-      { code: 'PAYMENTS_UNAVAILABLE', message: 'Request refused', path: '/api/payments' },
+      {
+        code: 'PAYMENTS_UNAVAILABLE',
+        message:
+          'Payments are not configured on this server: STRIPE_SECRET_KEY is ' +
+          'missing',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910',
+      },
+      {
+        code: 'STRIPE_UNAVAILABLE',
+        message: 'The payment provider is unavailable, please try again',
+        path: '/api/payments/6720f1c2a1b2c3d4e5f60910',
+      },
     ],
   })
   get(

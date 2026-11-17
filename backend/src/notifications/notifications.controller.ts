@@ -106,7 +106,7 @@ export class NotificationsController {
     status: 404,
     description: 'No such notification for this account',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such notification for this account', path: '/api/notifications' },
+      { code: 'NOT_FOUND', message: 'Notification not found', path: '/api/notifications/6720f1c2a1b2c3d4e5f60930/read' },
     ],
   })
   async markAsRead(

@@ -41,7 +41,7 @@ import { PolicyAcceptancesService } from './policy-acceptances.service';
     status: 404,
     description: 'No such booking for this account',
     examples: [
-      { code: 'NOT_FOUND', message: 'No such booking for this account', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
+      { code: 'NOT_FOUND', message: 'Booking not found', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
     ],
   })
 @ApiErrorResponse({
@@ -89,9 +89,22 @@ export class BookingPoliciesController {
   @ApiOkResponse({ type: PolicyAcceptanceDto })
   @ApiErrorResponse({
     status: 409,
-    description: 'POLICY_VERSION_MISMATCH, or the booking no longer awaits payment',
+    description:
+      'The terms moved on, or the booking no longer awaits payment. Both ' +
+      'mean the acceptance was not stored.',
     examples: [
-      { code: 'CONFLICT', message: 'POLICY_VERSION_MISMATCH, or the booking no longer awaits payment', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
+      {
+        code: 'POLICY_VERSION_MISMATCH',
+        message:
+          'The policies have changed since they were shown. Read them again ' +
+          'and accept the current version.',
+        path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/accept-policies',
+      },
+      {
+        code: 'BOOKING_NOT_AWAITING_PAYMENT',
+        message: 'This booking is EXPIRED and no longer awaits payment',
+        path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/accept-policies',
+      },
     ],
   })
   acceptPolicies(
