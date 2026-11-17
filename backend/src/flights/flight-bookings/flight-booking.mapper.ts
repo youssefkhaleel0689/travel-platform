@@ -4,6 +4,7 @@ import {
   PLATFORM_CURRENCY,
 } from '../../common/money/money';
 import { toAirportLocalIso } from '../../common/time/airport-time';
+import { durationMinutes } from '../flights/flight.mapper';
 import type {
   FlightBooking,
   PassengerType,
@@ -57,14 +58,7 @@ export interface SummaryView {
   total: string;
 }
 
-const MINUTE_MS = 60_000;
 const VISIBLE_DOCUMENT_CHARACTERS = 4;
-
-// TODO(FLT-03): use durationMinutes from flights/flight.mapper.ts once the create-flight PR
-// is merged; it is the same function.
-function durationMinutes(departure: Date, arrival: Date): number {
-  return Math.round((arrival.getTime() - departure.getTime()) / MINUTE_MS);
-}
 
 /**
  * A passport or ID number is personal data (FLT-19), so responses show only its last 4

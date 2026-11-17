@@ -24,11 +24,12 @@ import { trimText } from '../../../common/validation/text-transforms';
 import { trimUpper } from '../../airlines/dto/create-airline.dto';
 import { PassengerType, TripType } from '../../schemas/flight-booking.schema';
 import { CabinCategory } from '../../schemas/flight.schema';
+// The same limit as search, so a party that can be searched for can be booked.
+import { MAX_SEATED_PASSENGERS } from '../../flight-search/flight-search.constants';
 import {
   DOCUMENT_NUMBER,
   MAX_BAG_WEIGHT_KG,
   MAX_EXTRA_BAGS,
-  MAX_SEATED_PASSENGERS,
 } from '../flight-bookings.constants';
 import {
   HasAnAdult,
