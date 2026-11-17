@@ -1,7 +1,9 @@
 import { INestApplication, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { Role } from './../src/common/auth/auth.enums';
 import { AirlinesController } from './../src/flights/airlines/airlines.controller';
 import type { AirlineActor } from './../src/flights/airlines/airline-actor';
 import { AirlinesService } from './../src/flights/airlines/airlines.service';
@@ -9,8 +11,13 @@ import { AirlineDto } from './../src/flights/airlines/dto/airline.dto';
 import { configureApp } from './../src/app.setup';
 
 // Routing, validation and error shape of the real controller with a fake service:
-// no MongoDB, so it runs anywhere. The service rules have their own unit tests.
+// no MongoDB, so it runs anywhere. The service rules have their own unit tests. As in
+// cabins.e2e-spec.ts, a middleware sets request.user from the headers x-test-user and
+// x-test-role (default ADMIN) because the global guards are not loaded here.
 const ID = '6720f1c2a1b2c3d4e5f60718';
+const ADMIN_ID = '6720f1c2a1b2c3d4e5f60001';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60002';
+const AS_ADMIN = { 'x-test-user': ADMIN_ID };
 const AIRLINE: AirlineDto = {
   id: ID,
   name: 'EgyptAir',
@@ -45,6 +52,18 @@ describe('Airlines (e2e, fake service)', () => {
       providers: [{ provide: AirlinesService, useValue: service }],
     }).compile();
     app = moduleRef.createNestApplication();
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      const userId = req.headers['x-test-user'];
+      const roleHeader = req.headers['x-test-role'];
+      if (typeof userId === 'string') {
+        req.user = {
+          userId,
+          role: Object.values(Role).find((r) => r === roleHeader) ?? Role.ADMIN,
+          sessionId: SESSION_ID,
+        };
+      }
+      next();
+    });
     configureApp(app);
     await app.init();
   });
@@ -58,6 +77,7 @@ describe('Airlines (e2e, fake service)', () => {
   it('POST /api/airlines creates with 201 and normalised codes', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/airlines')
+      .set(AS_ADMIN)
       .send({ name: 'EgyptAir', iataCode: 'ms', icaoCode: 'msr' })
       .expect(201);
     expect(res.body).toMatchObject({ id: ID, iataCode: 'MS' });
@@ -65,13 +85,32 @@ describe('Airlines (e2e, fake service)', () => {
       iataCode: 'MS',
       icaoCode: 'MSR',
     });
-    // TODO(ACC-04): runs as the placeholder admin until auth is merged.
-    expect(service.create.mock.calls[0][1].role).toBe('ADMIN');
+    // The service gets the logged-in user, not a placeholder.
+    expect(service.create.mock.calls[0][1]).toEqual({
+      userId: ADMIN_ID,
+      role: Role.ADMIN,
+      sessionId: SESSION_ID,
+    });
+  });
+
+  it('POST and PATCH answer 401 UNAUTHENTICATED when there is no logged-in user', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/airlines')
+      .send({ name: 'EgyptAir', iataCode: 'MS' })
+      .expect(401);
+    expect(created.body.code).toBe('UNAUTHENTICATED');
+    await request(app.getHttpServer())
+      .patch(`/api/airlines/${ID}`)
+      .send({ name: 'EgyptAir Express' })
+      .expect(401);
+    expect(service.create).not.toHaveBeenCalled();
+    expect(service.update).not.toHaveBeenCalled();
   });
 
   it('POST returns field-level errors for a bad body (GEN-02)', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/airlines')
+      .set(AS_ADMIN)
       .send({ name: '', iataCode: 'MSR' })
       .expect(400);
     expect(res.body.code).toBe('VALIDATION_FAILED');
@@ -85,6 +124,7 @@ describe('Airlines (e2e, fake service)', () => {
     async (field) => {
       const res = await request(app.getHttpServer())
         .post('/api/airlines')
+        .set(AS_ADMIN)
         .send({ name: 'EgyptAir', iataCode: 'MS', [field]: 'ACTIVE' })
         .expect(400);
       expect(res.body.code).toBe('VALIDATION_FAILED');
@@ -92,9 +132,21 @@ describe('Airlines (e2e, fake service)', () => {
     },
   );
 
-  it('GET /api/airlines/:id is public and passes no actor', async () => {
+  it('GET /api/airlines/:id is public and passes no user for a guest', async () => {
     await request(app.getHttpServer()).get(`/api/airlines/${ID}`).expect(200);
     expect(service.findOne).toHaveBeenCalledWith(ID, undefined);
+  });
+
+  it('GET passes the logged-in user to the service', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/airlines/${ID}`)
+      .set({ 'x-test-user': ADMIN_ID, 'x-test-role': Role.AIRLINE_MODERATOR })
+      .expect(200);
+    expect(service.findOne).toHaveBeenCalledWith(ID, {
+      userId: ADMIN_ID,
+      role: Role.AIRLINE_MODERATOR,
+      sessionId: SESSION_ID,
+    });
   });
 
   it('GET rejects a malformed id with a field error', async () => {
@@ -125,16 +177,22 @@ describe('Airlines (e2e, fake service)', () => {
   it('PATCH /api/airlines/:id updates and rejects status and logo', async () => {
     await request(app.getHttpServer())
       .patch(`/api/airlines/${ID}`)
+      .set(AS_ADMIN)
       .send({ name: 'EgyptAir Express' })
       .expect(200);
     expect(service.update.mock.calls[0][0]).toBe(ID);
+    expect(service.update.mock.calls[0][2]).toMatchObject({
+      userId: ADMIN_ID,
+    });
 
     await request(app.getHttpServer())
       .patch(`/api/airlines/${ID}`)
+      .set(AS_ADMIN)
       .send({ status: 'DEACTIVATED' })
       .expect(400);
     await request(app.getHttpServer())
       .patch(`/api/airlines/${ID}`)
+      .set(AS_ADMIN)
       .send({ logo: 'http://x/y.png' })
       .expect(400);
     expect(service.update).toHaveBeenCalledTimes(1);
