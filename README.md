@@ -1054,7 +1054,7 @@ The hold runs in one transaction (`connection.transaction`): the flights and the
 
 The booking takes the **outbound** airline's policy, because FLT-12 cancels a round trip with the outbound tier, and stores it in `policySnapshot`. That snapshot is what PAY-02 shows and what a later cancellation (FLT-26) uses, so an airline editing its policy never changes an existing booking.
 
-Until the airline policies (FLT-08, FLT-09) are merged, `FlightBookingPolicyReader` returns an empty policy: version 0, no extra-bag price (so extra bags answer "this airline does not sell extra bags") and no cancellation tiers. It is the one place to change: `TODO(FLT-08)` marks where it will call `AirlinePoliciesService.getForAirline()`.
+`FlightBookingPolicyReader` reads it with `AirlinePoliciesService.getForAirline()` (FLT-08, FLT-09) and copies the version, the extra-bag price and limit and the cancellation tiers, nothing else. An airline that has never defined a policy gets version 0: no extra bags for sale (they answer "this airline does not sell extra bags") and no cancellation tiers. A stored policy starts at version 1, so 0 always means "no policy".
 
 ### Connected to payments (GEN-11)
 
@@ -1080,9 +1080,9 @@ Payments' own sweep only looks at bookings with an open payment, so without this
 
 ### Tests
 
-Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
+Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
 
-`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent), ACC-12, a release that happens once, and the expiry job. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 and `test_c2_` accounts, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
+`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
 
 ## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
