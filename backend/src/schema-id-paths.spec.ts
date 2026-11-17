@@ -24,32 +24,6 @@ const ALLOWED_MIXED_ID_PATHS: readonly string[] = [
   // owned by A1/A2, to be fixed in their PR
   'flights/schemas/airline.schema.ts AirlineSchema createdBy',
   // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts BaggageSchema passengerId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts CancellationSchema cancelledBy',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts CancellationSchema refundId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema userId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema policyAcceptanceId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema paymentId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema segments.flightId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema segments.airlineId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema baggage.passengerId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema cancellation.cancelledBy',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightBookingSchema cancellation.refundId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightSegmentSchema flightId',
-  // owned by A1/A2, to be fixed in their PR
-  'flights/schemas/flight-booking.schema.ts FlightSegmentSchema airlineId',
-  // owned by A1/A2, to be fixed in their PR
   'flights/schemas/flight.schema.ts FlightSchema airlineId',
 ];
 
