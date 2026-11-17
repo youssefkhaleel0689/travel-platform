@@ -32,14 +32,14 @@ two versions of one shot.
 | ACC-13 | `POST /api/admin/moderators` | `201` + the account, its provider and its temporary password | `05_ACC-13_create-moderator_201.png` |
 | ACC-07a | any route, on a temporary password | `403 PASSWORD_CHANGE_REQUIRED` | `06_ACC-07a_password-change-required_403.png` |
 | ACC-08 | `PATCH /api/auth/change-password` | `200`, and the lockout above is over | `07_ACC-08_change-password_200.png` |
-| GEN-01 | `GET /api/notifications/unread-count` | `200`, `unreadCount: 2` | `08_GEN-01_unread-count_200_two-unread.png` |
-| GEN-01 | `GET /api/notifications` | `200`, a page of 10, newest first | `09_GEN-01_list-notifications_200.png` |
+| GEN-01 | `GET /api/notifications/unread-count` | `200`, `unreadCount: 4` | `08_GEN-01_unread-count_200_four-unread.png` |
+| GEN-01 | `GET /api/notifications?page=1&unreadOnly=true` | `200`, the unread ones, newest first | `09_GEN-01_list-notifications_200.png` |
 | GEN-01 | `PATCH /api/notifications/{id}/read` | `204` | `10_GEN-01_mark-one-read_204.png` |
-| GEN-01 | `GET /api/notifications/unread-count` | `200`, `unreadCount: 1` — the 204 above did something | `11_GEN-01_unread-count_200_one-unread.png` |
+| GEN-01 | `GET /api/notifications/unread-count` | `200`, `unreadCount: 3` — the 204 above did something | `11_GEN-01_unread-count_200_three-unread.png` |
 | GEN-01 | `PATCH /api/notifications/read-all` | `204` | `12_GEN-01_mark-all-read_204.png` |
 | GEN-01 | `GET /api/notifications/unread-count` | `200`, `unreadCount: 0` | `13_GEN-01_unread-count_200_none-unread.png` |
 | ACC-09 | `PATCH /api/users/me` | `200`, name, phone and currency changed | `14_ACC-09_update-profile_200.png` |
-| ACC-12 | `DELETE /api/users/me` | `200`, `deactivatedAt` set and nothing deleted | `15_ACC-12_deactivate_200.png` |
+| ACC-12 | `DELETE /api/users/me` | `200`, `status: DEACTIVATED`, the row kept | `15_ACC-12_deactivate_200.png` |
 | ACC-12 | `GET /api/users/me` after it | `401` — the cookie died with the account | `16_ACC-12_cookie-revoked_401.png` |
 
 ## ACC-07a — admin resets an account to a temporary password
@@ -67,9 +67,15 @@ ones; `email`, `role` and `status` are refused as unknown fields.
 
 ## ACC-12 — deactivate your own account
 
-Needs `confirm: true` in the body. Nothing is deleted: the row keeps a
-deactivation date, and the session stops working at once because the guard
-reloads the account on every request.
+Needs `confirm: true` in the body. Nothing is deleted: the response still
+carries the account's id, name and email, and only `status` has changed, so past
+bookings, payments and refunds keep pointing at a real account. The row also
+records a `deactivatedAt`, which is kept for the admin list (ACC-14) and is not
+part of this response — the shot shows `status: DEACTIVATED`, not that field.
+
+The session stops working at once for two reasons: the guard reloads the account
+on every request, and since ACC-06 deactivation also revokes every session the
+account had, which is what stops its refresh token as well.
 
 ![Deactivating the account](15_ACC-12_deactivate_200.png)
 
@@ -100,17 +106,23 @@ reactivating puts the status back. Bookings are untouched.
 
 ## GEN-01 — in-app notifications
 
-Two notices came from the suspensions above. The two `PATCH` routes answer
-`204` with an empty body by design, so the proof that they worked is the unread
-count before and after: 2, then 1, then 0.
+The notices came from the suspensions above (only suspending notifies, not
+reactivating). The count starts at **4** rather than 2 because this account had
+also been suspended during an earlier capture run and those notices were still
+unread — the number is whatever the account has, and nothing here depends on it
+being a particular value.
 
-![Two unread](08_GEN-01_unread-count_200_two-unread.png)
+What matters is the shape. The two `PATCH` routes answer `204` with an empty
+body by design, so the proof that they worked is the count before and after:
+**4**, then **3** after one is marked read, then **0** after mark-all-read.
+
+![Four unread](08_GEN-01_unread-count_200_four-unread.png)
 
 ![The notifications themselves](09_GEN-01_list-notifications_200.png)
 
 ![Marking one read](10_GEN-01_mark-one-read_204.png)
 
-![One unread left](11_GEN-01_unread-count_200_one-unread.png)
+![Three unread left](11_GEN-01_unread-count_200_three-unread.png)
 
 ![Marking the rest read](12_GEN-01_mark-all-read_204.png)
 

@@ -51,7 +51,7 @@ registrations happen before anything is captured. `POST /api/auth/register`
 | 01 | `GET /api/admin/accounts?search=test_c2_evidence` | ACC-14 | — | `200`, one row. **Copy its `id`** |
 | 02 | `PATCH /api/admin/accounts/{id}/suspend` | ACC-16 | no body | `200`, `status: SUSPENDED` |
 | 03 | `PATCH /api/admin/accounts/{id}/reactivate` | ACC-16 | no body | `200`, `status: ACTIVE` |
-| — | run 02 and 03 **once more** | — | no body | no capture. Only *suspend* notifies, so a second pass is what gives GEN-01 two notices to work with |
+| — | run 02 and 03 **once more** | — | no body | no capture. Only *suspend* notifies, so a second pass leaves GEN-01 with more than one notice to work with |
 | 04 | `POST /api/admin/users/{id}/reset-password` | ACC-07a | no body | `200`. **Copy `temporaryPassword`** |
 | — | `POST /api/airlines` | FLT-01 (A2's, prerequisite) | `{"name":"test_c2_evidence Airline","iataCode":"E7"}` | `201`. **Copy `id`**. A `409` means that two-character code is taken — try another |
 | 05 | `POST /api/admin/moderators` | ACC-13 | the **Airline moderator** example from the dropdown, with that `airlineId` and a fresh email | `201` |
@@ -65,14 +65,18 @@ to happen before §3.
 `POST /api/auth/login` as `test_c2_evidence@example.com` with the temporary
 password from 04. This is the only identity change in the run.
 
+Sign in **after** the reset, not before: since ACC-06 the reset ends every
+session the account had, so a cookie from earlier answers 401 rather than the
+403 that capture 06 is there to show.
+
 | # | Endpoint | Req | Send | Expect |
 | --- | --- | --- | --- | --- |
 | 06 | `GET /api/notifications/unread-count` | ACC-07a | — | `403 PASSWORD_CHANGE_REQUIRED`. The reset really does lock the account out of everything |
 | 07 | `PATCH /api/auth/change-password` | ACC-08 | `{"currentPassword":"<temporary>","newPassword":"NewPass123"}` | `200`, and the lockout is over |
-| 08 | `GET /api/notifications/unread-count` | GEN-01 | — | `200`, `unreadCount: 2` |
-| 09 | `GET /api/notifications` | GEN-01 | — | `200`, a page of 10, newest first. **Copy one `id`** |
+| 08 | `GET /api/notifications/unread-count` | GEN-01 | — | `200`. **Write the number down**; it is whatever this account has unread, not a fixed 2 |
+| 09 | `GET /api/notifications` | GEN-01 | `page=1`, `unreadOnly=true` | `200`, the unread ones, newest first. **Copy one `id`** |
 | 10 | `PATCH /api/notifications/{id}/read` | GEN-01 | no body | `204`, empty body by design |
-| 11 | `GET /api/notifications/unread-count` | GEN-01 | — | `200`, `unreadCount: 1` |
+| 11 | `GET /api/notifications/unread-count` | GEN-01 | — | `200`, exactly one less than 08 |
 | 12 | `PATCH /api/notifications/read-all` | GEN-01 | no body | `204` |
 | 13 | `GET /api/notifications/unread-count` | GEN-01 | — | `200`, `unreadCount: 0` |
 | 14 | `PATCH /api/users/me` | ACC-09 | `{"name":"Taher Khalaf","phone":"+201234567890","preferredCurrency":"USD"}` | `200` |
@@ -80,6 +84,11 @@ password from 04. This is the only identity change in the run.
 10 and 12 answer `204` with nothing in the body, so on their own they prove
 little. 08, 11 and 13 are the evidence that they did something — it is the one
 place in the run where a response body is not enough by itself.
+
+Do not expect a particular starting number. An account used in an earlier run
+still carries its unread notices, so 08 can be any count; what the three shots
+have to show is that it drops by exactly one after 10, and to zero after 12.
+The committed set runs 4, 3, 0.
 
 ## 4. ACC-12, last — 2 captures
 
@@ -89,7 +98,7 @@ throwaway account. `POST /api/auth/login` as `test_c2_throwaway@example.com` /
 
 | # | Endpoint | Req | Send | Expect |
 | --- | --- | --- | --- | --- |
-| 15 | `DELETE /api/users/me` | ACC-12 | `{"confirm": true}` | `200`, `deactivatedAt` set, nothing deleted |
+| 15 | `DELETE /api/users/me` | ACC-12 | `{"confirm": true}` | `200`, `status: DEACTIVATED`; the id, name and email are still returned, so nothing was deleted |
 | 16 | `GET /api/users/me` | ACC-12 | — | `401`. The guard reloads the account every request, so the cookie stops working at once |
 
 ## 5. Worth adding if the TA wants refusals
