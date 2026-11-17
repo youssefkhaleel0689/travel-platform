@@ -136,7 +136,7 @@ merged and integration is tested locally.
 
 Until then, the payment flow is covered by `backend/test/payments.e2e-spec.ts`,
 `refunds.e2e-spec.ts` and `booking-policies.e2e-spec.ts`, which drive it
-against a mocked port — `npm run test:e2e`, 296 tests over 21 suites.
+against a mocked port — `npm run test:e2e`, 328 tests over 27 suites.
 
 ## Note on the screenshots
 
