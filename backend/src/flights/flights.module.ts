@@ -5,6 +5,8 @@ import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
+import { FlightStatusJob } from './flight-status/flight-status.job';
+import { FlightStatusService } from './flight-status/flight-status.service';
 import { FlightsController } from './flights/flights.controller';
 import { FlightsService } from './flights/flights.service';
 import { AirlinePoliciesController } from './policies/airline-policies.controller';
@@ -26,8 +28,8 @@ import { Flight, FlightSchema } from './schemas/flight.schema';
 import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
 // Flights feature module. FLT-01 adds airlines, FLT-03 the flight model and POST /flights,
-// FLT-04 the cabins, FLT-08/09 the airline policy, FLT-22 the seat inventory (Khaled);
-// later PRs add the edit and cancel endpoints here.
+// FLT-04 the cabins, FLT-08/09 the airline policy, FLT-22 the seat inventory (Khaled), FLT-30 the
+// job that marks flights DEPARTED; later PRs add the edit and cancel endpoints here.
 @Module({
   imports: [
     ReferenceDataModule,
@@ -53,8 +55,15 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesService,
     FlightsService,
     CabinsService,
+    FlightStatusService,
+    FlightStatusJob,
     SeatInventoryService,
   ],
-  exports: [AirlinesService, AirlinePoliciesService, SeatInventoryService],
+  exports: [
+    AirlinesService,
+    AirlinePoliciesService,
+    FlightStatusService,
+    SeatInventoryService,
+  ],
 })
 export class FlightsModule {}

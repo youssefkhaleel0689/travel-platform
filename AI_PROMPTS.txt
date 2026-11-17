@@ -620,6 +620,11 @@ Before any code I decided the design: the owner check lives in the database filt
 Date: 2026-11-17
 Student: Marawan Elgendy
 Tool: Claude Code
+Related Requirement: FLT-30 (DEPARTED status job)
+Prompt:
+Build the FLT-30 job on feature/FLT-30-flight-status from the latest develop: a system job that turns a SCHEDULED flight into DEPARTED once its departureAtUtc has passed, as one conditional update, with no new dependency (a plain timer that runs at start-up and every minute, never twice at once, logging failures instead of crashing), the status + departureAtUtc index on flights, and unit tests. Do not touch files owned by Khaled, do not run anything against Atlas and do not commit.
+How the output was used:
+I chose a plain timer instead of @nestjs/schedule because PAY-01 has not merged and a package-lock conflict today would cost more than a later swap, and I left a comment where @Cron would go. I checked that the update only matches SCHEDULED flights (so a flight cancelled a moment earlier is never touched), that a flight departing exactly now counts as departed, and that running it twice or from two instances changes nothing the second time. I ran prettier, the build, the linter and the unit tests (results in the PR). The job cannot be shown in Swagger; I will show it through the flight status once a read endpoint exists. Editing flights (FLT-05) and cancelling them (FLT-06) are left for later PRs.
 Related Requirement: FLT-08 (extra-bag policy), FLT-09 (cancellation tiers)
 Prompt:
 Build PUT /api/airlines/:id/baggage-policy and PUT /api/airlines/:id/cancellation-policy on feature/FLT-08-FLT-09-airline-policies, from the latest develop: the airlinePolicies schema (one document per airline, Decimal128 extraBagPrice > 0, maxExtraBagsPerPassenger >= 0, embedded cancellationTiers[] with unique whole thresholds >= 0 and percentages 0-100, version, updatedBy), DTOs with field-level errors, an AirlinePoliciesService that only lets the moderator assigned to the airline in the path write (airlineModeratorAssignment), a getForAirline() method for Khaled's search and booking code, the refund-tier rule as a pure function, Swagger errors, unit tests and a fake-service e2e test. Do not touch files owned by Khaled, do not run the Atlas-backed e2e tests and do not commit.
