@@ -26,7 +26,7 @@ The official Excel requirements sheet is the authoritative source for business r
 
 ## Run the backend locally
 
-Prerequisites: Git, Node.js (the team develops with v24.21.0; use the same major version, 24), and npm. You also need the MongoDB connection string from the team leader (shared privately, never through Git or chat tools).
+Prerequisites: Git, Node.js **24.9 or newer** (the team develops with v24.21.0), and npm. The version is not a preference: Jest loads this project's ESM dependencies through `require(esm)`, which Node gained in 24.9, so on Node 22 every test suite fails to load with `Must use import to load ES Module` while the app itself still starts. `backend/package.json` declares it in `engines`, so `npm install` warns you. You also need the MongoDB connection string from the team leader (shared privately, never through Git or chat tools).
 
 ~~~
 git clone https://github.com/youssefkhaleel0689/travel-platform.git
@@ -739,7 +739,7 @@ The `mustChangePassword` flag is set when an admin resets a password (ACC-07a) o
 - `@Public` routes (login, refresh, logout, guest search) are not affected.
 - The guard checks the flag after the token, session, user and status checks, on the user it loads for each request, so clearing the flag applies on the next request.
 
-For C2: put `@AllowWhenPasswordChangeRequired()` on the change-password endpoint (ACC-08) and clear the flag there.
+`PATCH /api/auth/change-password` (ACC-08) carries `@AllowWhenPasswordChangeRequired()` too, and clears the flag, so it is the one route that gets an account out of this state. `04` and `06` in `docs/api/evidence/` are the same account one request apart: the reset, then the 403 on a route it can no longer reach.
 
 ### Account lockout (ACC-05)
 
@@ -974,10 +974,32 @@ Rules worth knowing before you touch these:
   whole flow: five wrong passwords, the 423, the reset, and the temporary
   password logging in straight away.
 
-**Open gap (ACC-06, the Leader's PR 4):** the access token is stateless, so a
-password change cannot yet revoke the tokens already issued to the account's
-other devices. When sessions land, `UsersService.changeOwnPassword` should
-revoke every session but the caller's; the place is marked in the code.
+**Sessions end with the account's password or its status (ACC-06).** Sessions
+landed with the Leader's PR 31, so the four places that used to be an open gap
+now call `SessionsService.revokeAllSessions(userId, { exceptSessionId })` and
+nothing here writes to the `sessions` collection itself:
+
+| Action | Requirement | Sessions ended |
+| --- | --- | --- |
+| Change your own password | ACC-08 | every one but the caller's, so you stay signed in on the device you changed it on |
+| Admin resets a password | ACC-07a | all of them: the old password is gone, so the temporary one is the only way back in |
+| Admin suspends an account | ACC-16 | all of them |
+| Owner deactivates the account | ACC-12 | all of them, the caller's included |
+
+Two details worth knowing:
+
+- The revoke happens **after** the write it belongs to, so a failed change -
+  the wrong current password, or a new password equal to the old one - signs
+  nothing out. Otherwise a wrong guess would be a way to disrupt the owner.
+- `UsersService` still only writes the users collection. The session half lives
+  in `AuthService.changeOwnPassword`, `AdminAccountsService` and
+  `AccountsService`, for the same reason `AccountsService` exists at all: the
+  service that owns a collection does not reach into another one.
+
+Suspension and deactivation already took effect on the next request, because
+the guard reloads the user every time. Revoking matters for what the guard does
+not see: a refresh token would otherwise keep rotating, and a session would
+come back with the account if an admin reactivated it.
 
 ### Creating a moderator (ACC-13)
 
@@ -1064,6 +1086,7 @@ Rules:
 - The `type` values are a closed list (`NotificationType`), so the frontend always knows how to render one. Add a value there rather than inventing a string.
 - Marking an already-read notification succeeds and keeps the first read time.
 - The list sorts by `createdAt` and then `_id`, both descending, so a batch written in the same millisecond still reads newest first.
+- Owner-only access (ACC-11) is in the filter, never a comparison after loading: another account's notification answers the same 404 as one that does not exist. `PATCH /api/notifications/:id/read` does it in **one** conditional update rather than `findOwnedOrThrow` followed by a write - the owner is part of that update's filter, so there is nothing to gain from a second query, and the single update also keeps the first read time when it runs twice. The payment and refund reads use the same filter-based rule; a refund is the one exception, because its owner lives on its payment, so it is checked after the load with the identical 404 either way.
 
 ## Booking lifecycle and the BookingsPort (GEN-11)
 
