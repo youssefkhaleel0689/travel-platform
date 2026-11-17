@@ -638,3 +638,23 @@ The most useful thing in this session came from cleaning up after myself rather 
 Running the whole Postman collection against a live server afterwards turned up three defects in the collection - mine, not the API's - and the worst one was the quiet kind. Folder 60 registered a fixed throwaway address and then deactivated it for good, so it worked exactly once per database. Folder 50 had the same fixed address but tolerated the 409, and because secondUserId is only set on a 201, its suspend, reactivate and reset requests skipped themselves on every later run while the folder still reported green - four assertions that had stopped running without telling anyone. And folder 50 request 09, an admin cannot suspend their own account, skipped on every run including the first, because nothing ever set adminUserId: one of the two guards that stop the platform being locked out of its own administration was never exercised. Both folders now generate their address per run the way folder 55 already did, and the admin sign-in captures its own id. A clean run is 77 requests, 174 assertions, 0 failures, exit 0, with one skip that explains itself. I also checked the 409 work in the generated document rather than trusting the decorators: /api/docs-json carries each dropdown, every example's code matches its name and its statusCode matches the response, and no CONFLICT placeholder is left anywhere.
 One more thing that first full run turned up, in the Leader's file rather than mine: npm run test:e2e exited 1 while all 328 tests passed. ownership.e2e-spec.ts queries only its own probe collection, so app.close() can run while the other models' Model.init() calls are still authenticating against Atlas, and the driver then loads a file after Jest has torn the environment down. It is a race, not a certainty - the run before it was clean - which is exactly the kind of thing that gets blamed on whoever merged last. swagger-docs.e2e-spec.ts had already hit it and documents the fix in a comment, so the repair was the same two lines in beforeAll, in its own commit that says whose file it is.
 ================================================
+================================================
+Date: 2026-11-17
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-19, FLT-21, FLT-22, FLT-23 (with PAY-01, PAY-02, ACC-11, ACC-15, GEN-11)
+Prompt:
+Design the flight booking summary and hold on the merged FLT-22 code and C2's BookingsPort: the request body, passenger type by date of birth, infant and baggage pricing, round-trip checks, the transaction, the policy snapshot for PAY-02, owner-only reads, how holds expire without a payment, how the port reaches the payments module, and the commit order.
+How the output was used:
+Kept the summary and the hold as two endpoints with one body; the hold reads the flights and the policy inside the transaction, so the snapshot matches the held seats. The outbound airline's policy is the booking's, because FLT-12 cancels a round trip with the outbound tier, and a bag is charged per segment. C2's sweep only expires holds with an open payment, so flights adds its own expiry job, and the port token must be global for BookingsGateway to see it.
+================================================
+================================================
+Date: 2026-11-17
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-19, FLT-21, FLT-22, FLT-23 (with PAY-01, PAY-02, ACC-11, ACC-12, GEN-11)
+Prompt:
+In steps, per the agreed design: ObjectId ids and one policy snapshot in the booking schema; the request DTO and the rules between its fields; pricing as pure functions; the summary and the 10-minute hold in one transaction; the owner-only GET; the BookingsPort adapter (confirm after payment with a booking reference, release once, the ACC-12 check); a job that expires unpaid holds; the README section.
+How the output was used:
+Reviewed each step before committing. Claude ran Prettier, the compiler, lint and the tests; I ran build, lint, all unit tests (1039 passed) and the e2e suites (344 passed) myself. A rule between fields stays silent while a value it reads is invalid, so each mistake gives one error. Confirming is idempotent and refuses an expired hold, and a release only matches PENDING_PAYMENT, so the two expiry jobs never return seats twice; parallel holds never oversell.
+================================================
