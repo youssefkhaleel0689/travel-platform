@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PageDto, PageMetaDto } from '../common/pagination/dto/page.dto';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import { SessionsService } from '../auth/sessions/sessions.service';
 import { UsersService } from '../auth/users/users.service';
 import { NotificationType } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,6 +24,7 @@ describe('AdminAccountsService', () => {
       | 'resetPasswordToTemporary'
     >
   >;
+  let sessions: jest.Mocked<Pick<SessionsService, 'revokeAllSessions'>>;
   let notifications: jest.Mocked<Pick<NotificationsService, 'notify'>>;
   let service: AdminAccountsService;
 
@@ -53,10 +55,12 @@ describe('AdminAccountsService', () => {
         temporaryPassword: 'Tmpabcde12349',
       }),
     };
+    sessions = { revokeAllSessions: jest.fn().mockResolvedValue(1) };
     notifications = { notify: jest.fn().mockResolvedValue(undefined) };
 
     service = new AdminAccountsService(
       users as unknown as UsersService,
+      sessions as unknown as SessionsService,
       notifications as unknown as NotificationsService,
     );
   });
@@ -112,6 +116,18 @@ describe('AdminAccountsService', () => {
       expect(result.status).toBe(UserStatus.SUSPENDED);
     });
 
+    it('ends every session of the suspended account (ACC-06)', async () => {
+      users.setStatus.mockResolvedValue(
+        account({ status: UserStatus.SUSPENDED }) as never,
+      );
+
+      await service.suspend(ADMIN_ID, TARGET_ID);
+
+      // No exceptSessionId: the admin is suspending someone else, so there is
+      // no session of the target's worth keeping.
+      expect(sessions.revokeAllSessions).toHaveBeenCalledWith(TARGET_ID);
+    });
+
     it('is idempotent: suspending again changes nothing and sends no notice', async () => {
       users.findByIdOrThrow.mockResolvedValue(
         account({ status: UserStatus.SUSPENDED }) as never,
@@ -123,6 +139,9 @@ describe('AdminAccountsService', () => {
 
       expect(result.status).toBe(UserStatus.SUSPENDED);
       expect(notifications.notify).not.toHaveBeenCalled();
+      // Sessions are still revoked: one that somehow outlived the first
+      // suspension should not outlive this one either.
+      expect(sessions.revokeAllSessions).toHaveBeenCalledWith(TARGET_ID);
     });
 
     // Protects the platform from being locked out of its own administration.
@@ -221,6 +240,14 @@ describe('AdminAccountsService', () => {
       });
     });
 
+    it('ends every session of the account whose password was reset (ACC-06)', async () => {
+      await service.resetPassword(ADMIN_ID, TARGET_ID);
+
+      // Otherwise a device already signed in would keep working on the old
+      // password, and the temporary password would not be the only way back in.
+      expect(sessions.revokeAllSessions).toHaveBeenCalledWith(TARGET_ID);
+    });
+
     it('refuses an admin account and the admin’s own account', async () => {
       users.findByIdOrThrow.mockResolvedValue(
         account({ role: Role.ADMIN }) as never,
@@ -237,6 +264,7 @@ describe('AdminAccountsService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(users.resetPasswordToTemporary).not.toHaveBeenCalled();
+      expect(sessions.revokeAllSessions).not.toHaveBeenCalled();
     });
   });
 });

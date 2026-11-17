@@ -87,11 +87,61 @@ describe('Change password and temporary passwords (e2e)', () => {
         .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
         .expect(200);
 
-      // The token is stateless, so the cookie keeps working. Revoking the
-      // account's other devices needs sessions (ACC-06).
+      // The caller's own session is the one kept (exceptSessionId), so you are
+      // not signed out of the device you changed the password on.
       await request(app.getHttpServer())
         .get(ME)
         .set('Cookie', user.cookie)
+        .expect(200);
+    }, SLOW_MS);
+
+    it('signs out the account’s other devices (ACC-06)', async () => {
+      const user = await signIn({ label: 'devices' });
+      // A second login is a second session: the same account on another
+      // device, holding its own cookie.
+      const otherDevice = await login(app, user.email, user.password);
+      await request(app.getHttpServer())
+        .get(ME)
+        .set('Cookie', otherDevice)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(CHANGE_PASSWORD)
+        .set('Cookie', user.cookie)
+        .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
+        .expect(200);
+
+      // The other device's session was revoked, so its cookie stops working on
+      // the next request: a password that may have leaked does not keep a
+      // session alive anywhere else.
+      const revoked = await request(app.getHttpServer())
+        .get(ME)
+        .set('Cookie', otherDevice)
+        .expect(401);
+      expect(revoked.body.code).toBe('UNAUTHENTICATED');
+
+      // The device that made the change is still signed in.
+      await request(app.getHttpServer())
+        .get(ME)
+        .set('Cookie', user.cookie)
+        .expect(200);
+    }, SLOW_MS);
+
+    it('signs nothing out when the change itself fails', async () => {
+      const user = await signIn({ label: 'nosignout' });
+      const otherDevice = await login(app, user.email, user.password);
+
+      await request(app.getHttpServer())
+        .patch(CHANGE_PASSWORD)
+        .set('Cookie', user.cookie)
+        .send({ currentPassword: 'WrongPass123', newPassword: 'BrandNew123' })
+        .expect(401);
+
+      // Otherwise guessing the current password would be a way to sign the
+      // owner out of their other devices.
+      await request(app.getHttpServer())
+        .get(ME)
+        .set('Cookie', otherDevice)
         .expect(200);
     }, SLOW_MS);
 

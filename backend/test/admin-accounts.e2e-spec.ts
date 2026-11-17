@@ -314,15 +314,15 @@ describe('Admin account administration (e2e)', () => {
       expect(stored.mustChangePassword).toBe(true);
       // temporaryPasswordIssuedAt is internal and not part of UserProfile.
 
-      // The cookie the account already held keeps working as a token - the
-      // access token is stateless until ACC-06 adds sessions - but the guard
-      // now refuses every route except change-password, so the reset still
-      // takes effect immediately.
-      const blocked = await request(app.getHttpServer())
+      // The cookie the account already held is dead: the reset revoked every
+      // session of the account (ACC-06), so a device that was signed in before
+      // the reset cannot keep using it. 401, not the 403 below - there is no
+      // session left to tell that this user owes a password change.
+      const dead = await request(app.getHttpServer())
         .get('/api/users/me')
         .set('Cookie', target.cookie)
-        .expect(403);
-      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+        .expect(401);
+      expect(dead.body.code).toBe('UNAUTHENTICATED');
 
       // The temporary password is what logs in now, and the old one does not.
       await request(app.getHttpServer())
@@ -334,6 +334,14 @@ describe('Admin account administration (e2e)', () => {
         target.email,
         res.body.temporaryPassword as string,
       );
+
+      // That new session is allowed to exist, and is refused everything but
+      // change-password until the account chooses its own (ACC-07a).
+      const blocked = await request(app.getHttpServer())
+        .get('/api/users/me')
+        .set('Cookie', cookie)
+        .expect(403);
+      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
       // Choosing a password is the way out, and then the API opens up.
       await request(app.getHttpServer())

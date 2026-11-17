@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { UserStatus } from '../../common/auth/auth.enums';
 import { BookingsGateway } from '../../common/bookings/bookings.gateway';
+import { SessionsService } from '../sessions/sessions.service';
 import { UserProfile, UsersService } from './users.service';
 
 /**
@@ -14,6 +15,7 @@ import { UserProfile, UsersService } from './users.service';
 export class AccountsService {
   constructor(
     private readonly users: UsersService,
+    private readonly sessions: SessionsService,
     private readonly bookings: BookingsGateway,
   ) {}
 
@@ -49,6 +51,11 @@ export class AccountsService {
       userId,
       UserStatus.DEACTIVATED,
     );
+    // ACC-06: the account is closed, so every one of its sessions ends, the
+    // caller's included - there is no session to keep. The guard stops the
+    // current request's cookie working on the next request anyway; this also
+    // stops the refresh token, which would otherwise outlive it.
+    await this.sessions.revokeAllSessions(userId);
     // setStatus returns null only when the status already matched, which the
     // check above has ruled out.
     return deactivated ?? current;

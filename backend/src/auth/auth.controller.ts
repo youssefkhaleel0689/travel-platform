@@ -278,8 +278,8 @@ export class AuthController {
       'take over the account. The new password goes through the same rules as ' +
       'registration and must differ from the current one. Clears the ' +
       'temporary-password state set by an admin reset (ACC-07a).\n\n' +
-      'Note: revoking the tokens already issued to the account’s other ' +
-      'devices needs sessions, which arrive with ACC-06.',
+      'Every other session of the account is signed out (ACC-06); the ' +
+      'device that made the change stays logged in.',
   })
   @ApiBody({ type: ChangePasswordDto })
   @ApiOkResponse({ type: MessageResponseDto })
@@ -323,8 +323,8 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ChangePasswordDto,
   ): Promise<MessageResponseDto> {
-    await this.users.changeOwnPassword(
-      user.userId,
+    await this.auth.changeOwnPassword(
+      user,
       dto.currentPassword,
       dto.newPassword,
     );

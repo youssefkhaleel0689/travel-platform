@@ -338,9 +338,9 @@ export class UsersService {
    * The current password is required, so a stolen cookie on its own cannot take
    * over the account, and the new one must differ from it.
    *
-   * NOTE (ACC-06, PR 4): the access token is stateless today, so there is no way
-   * to revoke the tokens already issued to this account's other devices. When
-   * sessions arrive, revoke every session but the caller's here.
+   * This writes the users collection and nothing else. Ending the account's
+   * other sessions (ACC-06) is AuthService.changeOwnPassword, which calls this
+   * first and only revokes once the write has succeeded.
    */
   async changeOwnPassword(
     userId: string,

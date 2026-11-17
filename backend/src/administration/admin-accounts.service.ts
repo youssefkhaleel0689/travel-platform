@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import { SessionsService } from '../auth/sessions/sessions.service';
 import { AccountListFilters, UsersService } from '../auth/users/users.service';
 import {
   NotificationResourceType,
@@ -23,6 +24,7 @@ import { TemporaryPasswordDto } from './dto/temporary-password.dto';
 export class AdminAccountsService {
   constructor(
     private readonly users: UsersService,
+    private readonly sessions: SessionsService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -61,6 +63,13 @@ export class AdminAccountsService {
       targetUserId,
       UserStatus.SUSPENDED,
     );
+    // ACC-06: end every session of the account, not only its access tokens. The
+    // guard already refuses a non-ACTIVE user on every request, but a live
+    // session would still let a refresh token rotate, and would come back with
+    // the account if an admin reactivates it. Done for an already-suspended
+    // account too: revoking an ended session changes nothing, and a session
+    // that somehow survived the first suspension should not survive this one.
+    await this.sessions.revokeAllSessions(targetUserId);
     if (updated) {
       await this.notifications.notify({
         userId: updated.id,
@@ -120,6 +129,11 @@ export class AdminAccountsService {
 
     const { profile, temporaryPassword } =
       await this.users.resetPasswordToTemporary(targetUserId);
+    // ACC-06: the old password is gone, so every session opened with it ends
+    // here. Without this the account's other devices would keep working on
+    // tokens issued before the reset, and the temporary password would not be
+    // the only way back in.
+    await this.sessions.revokeAllSessions(profile.id);
 
     const dto = new TemporaryPasswordDto();
     dto.userId = profile.id;
