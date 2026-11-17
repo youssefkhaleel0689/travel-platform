@@ -917,6 +917,20 @@ Rules:
 
 `test/seat-inventory.e2e-spec.ts` proves the concurrency rules on the shared database: 20 simultaneous holds for the last seat give exactly one winner, and a round trip whose return flight is full leaves both flights unchanged. It creates its own flights (random `airlineId`, flight numbers starting with `KE`, dates in 2099) and deletes only those. Run it with `npm run test:e2e -- seat-inventory`.
 
+## Hotel room holds and double booking (HTL-18, B2)
+
+Room availability is derived from bookings, not stored as a free-room counter: a room is unavailable for a night when a `CONFIRMED` booking or an unexpired `PENDING_PAYMENT` hold covers that night (PAY-01/HTL-18). Expired holds stop blocking immediately, so correctness does not depend on the expiry worker having run.
+
+A hold is all-or-nothing across the selected rooms. `POST /api/hotel-bookings` opens one MongoDB transaction, locks every selected room, re-checks availability for the whole stay, and inserts the reservation. If any room fails, the transaction aborts and **no** room is held.
+
+Why two parallel holds cannot take the last room: `InventoryService.lockRooms()` increments `lockVersion` on every selected `Room` document inside the transaction. Two transactions touching the same room write the same field, so MongoDB raises a `WriteConflict` and aborts one of them. `connection.transaction()` retries the loser, which then re-reads availability, sees the first request's committed hold and returns 409 `ROOM_UNAVAILABLE`. Ordinary unique indexes cannot express "no overlapping date range", which is why the lock plus transaction is needed. The same mechanism protects availability edits and room deactivation.
+
+`test/hotel-hold.e2e-spec.ts` runs against the shared database: two parallel holds for the last free room give exactly one 201 and one 409, and a hold for rooms 1 and 2 while room 2 is taken gives 409 with nothing held on room 1.
+
+Run `npm run seed:hotels` after `npm run seed` and `npm run seed:admin` to load demo hotels and rooms in the seeded reference cities, so every hotel endpoint has data in Swagger. The seed is idempotent and needs `ADMIN_EMAIL` in `backend/.env` for `createdBy`.
+
+C2 integration: hotel reservations are exposed to the Payments module through the `HOTEL_BOOKINGS_PORT` provider in `src/hotels/bookings/hotel-bookings.port.ts`. Its `confirmAfterPayment(bookingId, paymentId)` mirrors C2's shared `BookingsPort` contract and returns `{ bookingId, status, bookingReference }`; a repeated webhook returns the same reference and does not confirm twice. PAY-02 policy acceptance is checked when C2 creates the Payment, so confirmation does not read an acceptance id from the hotel booking.
+
 ## Team workflow
 
 `develop` is the integration branch and `main` holds stable releases. Direct pushes are blocked: every change goes through a pull request that needs one approving review.
