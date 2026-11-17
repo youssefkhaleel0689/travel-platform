@@ -68,7 +68,7 @@ export class AdminModeratorsController {
         },
       },
       hotel: {
-        summary: 'Hotel moderator (501 until the hotels module lands)',
+        summary: 'Hotel moderator',
         value: {
           name: 'Omar Fathy',
           email: 'omar@hotel.example.com',
@@ -105,6 +105,7 @@ export class AdminModeratorsController {
     description: 'No airline has that airlineId, or no hotel has that hotelId',
     examples: [
       { code: 'AIRLINE_NOT_FOUND', message: 'Airline not found', path: PATH },
+      { code: 'HOTEL_NOT_FOUND', message: 'Hotel not found', path: PATH },
     ],
   })
   @ApiErrorResponse({
@@ -114,20 +115,6 @@ export class AdminModeratorsController {
       {
         code: 'EMAIL_ALREADY_REGISTERED',
         message: 'email is already registered',
-        path: PATH,
-      },
-    ],
-  })
-  @ApiErrorResponse({
-    status: 501,
-    description:
-      'The module that owns that kind of provider is not built yet. Hotel ' +
-      'moderators answer this until HTL-01 lands.',
-    examples: [
-      {
-        code: 'PROVIDER_TYPE_UNAVAILABLE',
-        message:
-          'Hotel moderators cannot be created yet: the hotels module has not been built',
         path: PATH,
       },
     ],

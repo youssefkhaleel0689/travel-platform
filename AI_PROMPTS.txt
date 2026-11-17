@@ -135,6 +135,125 @@ In steps: convert the mock data sheets to JSON with the original column names; a
 How the output was used:
 Reviewed every step's report and diff before committing it separately. Claude Code confirmed the JSON files are copied to dist after the build, that the seed exits with code 1 when it cannot connect, and that the existing e2e tests still pass after the tsconfig change. Build, lint and 57 unit tests were run by Claude Code; I ran the seed against Atlas myself. Noted for later: seed.ts boots the full AppModule, so it should move to a dedicated module once scheduled jobs exist.
 ================================================
+Date: 2026-11-08
+Student: Ahmed Soliman
+Tool: Claude (chat)
+Related Requirement: HTL-01, HTL-02, GEN-08, ACC-11, ACC-13, ACC-15
+Prompt:
+I own part B1 of our NestJS + MongoDB (Mongoose) travel platform: the hotels module. Before writing any code, help me design it:
+(1) The hotel profile fields from HTL-01: name, address, cityId and countryId from the seeded reference data (GEN-12), description, star class 1-5, amenities and photos. Suggest sensible length limits. Also add status (ACTIVE / DEACTIVATED), rating average and count, and createdBy.
+(2) Permissions: an admin creates and lists hotels; only the moderator assigned to a hotel can edit it and manage its photos; anyone can view an ACTIVE hotel (HTL-02).
+(3) How to store the link between a moderator and a hotel so each moderator manages exactly one hotel (ACC-13), and how to check that link on every moderator request (ACC-11).
+(4) Photo uploads under GEN-08: JPG or PNG only, at most 5 MB, at most 5 photos per hotel, stored on the server and served by URL.
+(5) What deactivating a hotel (ACC-15) means for the hotel endpoints.
+(6) Which service methods other team members will need: the admin module (C2) to create moderators and deactivate/reactivate hotels, and the hotel side (B2) for search, booking and reviews.
+Follow the conventions in our README: errors use the shared ErrorResponseDto shape and codes; lists use paginateQuery with page size 10 (GEN-05); lean query results are mapped to a response DTO; and modules use each other's services, never each other's models. Finish with a table of endpoints showing method, path, role and status codes.
+Questions asked:
+- Should the moderator's hotel be stored as a hotelId field on the user, or in a separate collection? Which option is easier for C2 if the link is created in the same transaction as the moderator account?
+- When a guest or another moderator opens a DEACTIVATED hotel, should the API return 403 or 404?
+- The client sends a MIME type with each upload. Is checking it enough, or could someone upload a file that isn't an image and just rename it to .jpg?
+- If a hotel has 4 photos and two uploads arrive at the same moment, could it end up with 6? How do I prevent that without using a transaction?
+- The C2 auth guard isn't merged yet. How should my controller read the logged-in user so it keeps working once the guard sets req.user?
+- Should cityId and countryId be validated in the DTO or in the service? How do I make sure the city actually belongs to the country?
+How the output was used:
+Used the design as the specification for the implementation prompts below. Decisions taken:
+- A separate hotelModeratorAssignment collection with a unique index on moderatorId is the single source of truth; the link is not copied onto users.
+- A DEACTIVATED hotel returns 404 rather than 403, so the API does not reveal that it exists.
+- Uploads get a magic-bytes check in addition to the MIME filter.
+- Photos are added with a conditional $push, so concurrent uploads cannot go over the 5-photo limit.
+- The rating aggregate is only stored here; B2 recalculates it from visible reviews.
+================================================
+Date: 2026-11-08
+Student: Ahmed Soliman
+Tool: Claude Code
+Related Requirement: HTL-01, GEN-12, GEN-02
+Prompt:
+Create backend/src/hotels/dto/create-hotel.dto.ts for POST /api/hotels, and update-hotel.dto.ts for PATCH /api/hotels/:id.
+First read src/common/reference-data/reference-data.patterns.ts and the field-limit constants in src/hotels/schemas/hotel.schema.ts. Import those constants rather than repeating the numbers.
+CreateHotelDto fields:
+- name: required, trimmed, not empty, max 100 characters.
+- address: required, trimmed, max 200 characters.
+- cityId: must match SLUG_ID; countryId: must match COUNTRY_CODE. Both need clear error messages.
+- description: optional, trimmed, max 2000 characters.
+- starClass: integer from 1 to 5.
+- amenities: optional array of up to 30 non-empty strings, each at most 50 characters. A @Transform runs before validation to trim each item, collapse inner whitespace and drop case-insensitive duplicates. It must leave non-string items in place so the validators report them.
+Do not add status, rating fields, createdBy or photos to the DTO. The global ValidationPipe (whitelist + forbidNonWhitelisted) must reject them when a client sends them.
+Add Swagger @ApiProperty decorators with examples (cairo, EG) and min/max values.
+In the same file, add HotelPhotoResponseDto and HotelResponseDto, which every hotel endpoint returns: id as a string, dates as ISO strings, and deactivatedAt and ratingAverage nullable.
+UpdateHotelDto should extend PartialType(CreateHotelDto) from @nestjs/swagger.
+Run build and lint, then show me the diff.
+Questions asked:
+- Why use PartialType from @nestjs/swagger and not from @nestjs/mapped-types?
+- @IsOptional also skips null. If a moderator sends {"name": null} in a PATCH, what happens, and where should it be rejected?
+- Does the order of @Transform and the validators matter?
+- Should amenities be a fixed list or free text? The requirement doesn't define a list.
+How the output was used:
+Reviewed the DTO decorator by decorator against HTL-01 and the schema limits. The answer about null led to an explicit null check in the service's update method: it returns VALIDATION_FAILED with one entry per field. Without it, @IsOptional lets null through and $set would clear required fields. Amenities stay free text, normalized so that "Pool" and " pool " count as the same amenity.
+================================================
+Date: 2026-11-08
+Student: Ahmed Soliman
+Tool: Claude Code
+Related Requirement: HTL-01, HTL-02, GEN-08, ACC-11, ACC-13, ACC-15
+Prompt:
+Implement backend/src/hotels/hotels.service.ts following the design above. Inject the Hotel, HotelModeratorAssignment, City and Country models, and ConfigService (read UPLOADS_DIR, defaulting to "uploads").
+(1) create(dto, actor): admin only (403 ADMIN_ONLY). Check that cityId and countryId exist in the seeded collections and that the city belongs to the country; otherwise return 400 INVALID_REFERENCE or CITY_COUNTRY_MISMATCH with field errors. Save the hotel with status ACTIVE and createdBy set to the actor's id.
+(2) list(page, actor): admin only. Return all hotels, including deactivated ones, newest first, using paginateQuery.
+(3) findById(id, actor?): public. A DEACTIVATED hotel returns 404 HOTEL_NOT_FOUND unless the caller is an admin or the hotel's assigned moderator.
+(4) update(id, dto, actor): assigned moderator only. Reject null values with VALIDATION_FAILED. If cityId or countryId changes, re-check the pair, using the stored value for whichever field wasn't sent. $set only the fields that were sent, with runValidators on. If nothing changed, return the current hotel.
+(5) addPhoto, removePhoto and getPhotoFile (GEN-08):
+- Detect JPG or PNG from the file's magic bytes, not from the MIME type the client sends.
+- Reject a missing file (FILE_REQUIRED) and files over 5 MB (FILE_TOO_LARGE).
+- Store files under uploads/hotels/<hotelId>/<uuid>.<ext>.
+- Add a photo with a conditional update (photos.4 must not exist), so concurrent uploads cannot exceed 5 photos (409 PHOTO_LIMIT_REACHED). If that update fails, delete the file that was just written.
+- On remove, $pull the photo first, then delete its file.
+- Never resolve a path outside the uploads folder.
+- Photos of a deactivated hotel are hidden in the same way as the hotel.
+(6) deactivate and reactivate for C2 (ACC-15): change the status atomically. Return 409 HOTEL_ALREADY_DEACTIVATED or HOTEL_ALREADY_ACTIVE, or 404 if the hotel doesn't exist. The audit log and notifications stay in C2.
+(7) For ACC-13: assignModerator(moderatorId, hotelId, session?), removeModeratorAssignment and getAssignedHotelId. For ACC-11: assertModeratorOwnsHotel, which returns 403 HOTEL_MODERATOR_ONLY or HOTEL_NOT_ASSIGNED, or 404 if the hotel is missing. B2 will reuse it for rooms, policies and reservations.
+(8) For B2: getBookableHotel (ACTIVE hotels only) and setRatingAggregate(hotelId, average, count, session?).
+(9) toResponse(leanHotel): map to HotelResponseDto. Convert ObjectIds to hex strings and dates to ISO strings, and never expose storageKey.
+Every error must use the ErrorResponseDto shape { code, message, errors? }. If you are unsure about a Mongoose 9 type, check node_modules instead of guessing. Run build and lint.
+Questions asked:
+- What does the "photos.4 $exists: false" filter actually check, and why is it safer than reading photos.length first?
+- Why write the file before saving the photo to the database, and not the other way round? What happens if the server crashes in between?
+- What does resolveStoragePath protect against, given that storageKey is always built by our own code?
+- deactivate uses findOneAndUpdate with a status filter. Why not read the hotel, check its status and then save?
+- Why does isAssigned check ObjectId.isValid on the moderator id first?
+- Why is storageKey stored in the database but not returned to the client?
+How the output was used:
+Reviewed the service method by method. Kept the audit log and notifications out of deactivate and reactivate, because ACC-15 and GEN-07 belong to the admin module (C2). Exported assertModeratorOwnsHotel and getBookableHotel so B2 reuses the same checks instead of querying the hotels collection directly. Noted that a crash between writing the file and saving the photo can leave an orphan file on disk; the database stays the source of truth.
+================================================
+Date: 2026-11-08
+Student: Ahmed Soliman
+Tool: Claude Code
+Related Requirement: HTL-01, HTL-02, GEN-05, GEN-08
+Prompt:
+Create backend/src/hotels/hotels.controller.ts and hotels.module.ts, and register HotelsModule in app.module.ts.
+Controller: @Controller('hotels') with the Swagger tag "Hotels" and these routes:
+- POST / : admin, returns 201.
+- GET / : admin, paginated, using PaginationQueryDto and @ApiPaginatedResponse(HotelResponseDto).
+- GET /:id : public.
+- PATCH /:id : assigned moderator.
+- POST /:id/photos : multipart field "file", using FileInterceptor with limits fileSize 5 MB and files 1. Add a fileFilter that rejects anything other than JPG or PNG with 400 INVALID_FILE_TYPE in our error shape.
+- GET /:id/photos/:photoId : public. Streams the file with StreamableFile, using the stored content type and length.
+- DELETE /:id/photos/:photoId : assigned moderator, returns the updated hotel.
+Keep the controller thin; all rules live in the service.
+The C2 auth guard isn't merged yet. Once it is, it will set req.user = { id, role }. Add a small requireActor helper that throws 401 UNAUTHORIZED when req.user is missing. For the public routes, pass req.user (which may be undefined) so that admins and the assigned moderator can still see a deactivated hotel.
+Document every route in Swagger:
+- a summary that includes the requirement ids;
+- @ApiCookieAuth on protected routes;
+- ErrorResponseDto for every error status;
+- @ApiConsumes and @ApiBody for the upload, and @ApiProduces for the photo download.
+Leave a note that GET /hotels/search (B2) must be declared above GET /hotels/:id.
+Module: register the Hotel and HotelModeratorAssignment models, plus City and Country (read-only, for validation). Export only HotelsService.
+Run build and lint, then list the mapped routes from the boot log.
+Questions asked:
+- If multer's fileSize limit rejects a file, what status does the client get, and is it still in our error format?
+- Why export only the service, and not MongooseModule, so that B2 could use the Hotel model directly?
+- Why does the order of /hotels/search and /hotels/:id matter?
+- What does an invalid ObjectId in :id return?
+How the output was used:
+Reviewed the controller and module against the endpoint table from the design. Oversized files get 413, which the global exception filter formats; @ApiPayloadTooLargeResponse documents it. An invalid ObjectId becomes 400 INVALID_VALUE through the existing CastError handling in the global filter. Exporting only HotelsService keeps the convention that other modules never touch the hotels collection directly.
 ================================================
 Date: 2026-11-06
 Student: Youssef Khaleel

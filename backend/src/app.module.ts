@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
 import { FlightsModule } from './flights/flights.module';
+import { HotelsModule } from './hotels/hotels.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 
@@ -30,6 +31,7 @@ import { PaymentsModule } from './payments/payments.module';
     AuthModule,
     FlightsModule,
     FlightBookingsModule,
+    HotelsModule,
     NotificationsModule,
     AdministrationModule,
     PaymentsModule,
