@@ -929,7 +929,7 @@ Why two parallel holds cannot take the last room: `InventoryService.lockRooms()`
 
 Run `npm run seed:hotels` after `npm run seed` and `npm run seed:admin` to load demo hotels and rooms in the seeded reference cities, so every hotel endpoint has data in Swagger. The seed is idempotent and needs `ADMIN_EMAIL` in `backend/.env` for `createdBy`.
 
-C2 integration: hotel reservations are exposed to the Payments module through the `HOTEL_BOOKINGS_PORT` provider in `src/hotels/bookings/hotel-bookings.port.ts`. Its `confirmAfterPayment(bookingId, paymentId)` mirrors C2's shared `BookingsPort` contract and returns `{ bookingId, status, bookingReference }`; a repeated webhook returns the same reference and does not confirm twice. PAY-02 policy acceptance is checked when C2 creates the Payment, so confirmation does not read an acceptance id from the hotel booking.
+C2 integration: hotel reservations are exposed to the Payments module through the `HOTEL_BOOKINGS_PORT` provider in `src/hotel-bookings/hotel-bookings.port.ts`. Its `confirmAfterPayment(bookingId, paymentId)` mirrors C2's shared `BookingsPort` contract and returns `{ bookingId, status, bookingReference }`; a repeated webhook returns the same reference and does not confirm twice. PAY-02 policy acceptance is checked when C2 creates the Payment, so confirmation does not read an acceptance id from the hotel booking.
 
 ## Team workflow
 

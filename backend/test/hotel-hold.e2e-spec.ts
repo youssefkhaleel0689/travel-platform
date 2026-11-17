@@ -12,14 +12,14 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { Session } from './../src/auth/sessions/session.schema';
 import { User } from './../src/auth/schemas/user.schema';
-import { Availability, AvailabilityStatus } from './../src/hotels/availability/schemas/availability.schema';
+import { Availability, AvailabilityStatus } from './../src/availability/schemas/availability.schema';
 import {
   GuestType,
   HotelBooking,
   HotelBookingStatus,
-} from './../src/hotels/bookings/schemas/hotel-booking.schema';
-import { Hotel, HotelStatus } from './../src/hotels/schemas/hotel.schema';
-import { Room } from './../src/hotels/rooms/schemas/room.schema';
+} from './../src/hotel-bookings/schemas/hotel-booking.schema';
+import { Hotel, HotelStatus } from './../src/hotel-core/schemas/hotel.schema';
+import { Room } from './../src/rooms/schemas/room.schema';
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const TEST_TIMEOUT_MS = 60_000;
