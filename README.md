@@ -76,7 +76,7 @@ Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the outpu
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ~~~
 
-**Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it ends every existing session on your machine (requests get 401 until you log in again).
+**Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it makes every access token signed with the old secret invalid at once (401). A session that is still live can get a new access token through `POST /api/auth/refresh`; otherwise log in again.
 
 **Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
 
@@ -619,8 +619,8 @@ Rules:
 - Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
 - `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
-- Available now: register and login start a session and set both cookies, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, repeated failed logins lock the account (ACC-05), and refresh, logout and the 30-minute idle expiry work (ACC-06).
-- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts`, `auth-lockout.e2e-spec.ts`, `auth-sessions.e2e-spec.ts`, `auth-refresh.e2e-spec.ts` and `auth-logout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-`, `e2e-lockout-`, `e2e-sessions-`, `e2e-refresh-` or `e2e-logout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix. The sessions, refresh and logout tests also delete their users' sessions; sessions left by the older tests are removed by the TTL index within 5 hours.
+- Available now: register and login start a session and set both cookies, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, repeated failed logins lock the account (ACC-05), refresh, logout and the 30-minute idle expiry work (ACC-06), the owner-only access helper is ready for owner-scoped modules (ACC-11), and a user who must change the password is held to the allowed routes (ACC-07a, ACC-13).
+- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts`, `auth-lockout.e2e-spec.ts`, `auth-sessions.e2e-spec.ts`, `auth-refresh.e2e-spec.ts` and `auth-logout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-`, `e2e-lockout-`, `e2e-sessions-`, `e2e-refresh-` or `e2e-logout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix. The sessions, refresh and logout tests also delete their users' sessions; sessions left by the older tests are removed by the TTL index within 5 hours. `password-change-required.e2e-spec.ts` works the same way (prefix `e2e-pwchange-`) and deletes its users and their sessions. `ownership.e2e-spec.ts` creates no users: it uses only a temporary collection, `e2e_ownership_probe`, and drops it when it finishes.
 
 ### Sessions, refresh and logout (ACC-06)
 
@@ -655,6 +655,81 @@ For teammates:
 - Tokens issued before ACC-06 have no `sid` and now get 401: log in again.
 
 Shared Atlas database: the `expiresAt_1` index on `sessions` must be the TTL index (`expireAfterSeconds: 0`). Do not run e2e tests from a branch whose schema defines a different index on `sessions`: on startup it would try to create a conflicting index on the shared database.
+
+### Owner-only access (ACC-11)
+
+A user reaches only their own data: their bookings, private itineraries, posts and so on. The owner check is part of the database query (`src/common/auth/ownership.ts`), never a comparison after loading, so another user's document is never even loaded.
+
+A missing resource, one owned by someone else and a malformed id all give the same 404 with the module's own not-found code, so the response never reveals which ids exist. 403 is only for the wrong role.
+
+Reading one document (illustration only: the booking endpoints do not exist yet):
+
+~~~
+import { findOwnedOrThrow, ownerFilter } from '../common/auth/ownership';
+
+const booking = await findOwnedOrThrow(this.flightBookingModel, id, user, {
+  notFoundCode: 'FLIGHT_BOOKING_NOT_FOUND',
+  notFoundMessage: 'Flight booking not found',
+});
+
+// Another owner field name, e.g. posts:
+const post = await findOwnedOrThrow(this.postModel, id, user, {
+  notFoundCode: 'POST_NOT_FOUND',
+  notFoundMessage: 'Post not found',
+  ownerField: 'authorId',
+});
+~~~
+
+The owner field defaults to `userId`; `select` limits the loaded fields. A malformed id is refused without querying.
+
+Changing a document: first `findOwnedOrThrow` (404 when missing or not yours), then one conditional update whose filter repeats `ownerFilter(user)` and the status the change expects. If nothing matched, the state changed in between: 409.
+
+~~~
+await findOwnedOrThrow(this.flightBookingModel, id, user, {
+  notFoundCode: 'FLIGHT_BOOKING_NOT_FOUND',
+  notFoundMessage: 'Flight booking not found',
+});
+const result = await this.flightBookingModel
+  .updateOne(
+    { _id: id, ...ownerFilter(user), status: BookingStatus.CONFIRMED },
+    { $set: { status: BookingStatus.CANCELLED } },
+  )
+  .exec();
+if (result.matchedCount === 0) {
+  throw new ConflictException({ code: 'BOOKING_NOT_CANCELLABLE', message: 'Booking cannot be cancelled' });
+}
+~~~
+
+Listing: put the owner condition into the filter you give `paginateQuery`:
+
+~~~
+return paginateQuery(this.flightBookingModel, { ...ownerFilter(user), ...otherFilters }, { page: query.page });
+~~~
+
+Rules:
+
+- Take the owner only from `@CurrentUser()`, never from the body, query or params.
+- Store the owner as an ObjectId reference to `users`.
+- No admin bypass: admin views are separate `@Roles(Role.ADMIN)` endpoints (ACC-17).
+- Moderators are scoped by their provider assignment (FLT-29, HTL-22), not by `ownerFilter`.
+
+| Who uses it | Requirements |
+| --- | --- |
+| Flight and hotel bookings, and their cancellation | FLT-26, HTL-21 |
+| Payments | PAY-01, PAY-02 |
+| Itineraries | D1 |
+| Own posts and comments | BLG |
+
+### Password change required (ACC-07a, ACC-13)
+
+The `mustChangePassword` flag is set when an admin resets a password (ACC-07a) or creates a moderator (ACC-13), and cleared when the user changes the password (ACC-08).
+
+- Login still succeeds and returns `mustChangePassword: true`, so the client can redirect to the change-password screen.
+- While the flag is set, every protected route returns 403 `PASSWORD_CHANGE_REQUIRED` (`password change required`), except routes marked `@AllowWhenPasswordChangeRequired()`. Today that is only `GET /api/auth/me`.
+- `@Public` routes (login, refresh, logout, guest search) are not affected.
+- The guard checks the flag after the token, session, user and status checks, on the user it loads for each request, so clearing the flag applies on the next request.
+
+For C2: put `@AllowWhenPasswordChangeRequired()` on the change-password endpoint (ACC-08) and clear the flag there.
 
 ### Account lockout (ACC-05)
 
@@ -721,6 +796,7 @@ Every route requires a logged-in user unless it is marked `@Public()`. The two g
 | `@Roles(Role.ADMIN, ...)` | Only these roles may call it; another logged-in user gets 403. Needs at least one role (`@Roles()` alone throws at startup). On a method it replaces the class's `@Roles` |
 | `@CurrentUser()` | Parameter: the logged-in user. Use it on protected routes |
 | `@OptionalUser()` | Parameter: the logged-in user or `undefined`, for public routes that behave differently for a logged-in user |
+| `@AllowWhenPasswordChangeRequired()` | On a method or a class: a user who must change the password may still call it (see "Password change required (ACC-07a, ACC-13)") |
 
 Example (illustration only: the hotels module does not exist yet):
 
@@ -747,6 +823,7 @@ Import `AuthenticatedUser` with `import type`: TypeScript requires it for a type
 | --- | --- | --- |
 | 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a token without a session id, a session that is revoked, idle or past its end, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
 | 403 | `FORBIDDEN` (`You do not have permission to do this`) | Logged in, but the role is not in `@Roles` |
+| 403 | `PASSWORD_CHANGE_REQUIRED` (`password change required`) | Logged in, but the password must be changed first, and the route is not marked `@AllowWhenPasswordChangeRequired()` |
 
 Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 401, plus a 403 when roles apply:
 
@@ -786,7 +863,7 @@ await request(app.getHttpServer())
   .expect(200);
 ~~~
 
-The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, `SessionsService`, the guards and the `User` and `Session` schemas are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, `SessionsService`, the guards and the `User` and `Session` schemas are in `src/auth/`; the enums, the decorators (including `@AllowWhenPasswordChangeRequired()` in `password-change.decorator.ts`) and the ownership helper (`ownership.ts`) are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
 
 ## Seat inventory and flight bookings (FLT-22)
 
