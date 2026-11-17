@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { User } from '../../auth/schemas/user.schema';
 import {
   NOTIFICATION_RESOURCE_TYPES,
@@ -15,7 +15,14 @@ export type NotificationDocument = HydratedDocument<Notification>;
 // what the account saw stays what it saw.
 @Schema({ collection: 'notifications', timestamps: true })
 export class Notification {
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+  // SchemaTypes.ObjectId, not Types.ObjectId. Through Nest's @Prop the second
+  // one compiles to a Mixed path, which casts nothing: a string id stays a
+  // string on write and a string query never matches an ObjectId row. This
+  // collection is right either way, because the service wraps every id in
+  // new Types.ObjectId(), but a Mixed path would silently break anything that
+  // passes the plain string from the token - ownerFilter and findOwnedOrThrow
+  // (ACC-11) do exactly that.
+  @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true })
   userId: Types.ObjectId;
 
   @Prop({ type: String, required: true, enum: NOTIFICATION_TYPES })

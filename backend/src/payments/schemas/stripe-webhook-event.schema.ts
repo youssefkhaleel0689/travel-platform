@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 export type StripeWebhookEventDocument = HydratedDocument<StripeWebhookEvent>;
 
@@ -34,7 +34,7 @@ export class StripeWebhookEvent {
   type: string;
 
   /** The booking the event concerns, when it names one. */
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   bookingId: Types.ObjectId | null;
 
   @Prop({

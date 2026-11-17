@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { User } from '../../auth/schemas/user.schema';
 import {
   BOOKING_TYPES,
@@ -26,10 +26,10 @@ export class Payment {
 
   // Not a ref: the booking collections belong to the flights and hotels
   // modules and are always read through BookingsPort.
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   bookingId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true })
   userId: Types.ObjectId;
 
   // Stripe's id (pi_...). Unique, so one PaymentIntent is one row and a
@@ -52,7 +52,7 @@ export class Payment {
   // PAY-02: which acceptance allowed this payment. A payment cannot exist
   // without one.
   @Prop({
-    type: Types.ObjectId,
+    type: SchemaTypes.ObjectId,
     ref: PolicyAcceptance.name,
     required: true,
   })

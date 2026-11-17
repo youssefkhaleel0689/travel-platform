@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { User } from '../../auth/schemas/user.schema';
 import {
   BOOKING_TYPES,
@@ -26,10 +26,10 @@ export class PolicyAcceptance {
   // The booking in the flights or hotels module. Not a ref: the two booking
   // collections are owned by other modules and a booking is always read
   // through BookingsPort, never populated from here.
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   bookingId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true, index: true })
   userId: Types.ObjectId;
 
   @Prop({

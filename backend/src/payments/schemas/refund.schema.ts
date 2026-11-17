@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   BOOKING_TYPES,
   BookingType,
@@ -27,10 +27,10 @@ export class Refund {
   @Prop({ type: String, required: true, enum: BOOKING_TYPES })
   bookingType: BookingType;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   bookingId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: Payment.name, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: Payment.name, required: true })
   paymentId: Types.ObjectId;
 
   /** Stripe's id (re_...). Null until Stripe has answered. */
