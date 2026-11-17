@@ -122,7 +122,7 @@ export class FlightsController {
   @ApiErrorResponse({
     status: 403,
     description:
-      'Not an airline moderator (FORBIDDEN), or a moderator with no airline assigned (NO_AIRLINE_ASSIGNED)',
+      'Not an airline moderator (FORBIDDEN), a moderator with no airline assigned (NO_AIRLINE_ASSIGNED), or an airline that is deactivated (AIRLINE_DEACTIVATED)',
     examples: [
       {
         code: 'FORBIDDEN',
@@ -132,6 +132,11 @@ export class FlightsController {
       {
         code: 'NO_AIRLINE_ASSIGNED',
         message: 'You are not assigned to an airline',
+        path: '/api/flights',
+      },
+      {
+        code: 'AIRLINE_DEACTIVATED',
+        message: 'Your airline is deactivated and cannot add flights',
         path: '/api/flights',
       },
     ],

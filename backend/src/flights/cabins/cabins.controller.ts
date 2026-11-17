@@ -35,6 +35,10 @@ const NO_AIRLINE = {
   code: 'NO_AIRLINE_ASSIGNED',
   message: 'You are not assigned to an airline',
 };
+const AIRLINE_DEACTIVATED = {
+  code: 'AIRLINE_DEACTIVATED',
+  message: 'Your airline is deactivated and cannot change its flights',
+};
 const FLIGHT_NOT_FOUND = {
   code: 'FLIGHT_NOT_FOUND',
   message: 'Flight not found',
@@ -100,10 +104,11 @@ export class CabinsController {
   @ApiErrorResponse({
     status: 403,
     description:
-      'Not an airline moderator (FORBIDDEN), or a moderator with no airline assigned (NO_AIRLINE_ASSIGNED)',
+      'Not an airline moderator (FORBIDDEN), a moderator with no airline assigned (NO_AIRLINE_ASSIGNED), or an airline that is deactivated (AIRLINE_DEACTIVATED)',
     examples: [
       { ...FORBIDDEN, path: ADD_PATH },
       { ...NO_AIRLINE, path: ADD_PATH },
+      { ...AIRLINE_DEACTIVATED, path: ADD_PATH },
     ],
   })
   @ApiErrorResponse({
@@ -196,10 +201,11 @@ export class CabinsController {
   @ApiErrorResponse({
     status: 403,
     description:
-      'Not an airline moderator (FORBIDDEN), or a moderator with no airline assigned (NO_AIRLINE_ASSIGNED)',
+      'Not an airline moderator (FORBIDDEN), a moderator with no airline assigned (NO_AIRLINE_ASSIGNED), or an airline that is deactivated (AIRLINE_DEACTIVATED)',
     examples: [
       { ...FORBIDDEN, path: EDIT_PATH },
       { ...NO_AIRLINE, path: EDIT_PATH },
+      { ...AIRLINE_DEACTIVATED, path: EDIT_PATH },
     ],
   })
   @ApiErrorResponse({

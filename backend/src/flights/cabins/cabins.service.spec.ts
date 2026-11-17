@@ -4,6 +4,7 @@ import { Types } from 'mongoose';
 import { Role } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
+import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import { CabinsService } from './cabins.service';
 
@@ -69,6 +70,7 @@ function query<R>(result: R) {
 function setup(
   options: {
     assignedTo?: Types.ObjectId | null;
+    airlineStatus?: AirlineStatus;
     updated?: Flight | null;
     current?: object | null;
   } = {},
@@ -78,6 +80,11 @@ function setup(
   const assignmentModel = {
     findOne: jest.fn(() =>
       query(assignedTo ? { airlineId: assignedTo } : null),
+    ),
+  };
+  const airlineModel = {
+    findById: jest.fn(() =>
+      query({ status: options.airlineStatus ?? AirlineStatus.ACTIVE }),
     ),
   };
   const flightModel = {
@@ -91,8 +98,9 @@ function setup(
   const service = new CabinsService(
     flightModel as unknown as Model<Flight>,
     assignmentModel as unknown as Model<AirlineModeratorAssignment>,
+    airlineModel as unknown as Model<Airline>,
   );
-  return { service, flightModel, assignmentModel };
+  return { service, flightModel, assignmentModel, airlineModel };
 }
 
 async function failure(promise: Promise<unknown>): Promise<HttpException> {
@@ -435,5 +443,44 @@ describe('CabinsService.update (FLT-04, FLT-05)', () => {
     );
     expect(error.getStatus()).toBe(409);
     expect(codeOf(error)).toBe('FLIGHT_ALREADY_DEPARTED');
+  });
+});
+
+describe('CabinsService with a DEACTIVATED airline (ACC-15)', () => {
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime());
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('add is 403 AIRLINE_DEACTIVATED and writes nothing', async () => {
+    const { service, flightModel, airlineModel } = setup({
+      airlineStatus: AirlineStatus.DEACTIVATED,
+    });
+    const error = await failure(
+      service.add(FLIGHT_ID.toString(), NEW_CABIN, moderator),
+    );
+    expect(error.getStatus()).toBe(403);
+    expect(codeOf(error)).toBe('AIRLINE_DEACTIVATED');
+    expect(airlineModel.findById).toHaveBeenCalledWith(AIRLINE_ID);
+    expect(flightModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('update is 403 AIRLINE_DEACTIVATED and writes nothing', async () => {
+    const { service, flightModel } = setup({
+      airlineStatus: AirlineStatus.DEACTIVATED,
+    });
+    const error = await failure(
+      service.update(
+        FLIGHT_ID.toString(),
+        CabinCategory.ECONOMY,
+        { price: 150 },
+        moderator,
+      ),
+    );
+    expect(error.getStatus()).toBe(403);
+    expect(codeOf(error)).toBe('AIRLINE_DEACTIVATED');
+    expect(flightModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 });

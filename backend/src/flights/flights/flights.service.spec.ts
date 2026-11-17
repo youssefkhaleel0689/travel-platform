@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import type { AirportDto } from '../../common/reference-data/dto/airport.dto';
 import type { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
+import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { Flight, FlightStatus } from '../schemas/flight.schema';
 import { FlightsService } from './flights.service';
 
@@ -62,6 +63,7 @@ function query<R>(result: R) {
 function setup(
   options: {
     assignedTo?: Types.ObjectId | null;
+    airlineStatus?: AirlineStatus | null;
     createError?: unknown;
   } = {},
 ) {
@@ -76,6 +78,16 @@ function setup(
           : null,
       ),
     ),
+  };
+  // null stands for an airline document that does not exist.
+  const airlineStatus =
+    options.airlineStatus === undefined
+      ? AirlineStatus.ACTIVE
+      : options.airlineStatus;
+  const airlineModel = {
+    findById: jest.fn(() => ({
+      select: () => query(airlineStatus ? { status: airlineStatus } : null),
+    })),
   };
   const flightModel = {
     create: jest.fn((doc: Partial<Flight>) => {
@@ -108,9 +120,16 @@ function setup(
   const service = new FlightsService(
     flightModel as unknown as Model<Flight>,
     assignmentModel as unknown as Model<AirlineModeratorAssignment>,
+    airlineModel as unknown as Model<Airline>,
     referenceData as unknown as ReferenceDataService,
   );
-  return { service, flightModel, assignmentModel, referenceData };
+  return {
+    service,
+    flightModel,
+    assignmentModel,
+    airlineModel,
+    referenceData,
+  };
 }
 
 async function failure(promise: Promise<unknown>): Promise<HttpException> {
@@ -202,6 +221,27 @@ describe('FlightsService.create (FLT-03)', () => {
     expect(codeOf(error)).toBe('NO_AIRLINE_ASSIGNED');
     expect(referenceData.getAirportOrThrow).not.toHaveBeenCalled();
     expect(flightModel.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a DEACTIVATED airline with 403 AIRLINE_DEACTIVATED and does nothing else (ACC-15)', async () => {
+    const { service, flightModel, airlineModel, referenceData } = setup({
+      airlineStatus: AirlineStatus.DEACTIVATED,
+    });
+    const error = await failure(service.create(VALID, moderator));
+    expect(error.getStatus()).toBe(403);
+    expect(codeOf(error)).toBe('AIRLINE_DEACTIVATED');
+    expect(airlineModel.findById).toHaveBeenCalledWith(AIRLINE_ID);
+    expect(referenceData.getAirportOrThrow).not.toHaveBeenCalled();
+    expect(flightModel.create).not.toHaveBeenCalled();
+  });
+
+  it('creates the flight for an ACTIVE airline', async () => {
+    const { service, flightModel, airlineModel } = setup({
+      airlineStatus: AirlineStatus.ACTIVE,
+    });
+    await service.create(VALID, moderator);
+    expect(airlineModel.findById).toHaveBeenCalledWith(AIRLINE_ID);
+    expect(flightModel.create).toHaveBeenCalledTimes(1);
   });
 
   it('rejects identical airports with 400 SAME_AIRPORTS before any lookup', async () => {

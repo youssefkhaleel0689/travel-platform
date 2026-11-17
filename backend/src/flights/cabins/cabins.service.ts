@@ -9,8 +9,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import type { Model } from 'mongoose';
 import { Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
-import { assignedAirlineId } from '../airline-assignment';
+import { assertAirlineActive, assignedAirlineId } from '../airline-assignment';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
+import { Airline } from '../schemas/airline.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import { FlightDto } from '../flights/dto/flight.dto';
 import { toFlightDto } from '../flights/flight.mapper';
@@ -38,7 +39,21 @@ export class CabinsService {
     @InjectModel(Flight.name) private readonly flightModel: Model<Flight>,
     @InjectModel(AirlineModeratorAssignment.name)
     private readonly assignmentModel: Model<AirlineModeratorAssignment>,
+    @InjectModel(Airline.name) private readonly airlineModel: Model<Airline>,
   ) {}
+
+  // The moderator's airline, which must not be DEACTIVATED (ACC-15).
+  private async activeAirlineId(
+    actor: AuthenticatedUser,
+  ): Promise<Types.ObjectId> {
+    const airlineId = await assignedAirlineId(this.assignmentModel, actor);
+    await assertAirlineActive(
+      this.airlineModel,
+      airlineId,
+      'Your airline is deactivated and cannot change its flights',
+    );
+    return airlineId;
+  }
 
   /**
    * FLT-04: add a cabin to a SCHEDULED flight of the moderator's airline. A category can
@@ -49,7 +64,7 @@ export class CabinsService {
     dto: CreateCabinDto,
     actor: AuthenticatedUser,
   ): Promise<FlightDto> {
-    const airlineId = await assignedAirlineId(this.assignmentModel, actor);
+    const airlineId = await this.activeAirlineId(actor);
     this.requireFlightId(flightId);
 
     const updated = await this.flightModel
@@ -92,7 +107,7 @@ export class CabinsService {
     dto: UpdateCabinDto,
     actor: AuthenticatedUser,
   ): Promise<FlightDto> {
-    const airlineId = await assignedAirlineId(this.assignmentModel, actor);
+    const airlineId = await this.activeAirlineId(actor);
     this.requireFlightId(flightId);
     const category = this.parseCategory(cabinId);
 

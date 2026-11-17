@@ -376,9 +376,19 @@ I chose to make the endpoint moderator-only and to take the airline from the ass
 Date: 2026-11-17
 Student: Marawan Elgendy
 Tool: Claude Code
-Related Requirement: FLT-04 (cabins), FLT-05 (price edit part)
+Related Requirement: FLT-03 (review fix), ACC-15
+Prompt:
+Youssef reviewed PR #25 and asked that a moderator of a DEACTIVATED airline cannot create flights (403 with a clear code, a unit test and a Swagger example), and that the "How to test" text be updated because ACC-18 is already merged. I asked Claude Code to add the check.
+How the output was used:
+I added a check right after the assignment lookup in FlightsService.create: it reads the airline status and returns 403 AIRLINE_DEACTIVATED before any other lookup or insert. I added unit tests for a DEACTIVATED and an ACTIVE airline, added the example to the 403 ApiErrorResponse, and ran build, lint, unit and the filtered e2e tests. I updated the PR description myself. Cabins (FLT-04) get the same rule in their own PR.
+================================================
+================================================
+Date: 2026-11-17
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-04 (cabins), FLT-05 (price edit part), ACC-15
 Prompt:
 Build POST /api/flights/:id/cabins and PATCH /api/flights/:id/cabins/:cabinId on feature/FLT-04-cabins for an airline moderator, from the endpoint list in the project description. A cabin has a category from the fixed set (each once per flight), whole totalSeats > 0, price > 0 as Decimal128, freeBaggageCount and maxBagWeightKg. The airline comes from airlineModeratorAssignment, only a SCHEDULED flight that has not departed can be changed, bookedSeats and heldSeats are never written from this code, and the PATCH may change price and baggage but not the seat count (that is FLT-05). Use one conditional update per change so parallel requests cannot break a rule, ApiErrorResponse for every error, and add unit tests and a fake-service e2e test.
 How the output was used:
-I decided that the cabin in the path is its category, because the schema gives embedded cabins no _id, and that the seat count stays out of this PR so FLT-05 can add it with the conditional update. I read the generated service against FLT-04 and the schema and checked that every rule sits in the update filter and that the counters start at 0 and are never written. I ran the build, the linter, all unit tests and the fake-service e2e tests on my machine (results in the PR). I tested nothing against Atlas yet because creating a moderator (ACC-13) is not merged. Editing times and seats (FLT-05), the DEPARTED job (FLT-30) and the airline policies (FLT-08, FLT-09) are left for later PRs.
+I decided that the cabin in the path is its category, because the schema gives embedded cabins no _id, and that the seat count stays out of this PR so FLT-05 can add it with the conditional update. I read the generated service against FLT-04 and the schema and checked that every rule sits in the update filter and that the counters start at 0 and are never written. I ran the build, the linter, all unit tests and the fake-service e2e tests on my machine (results in the PR). I tested nothing against Atlas yet because creating a moderator (ACC-13) is not merged. Editing times and seats (FLT-05), the DEPARTED job (FLT-30) and the airline policies (FLT-08, FLT-09) are left for later PRs. The same DEACTIVATED-airline rule as in FLT-03 applies to adding and editing cabins (403 AIRLINE_DEACTIVATED), through one shared helper.
 ================================================
