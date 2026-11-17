@@ -1266,19 +1266,32 @@
                 "register"
               ]
             },
-            "description": "A dedicated account to suspend, reactivate and reset, so this folder never touches the account the other folders use. Request 10 leaves it on a temporary password, so give targetEmail a fresh address when you want to run the folder again from clean."
+            "description": "A dedicated account to suspend, reactivate and reset, so this folder never touches the account the other folders use. The address is generated per run: request 12 leaves the account on a temporary password, and a fixed address would make every later run skip the suspend, reactivate and reset requests instead of testing them."
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh address every run, with the test_c2_ prefix the shared",
+                  "// database rules require. With a fixed address the second run gets",
+                  "// 409, secondUserId is never set, and requests 07, 08 and 12 skip",
+                  "// themselves - the folder then reports green while testing nothing.",
+                  "pm.collectionVariables.set(",
+                  "  'targetEmail',",
+                  "  `test_c2_target_${Date.now()}@example.com`,",
+                  ");"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('201 Created, or 409 if it already exists', () =>",
-                  "  pm.expect([201, 409]).to.include(pm.response.code));",
-                  "if (pm.response.code === 201) {",
-                  "  pm.collectionVariables.set('secondUserId', pm.response.json().id);",
-                  "}"
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('secondUserId', pm.response.json().id);"
                 ]
               }
             }
@@ -1321,6 +1334,10 @@
                   "  pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "  pm.test('the account really is an ADMIN', () =>",
                   "    pm.expect(pm.response.json().role).to.eql('ADMIN'));",
+                  "  // Request 09 needs the admin's own id to prove an admin cannot act",
+                  "  // on their own account. Without this it skipped itself, so one of",
+                  "  // the two platform-lockout guards went untested on every run.",
+                  "  pm.collectionVariables.set('adminUserId', pm.response.json().id);",
                   "}"
                 ]
               }
@@ -2490,9 +2507,25 @@
                 "register"
               ]
             },
-            "description": "Registering logs the account in, so the cookie is in the jar straight away. Use a fresh throwawayEmail: this folder deactivates the account for good."
+            "description": "Registering logs the account in, so the cookie is in the jar straight away. The address is generated per run, because this folder deactivates the account for good and a deactivated email can never register again."
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh address every run, with the test_c2_ prefix the shared",
+                  "// database rules require. Deactivation is permanent and the email",
+                  "// stays taken, so a fixed address makes this folder work exactly",
+                  "// once and answer 409 EMAIL_ALREADY_REGISTERED after that.",
+                  "pm.collectionVariables.set(",
+                  "  'throwawayEmail',",
+                  "  `test_c2_throwaway_${Date.now()}@example.com`,",
+                  ");"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {

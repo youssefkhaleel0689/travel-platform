@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, each with assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, 174 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -102,16 +102,24 @@ where naming the reason is useful and safe.
 | Variable | How the collection gets it |
 | --- | --- |
 | `userEmail` / `userPassword` | Folder 20 request 01 registers it for you |
-| `targetEmail` / `targetPassword` | Folder 50 request 01 registers it; the folder suspends and resets this one, never your test user |
-| `throwawayEmail` / `throwawayPassword` | Folder 60 request 01 registers it; the folder deactivates it for good |
+| `targetEmail` / `targetPassword` | Folder 50 request 01 registers it, on a **generated** address; the folder suspends and resets this one, never your test user |
+| `throwawayEmail` / `throwawayPassword` | Folder 60 request 01 registers it, on a **generated** address; the folder deactivates it for good |
 | `adminEmail` / `adminPassword` | Copy them from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` after `npm run seed:admin` |
 
 Keep the `test_c2_` prefix on every address: the shared-database rules require
 test data to be prefixed, and it makes your rows easy to find and delete.
 
-Give `targetEmail` and `throwawayEmail` a fresh address when you want to rerun
-those folders from clean, because folder 50 leaves its target on a temporary
-password and folder 60 deactivates its account permanently.
+`targetEmail`, `throwawayEmail` and the two moderator addresses are generated
+per run, so folders 50, 55 and 60 need no editing between runs. They have to
+be: folder 50 leaves its target on a temporary password and folder 60
+deactivates its account permanently, so a fixed address makes each folder work
+exactly once. With a fixed one, folder 60 then fails outright with
+`409 EMAIL_ALREADY_REGISTERED`, and folder 50 - which tolerates the 409 -
+quietly skipped its suspend, reactivate and reset requests and still reported
+green. That is why they generate.
+
+The cost is one extra `test_c2_` row per run on the shared cluster, which
+section 9 tells you how to sweep.
 
 ## 4. The protocol
 
@@ -210,6 +218,15 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 ~~~
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
+
+A clean full run is **77 requests, 174 assertions, 0 failures** and exits 0.
+One assertion skips itself and says so: folder 40 request 06 needs a
+notification to mark as read, and the test user has none until an admin
+suspends it in folder 50, which runs later. Marking one read is covered by
+`test/notifications.e2e-spec.ts` and by shots 10 and 11 in
+`docs/api/evidence/`. Any other skip means a variable was not set, which is a
+defect rather than a design choice - that is what the generated addresses
+above fixed.
 
 ## 8. Troubleshooting
 
