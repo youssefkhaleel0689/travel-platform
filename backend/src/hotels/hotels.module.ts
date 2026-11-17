@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
+import { City, CitySchema } from '../common/reference-data/schemas/city.schema';
+import {
+  Country,
+  CountrySchema,
+} from '../common/reference-data/schemas/country.schema';
+import { HotelsController } from './hotels.controller';
 import { HotelsService } from './hotels.service';
 import {
   HotelModeratorAssignment,
@@ -8,8 +13,6 @@ import {
 } from './schemas/hotel-moderator-assignment.schema';
 import { Hotel, HotelSchema } from './schemas/hotel.schema';
 
-// HTL-01. Owns the Hotel and HotelModeratorAssignment models. Other modules
-// import this module and use the exported service, never these models.
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -18,10 +21,15 @@ import { Hotel, HotelSchema } from './schemas/hotel.schema';
         name: HotelModeratorAssignment.name,
         schema: HotelModeratorAssignmentSchema,
       },
+      // Seeded reference data, read-only: validates cityId / countryId.
+      { name: City.name, schema: CitySchema },
+      { name: Country.name, schema: CountrySchema },
     ]),
-    ReferenceDataModule,
   ],
+  controllers: [HotelsController],
   providers: [HotelsService],
+  // Other modules (administration / C2, hotel side / B2) use the service,
+  // never the models (README: module conventions).
   exports: [HotelsService],
 })
 export class HotelsModule {}
