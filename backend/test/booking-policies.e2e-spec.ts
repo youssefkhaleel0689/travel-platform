@@ -1,9 +1,10 @@
 // PAY-02 end to end against the shared database.
 //
-// No booking module provides a BookingsPort yet, so the gateway is stood in
+// The hotels module does not provide its BookingsPort yet (flights do since
+// FLT-22, tested in flight-bookings.e2e-spec.ts), so the gateway is stood in
 // for here: the suite supplies one booking's facts and policies and drives the
 // real HTTP path through the guard, the parameter validation, the ownership
-// check and the policyAcceptances collection. When A1 and B2 wire their ports
+// check and the policyAcceptances collection. When B2 wires the hotel port
 // in, only the two spies below go away.
 import { INestApplication, NotFoundException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
@@ -209,14 +210,14 @@ describe('Booking policies (e2e)', () => {
       expect(res.body.errors[0].field).toBe('id');
     });
 
-    // The flights module is not wired in, so this is the real 501 path.
-    // The real behaviour today: no module provides a flight BookingsPort, so
-    // the stand-in is dropped and the gateway answers for itself.
+    // The real 501 path. Flights provide their port since FLT-22, so the
+    // hotels module, not built yet, is the type with no module connected: the
+    // stand-in is dropped and the gateway answers for itself.
     it('answers 501 for a booking type with no module connected', async () => {
       jest.restoreAllMocks();
 
       const res = await request(app.getHttpServer())
-        .get(policiesPath(bookingId, 'flight'))
+        .get(policiesPath(bookingId, 'hotel'))
         .set('Cookie', owner.cookie)
         .expect(501);
 

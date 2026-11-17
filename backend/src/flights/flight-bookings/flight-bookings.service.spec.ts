@@ -151,6 +151,7 @@ function setup(
     flights?: Flight[];
     airlineStatus?: AirlineStatus | null;
     policy?: Partial<PolicySnapshot>;
+    stored?: FlightBooking;
   } = {},
 ) {
   const flights = options.flights ?? [outboundFlight(), inboundFlight()];
@@ -188,6 +189,7 @@ function setup(
     );
   }
   const bookingModel = {
+    findOne: jest.fn(() => query(options.stored ?? null)),
     create: jest.fn((docs: Partial<FlightBooking>[]) =>
       Promise.resolve(
         docs.map((doc) => ({
@@ -703,5 +705,69 @@ describe('FlightBookingsService.hold (FLT-22)', () => {
     expect(error.getStatus()).toBe(409);
     expect(seatInventory.hold).toHaveBeenCalledTimes(2);
     expect(bookingModel.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('FlightBookingsService.findOwned (FLT-22, ACC-11)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: NOW });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // The document hold() stores, as the database gives it back.
+  async function storedBooking(): Promise<FlightBooking> {
+    const { service, bookingModel } = setup();
+    await service.hold(request({ passengers: [adult, infant] }), USER);
+    const [docs] = bookingModel.create.mock.calls[0] as unknown as [
+      Partial<FlightBooking>[],
+    ];
+    return { _id: BOOKING_ID, createdAt: NOW, ...docs[0] } as FlightBooking;
+  }
+
+  it("returns the caller's booking, looked up with the owner in the filter", async () => {
+    const stored = await storedBooking();
+    const { service, bookingModel } = setup({ stored });
+
+    const booking = await service.findOwned(BOOKING_ID.toString(), USER);
+
+    expect(bookingModel.findOne).toHaveBeenCalledWith({
+      _id: BOOKING_ID.toString(),
+      userId: USER.userId,
+    });
+    expect(booking).toMatchObject({
+      id: BOOKING_ID.toString(),
+      status: BookingStatus.PENDING_PAYMENT,
+      holdExpiresAt: '2026-11-18T12:10:00.000Z',
+      bookingReference: null,
+      price: { total: '219.99', currency: 'USD' },
+    });
+    expect(booking.passengers.map((p) => p.documentNumber)).toEqual([
+      '•••••5678',
+      '•••••5678',
+    ]);
+  });
+
+  it("answers the same 404 for a missing booking and another account's", async () => {
+    const { service } = setup();
+
+    const error = await failure(service.findOwned(BOOKING_ID.toString(), USER));
+
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      code: 'BOOKING_NOT_FOUND',
+      message: 'Booking not found',
+    });
+  });
+
+  it('answers 404 for a malformed id without querying', async () => {
+    const { service, bookingModel } = setup();
+
+    const error = await failure(service.findOwned('not-an-id', USER));
+
+    expect(error.getStatus()).toBe(404);
+    expect(bookingModel.findOne).not.toHaveBeenCalled();
   });
 });

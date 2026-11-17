@@ -1,9 +1,13 @@
-// The flight booking summary and hold (FLT-19, FLT-21, FLT-22) against the real app and
-// the shared database. This test WRITES: one airline named "KE e2e booking" with an unused
+// The flight booking summary, hold and payments port (FLT-19, FLT-21, FLT-22, GEN-11)
+// against the real app and the shared database. This test WRITES: one airline named "KE e2e booking" with an unused
 // two-digit IATA code (from 50 up, so it never races the search test, which starts at 00),
 // flights numbered KE6xxx in February 2099, test_c2_ accounts made by the shared helper,
 // and the bookings of those accounts. afterAll deletes exactly those.
-import { ConflictException, INestApplication } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  INestApplication,
+} from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Types } from 'mongoose';
@@ -13,6 +17,9 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { Role } from './../src/common/auth/auth.enums';
+import { BookingType } from './../src/common/bookings/booking-status';
+import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
+import { HoldReleaseReason } from './../src/common/bookings/bookings.port';
 import {
   Airline,
   AirlineStatus,
@@ -39,6 +46,9 @@ const SLOW_MS = 30_000;
 
 const SUMMARY = '/api/flight-bookings';
 const HOLD = '/api/flight-bookings/hold';
+const bookingPath = (id: string) => `/api/flight-bookings/${id}`;
+// No 0, O, 1 or I: they are easy to misread on a ticket.
+const REFERENCE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 
 describe('Flight bookings (e2e, shared database)', () => {
   let app: INestApplication<App>;
@@ -49,10 +59,13 @@ describe('Flight bookings (e2e, shared database)', () => {
   const flightIds: Types.ObjectId[] = [];
   let airlineId: Types.ObjectId;
   let traveller: SignedInUser;
+  let otherTraveller: SignedInUser;
   let moderator: SignedInUser;
   let outboundId: string;
   let fullReturnId: string;
   let returnId: string;
+  // Its own flight, so the port tests never share seats with the hold tests.
+  let portFlightId: string;
 
   async function unusedIataCode(): Promise<string> {
     for (let n = 50; n < 100; n++) {
@@ -115,6 +128,28 @@ describe('Flight bookings (e2e, shared database)', () => {
     return flight?.cabinInventory[0].heldSeats ?? -1;
   }
 
+  async function seatCounts(
+    flightId: string,
+  ): Promise<{ held: number; booked: number }> {
+    const flight = await flightModel.findById(flightId).lean<Flight>().exec();
+    const cabin = flight?.cabinInventory[0];
+    return { held: cabin?.heldSeats ?? -1, booked: cabin?.bookedSeats ?? -1 };
+  }
+
+  async function storedBooking(id: string): Promise<FlightBooking | null> {
+    return bookingModel.findById(id).lean<FlightBooking>().exec();
+  }
+
+  // The HTTP error a call to the port failed with.
+  async function failure(promise: Promise<unknown>): Promise<HttpException> {
+    try {
+      await promise;
+    } catch (error) {
+      return error as HttpException;
+    }
+    throw new Error('expected the call to fail');
+  }
+
   function passenger(overrides: Record<string, unknown> = {}) {
     return {
       fullName: 'KE e2e Traveller',
@@ -143,6 +178,10 @@ describe('Flight bookings (e2e, shared database)', () => {
       .post(path)
       .set('Cookie', user.cookie)
       .send(body as object);
+  }
+
+  function get(path: string, user = traveller) {
+    return request(app.getHttpServer()).get(path).set('Cookie', user.cookie);
   }
 
   beforeAll(async () => {
@@ -174,13 +213,17 @@ describe('Flight bookings (e2e, shared database)', () => {
       ...returnFields(15),
     });
     returnId = await createFlight({ totalSeats: 5, ...returnFields(16) });
+    portFlightId = await createFlight({ totalSeats: 5 });
 
     traveller = await createSignedInUser(app, { label: 'ke-booking' });
+    otherTraveller = await createSignedInUser(app, {
+      label: 'ke-booking-other',
+    });
     moderator = await createSignedInUser(app, {
       label: 'ke-booking-mod',
       role: Role.AIRLINE_MODERATOR,
     });
-    userIds.push(traveller.userId, moderator.userId);
+    userIds.push(traveller.userId, otherTraveller.userId, moderator.userId);
   }, CONNECT_TIMEOUT_MS);
 
   // Deletes only what this file created, then closes the app and the connection.
@@ -354,6 +397,176 @@ describe('Flight bookings (e2e, shared database)', () => {
           6 - free,
         );
         expect(await heldSeats(outboundId)).toBe(5);
+      },
+      SLOW_MS,
+    );
+  });
+
+  describe('a held booking: GET /api/flight-bookings/:id and the payments port', () => {
+    let gateway: BookingsGateway;
+    let held: { id: string } & Record<string, unknown>;
+
+    beforeAll(async () => {
+      gateway = app.get(BookingsGateway);
+      const res = await post(HOLD, oneWay([passenger()], portFlightId)).expect(
+        201,
+      );
+      held = res.body as typeof held;
+    }, SLOW_MS);
+
+    it('shows the owner their booking, exactly as the hold returned it', async () => {
+      const res = await get(bookingPath(held.id)).expect(200);
+
+      expect(res.body).toEqual(held);
+    });
+
+    it("answers the same 404 for another account's booking, a missing one and a bad id", async () => {
+      const responses = [
+        await get(bookingPath(held.id), otherTraveller).expect(404),
+        await get(bookingPath(new Types.ObjectId().toString())).expect(404),
+        await get(bookingPath('not-an-id')).expect(404),
+      ];
+
+      for (const res of responses) {
+        expect(res.body).toMatchObject({
+          code: 'BOOKING_NOT_FOUND',
+          message: 'Booking not found',
+        });
+      }
+    });
+
+    it('is connected to payments: the flight port is wired in', () => {
+      expect(gateway.supports(BookingType.FLIGHT)).toBe(true);
+    });
+
+    it("gives payments' policies endpoint the terms the booking was made under (PAY-02)", async () => {
+      const res = await get(`/api/bookings/flight/${held.id}/policies`).expect(
+        200,
+      );
+
+      // Version 0: no airline policy is read yet (FLT-08 is not merged).
+      expect(res.body).toMatchObject({
+        bookingId: held.id,
+        bookingType: BookingType.FLIGHT,
+        providerType: 'AIRLINE',
+        providerId: airlineId.toString(),
+        policyVersion: 0,
+        policySnapshot: {
+          airlineId: airlineId.toString(),
+          version: 0,
+          extraBagPrice: null,
+          maxExtraBagsPerPassenger: null,
+          cancellationTiers: [],
+        },
+        accepted: false,
+      });
+    });
+
+    it(
+      'confirms after payment once: a reference, and the held seat becomes a booked one',
+      async () => {
+        const before = await seatCounts(portFlightId);
+        const paymentId = new Types.ObjectId().toString();
+
+        const first = await gateway.confirmAfterPayment(
+          BookingType.FLIGHT,
+          held.id,
+          paymentId,
+        );
+        expect(first).toEqual({
+          bookingId: held.id,
+          status: BookingStatus.CONFIRMED,
+          bookingReference: expect.stringMatching(REFERENCE) as string,
+        });
+        const after = { held: before.held - 1, booked: before.booked + 1 };
+        expect(await seatCounts(portFlightId)).toEqual(after);
+
+        // Stripe delivers the webhook again: the same answer, no seat moves.
+        await expect(
+          gateway.confirmAfterPayment(BookingType.FLIGHT, held.id, paymentId),
+        ).resolves.toEqual(first);
+        expect(await seatCounts(portFlightId)).toEqual(after);
+
+        const stored = await storedBooking(held.id);
+        expect(stored?.paymentId?.toString()).toBe(paymentId);
+        expect(stored?.confirmedAt).toBeInstanceOf(Date);
+        const res = await get(bookingPath(held.id)).expect(200);
+        expect(res.body).toMatchObject({
+          status: BookingStatus.CONFIRMED,
+          bookingReference: first.bookingReference,
+        });
+      },
+      SLOW_MS,
+    );
+
+    it('counts as an upcoming confirmed booking, which blocks deactivation (ACC-12)', async () => {
+      await expect(
+        gateway.hasUpcomingConfirmedBookings(traveller.userId),
+      ).resolves.toBe(true);
+      await expect(
+        gateway.hasUpcomingConfirmedBookings(otherTraveller.userId),
+      ).resolves.toBe(false);
+    });
+
+    it('keeps a confirmed booking and its seats when a late release arrives', async () => {
+      const before = await seatCounts(portFlightId);
+
+      await gateway.releaseHold(
+        BookingType.FLIGHT,
+        held.id,
+        HoldReleaseReason.HOLD_EXPIRED,
+      );
+
+      expect((await storedBooking(held.id))?.status).toBe(
+        BookingStatus.CONFIRMED,
+      );
+      expect(await seatCounts(portFlightId)).toEqual(before);
+    });
+
+    it(
+      'releases a hold once, however often it is called, and it can no longer be paid',
+      async () => {
+        const res = await post(
+          HOLD,
+          oneWay(
+            [passenger(), passenger({ fullName: 'KE e2e Two' })],
+            portFlightId,
+          ),
+        ).expect(201);
+        const id = (res.body as { id: string }).id;
+        const before = await seatCounts(portFlightId);
+
+        // The expiry job and a cancelled-payment webhook can both arrive.
+        await gateway.releaseHold(
+          BookingType.FLIGHT,
+          id,
+          HoldReleaseReason.HOLD_EXPIRED,
+        );
+        await gateway.releaseHold(
+          BookingType.FLIGHT,
+          id,
+          HoldReleaseReason.PAYMENT_FAILED,
+        );
+
+        expect(await seatCounts(portFlightId)).toEqual({
+          held: before.held - 2,
+          booked: before.booked,
+        });
+        const stored = await storedBooking(id);
+        expect(stored?.status).toBe(BookingStatus.EXPIRED);
+        expect(stored?.expiredAt).toBeInstanceOf(Date);
+
+        const error = await failure(
+          gateway.confirmAfterPayment(
+            BookingType.FLIGHT,
+            id,
+            new Types.ObjectId().toString(),
+          ),
+        );
+        expect(error.getStatus()).toBe(409);
+        expect(error.getResponse()).toMatchObject({
+          code: 'INVALID_BOOKING_STATE',
+        });
       },
       SLOW_MS,
     );

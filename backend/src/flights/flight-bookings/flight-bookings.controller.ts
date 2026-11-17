@@ -2,8 +2,10 @@ import {
   applyDecorators,
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
 } from '@nestjs/common';
 import {
@@ -35,6 +37,7 @@ import { FlightBookingsService } from './flight-bookings.service';
 
 const SUMMARY_PATH = '/api/flight-bookings';
 const HOLD_PATH = '/api/flight-bookings/hold';
+const BOOKING_PATH = '/api/flight-bookings/6720f1c2a1b2c3d4e5f60720';
 
 // The errors the summary and the hold share: both check the same request against the
 // same flights (FLT-19, FLT-21, FLT-22).
@@ -222,5 +225,36 @@ export class FlightBookingsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FlightBookingDto> {
     return this.bookings.hold(dto, user);
+  }
+
+  @Get(':id')
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'One of your flight bookings (FLT-22, ACC-11)',
+    description:
+      'The booking with its status, the hold expiry and, once paid, the booking ' +
+      "reference. Only the owner sees it: another account's booking answers the same " +
+      '404 as one that does not exist.',
+  })
+  @ApiOkResponse({ type: FlightBookingDto })
+  @ApiErrorResponse(unauthenticated(BOOKING_PATH))
+  @ApiErrorResponse(forbidden(BOOKING_PATH))
+  @ApiErrorResponse({
+    status: 404,
+    description:
+      'No such booking, or it belongs to another account (BOOKING_NOT_FOUND): both answer the same, so ids cannot be probed',
+    examples: [
+      {
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+        path: BOOKING_PATH,
+      },
+    ],
+  })
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    return this.bookings.findOwned(id, user);
   }
 }

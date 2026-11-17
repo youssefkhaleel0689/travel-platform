@@ -8,6 +8,7 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import type { ClientSession, Connection, Model } from 'mongoose';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { findOwnedOrThrow } from '../../common/auth/ownership';
 import type { FieldErrorDto } from '../../common/dto/error-response.dto';
 import {
   decimal128ToString,
@@ -135,6 +136,21 @@ export class FlightBookingsService {
         { session },
       );
       return created.toObject<FlightBooking>();
+    });
+    return this.toDto(booking);
+  }
+
+  /**
+   * One of the caller's own bookings (ACC-11). Another account's booking, a missing one
+   * and a malformed id all answer the same 404, so ids cannot be probed.
+   */
+  async findOwned(
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    const booking = await findOwnedOrThrow(this.bookingModel, id, user, {
+      notFoundCode: 'BOOKING_NOT_FOUND',
+      notFoundMessage: 'Booking not found',
     });
     return this.toDto(booking);
   }
