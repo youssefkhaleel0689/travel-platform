@@ -26,6 +26,7 @@ const proto = ProbeController.prototype;
 const USER: AuthenticatedUser = {
   userId: '6720f1c2a1b2c3d4e5f60718',
   role: Role.USER,
+  sessionId: '6720f1c2a1b2c3d4e5f60799',
 };
 
 // Only what the factories use: switchToHttp().getRequest(). The cast is done only here.

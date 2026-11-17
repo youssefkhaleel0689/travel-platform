@@ -3,11 +3,13 @@ import { Reflector } from '@nestjs/core';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { Public } from '../../common/auth/public.decorator';
+import type { SessionsService } from '../sessions/sessions.service';
 import type { AccessTokenService } from '../tokens/access-token.service';
 import type { UserProfile, UsersService } from '../users/users.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 const USER_ID = '6720f1c2a1b2c3d4e5f60718';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60799';
 const GOOD_TOKEN = 'good.token.value';
 
 function profile(overrides: Partial<UserProfile> = {}): UserProfile {
@@ -43,16 +45,21 @@ interface FakeRequest {
   user?: AuthenticatedUser;
 }
 
-// Only what the guard uses; the casts are done only here.
+// Only what the guard uses; the casts are done only here. `sessionLive` is what
+// validateForRequest resolves to (default true).
 function setup(
-  options: { stored?: UserProfile | null; tokenUserId?: string } = {},
+  options: {
+    stored?: UserProfile | null;
+    tokenUserId?: string;
+    sessionLive?: boolean;
+  } = {},
 ) {
   const stored = options.stored === undefined ? profile() : options.stored;
   const accessTokens = {
     verify: jest.fn((token: string) =>
       Promise.resolve(
         token === GOOD_TOKEN
-          ? { userId: options.tokenUserId ?? USER_ID }
+          ? { userId: options.tokenUserId ?? USER_ID, sessionId: SESSION_ID }
           : null,
       ),
     ),
@@ -60,12 +67,18 @@ function setup(
   const users = {
     findById: jest.fn((_id: string) => Promise.resolve(stored)),
   };
+  const sessions = {
+    validateForRequest: jest.fn((_sessionId: string, _userId: string) =>
+      Promise.resolve(options.sessionLive ?? true),
+    ),
+  };
   const guard = new JwtAuthGuard(
     new Reflector(),
     accessTokens as unknown as AccessTokenService,
     users as unknown as UsersService,
+    sessions as unknown as SessionsService,
   );
-  return { guard, accessTokens, users };
+  return { guard, accessTokens, users, sessions };
 }
 
 function contextFor(
@@ -127,6 +140,13 @@ describe('JwtAuthGuard on a @Public route (ACC-04)', () => {
     expect(request.user).toBeUndefined();
   });
 
+  it('lets a token whose session has ended through as a guest (ACC-06)', async () => {
+    const { guard } = setup({ sessionLive: false });
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await expect(guard.canActivate(publicMethod(request))).resolves.toBe(true);
+    expect(request.user).toBeUndefined();
+  });
+
   it('lets a suspended user through as a guest', async () => {
     const { guard } = setup({
       stored: profile({ status: UserStatus.SUSPENDED }),
@@ -143,12 +163,19 @@ describe('JwtAuthGuard on a @Public route (ACC-04)', () => {
     expect(request.user).toEqual({
       userId: USER_ID,
       role: Role.AIRLINE_MODERATOR,
+      sessionId: SESSION_ID,
     });
   });
 });
 
 describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
-  it.each<[string, FakeRequest, { stored?: UserProfile | null }]>([
+  it.each<
+    [
+      string,
+      FakeRequest,
+      { stored?: UserProfile | null; sessionLive?: boolean },
+    ]
+  >([
     ['no cookies at all', {}, {}],
     ['no access_token cookie', { cookies: { other: 'x' } }, {}],
     ['an empty cookie', { cookies: { access_token: '' } }, {}],
@@ -158,6 +185,11 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
       'an unknown user',
       { cookies: { access_token: GOOD_TOKEN } },
       { stored: null },
+    ],
+    [
+      'a session that is revoked, idle or past its end (ACC-06)',
+      { cookies: { access_token: GOOD_TOKEN } },
+      { sessionLive: false },
     ],
     [
       'a SUSPENDED user',
@@ -190,7 +222,52 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
       true,
     );
     expect(users.findById).toHaveBeenCalledWith(USER_ID);
-    expect(request.user).toEqual({ userId: USER_ID, role: Role.ADMIN });
+    expect(request.user).toEqual({
+      userId: USER_ID,
+      role: Role.ADMIN,
+      sessionId: SESSION_ID,
+    });
+  });
+
+  it('checks the session named by the verified token before loading the user (ACC-06)', async () => {
+    const { guard, sessions, users } = setup();
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await guard.canActivate(protectedRoute(request));
+
+    expect(sessions.validateForRequest).toHaveBeenCalledTimes(1);
+    expect(sessions.validateForRequest).toHaveBeenCalledWith(
+      SESSION_ID,
+      USER_ID,
+    );
+    expect(
+      sessions.validateForRequest.mock.invocationCallOrder[0],
+    ).toBeLessThan(users.findById.mock.invocationCallOrder[0]);
+  });
+
+  it('does not load the user when the session has ended (ACC-06)', async () => {
+    const { guard, users } = setup({ sessionLive: false });
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await rejection(guard.canActivate(protectedRoute(request)));
+    expect(users.findById).not.toHaveBeenCalled();
+  });
+
+  it('takes sessionId only from the verified token, never from the request', async () => {
+    const { guard } = setup();
+    const forged = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    const request: FakeRequest & {
+      body?: unknown;
+      query?: unknown;
+      params?: unknown;
+      headers?: unknown;
+    } = {
+      cookies: { access_token: GOOD_TOKEN, sid: forged },
+      body: { sessionId: forged, sid: forged },
+      query: { sessionId: forged },
+      params: { sessionId: forged },
+      headers: { 'x-session-id': forged },
+    };
+    await guard.canActivate(protectedRoute(request));
+    expect(request.user?.sessionId).toBe(SESSION_ID);
   });
 
   it('loads the user named by the token', async () => {

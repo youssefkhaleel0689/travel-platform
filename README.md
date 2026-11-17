@@ -482,14 +482,16 @@ Rules:
 
 The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
 
-## Accounts and authentication (ACC-01, ACC-04, ACC-05, ACC-11, ACC-19, GEN-13)
+## Accounts and authentication (ACC-01, ACC-04, ACC-05, ACC-06, ACC-11, ACC-19, GEN-13)
 
-A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session by setting the `access_token` cookie. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
+A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session (ACC-06) and set the `access_token` and `refresh_token` cookies. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
 
 | Endpoint | Requirement | Access |
 | --- | --- | --- |
 | `POST /api/auth/register` | ACC-01, GEN-13 | Public |
 | `POST /api/auth/login` | ACC-04, ACC-05 | Public |
+| `POST /api/auth/refresh` | ACC-06 | Public (uses the `refresh_token` cookie) |
+| `POST /api/auth/logout` | ACC-06 | Public |
 | `GET /api/auth/me` | ACC-04, ACC-19 | Logged in |
 | `GET /api/users/me` | ACC-11 | Logged in |
 
@@ -506,7 +508,7 @@ Register request body:
 { "name": "Sara Ahmed", "email": "sara@example.com", "password": "Travel2026", "acceptTerms": true }
 ~~~
 
-201 response (`UserResponseDto`, never `passwordHash`). Registration also logs the user in: the response sets the session cookie (see "Session cookie" below).
+201 response (`UserResponseDto`, never `passwordHash`). Registration also logs the user in: the response sets the session cookies (see "Session cookies" below).
 
 ~~~
 {
@@ -538,7 +540,7 @@ Login request body: `email` (valid email, trimmed and lower-cased, at most 254 c
 
 | Case | Result |
 | --- | --- |
-| Right email and password, account `ACTIVE` | 200 with the profile (`UserResponseDto`, same shape as above) and the session cookie |
+| Right email and password, account `ACTIVE` | 200 with the profile (`UserResponseDto`, same shape as above) and the session cookies |
 | Unknown email, or wrong password | 401 `INVALID_CREDENTIALS` (`invalid email or password`). Both give the same body, and an unknown email runs the same bcrypt work, so neither the response nor its timing reveals which emails are registered |
 | Right password, account `SUSPENDED` | 403 `ACCOUNT_SUSPENDED` (`account suspended`) |
 | Right password, account `DEACTIVATED` | 403 `ACCOUNT_DEACTIVATED` (`account deactivated`) |
@@ -549,18 +551,17 @@ The status is checked only after the password matches, so a wrong password for a
 
 `GET /api/auth/me` and `GET /api/users/me` return the logged-in user's profile (`UserResponseDto`), or 401 `UNAUTHENTICATED`. The frontend calls `/api/auth/me` to learn who is logged in, because page scripts cannot read the httpOnly cookie. `/api/users/me` returns the same profile on the path where PATCH (ACC-09) and DELETE (ACC-12) will be added.
 
-Session cookie (`src/auth/tokens/auth-cookie.ts`), set by register and login:
+Session cookies (`src/auth/tokens/auth-cookie.ts`), set by register, login and refresh:
 
-| Attribute | Value |
-| --- | --- |
-| Name | `access_token` |
-| `HttpOnly` | Yes: page scripts cannot read it |
-| `Secure` | Yes |
-| `SameSite` | `Lax` |
-| `Path` | `/` |
-| `Max-Age` | 1800 (30 minutes) |
+| Attribute | `access_token` | `refresh_token` |
+| --- | --- | --- |
+| `HttpOnly` | Yes: page scripts cannot read it | Yes |
+| `Secure` | Yes | Yes |
+| `SameSite` | `Lax` | `Lax` |
+| `Path` | `/`: sent with every API request | `/api/auth`: sent only to the auth endpoints (refresh, logout) |
+| `Max-Age` | 1800 (30 minutes) | Until the session's absolute end (at most 5 hours) |
 
-The cookie holds a JWT signed with `JWT_SECRET`; only HS256 is accepted, so a token that claims another algorithm or `none` is rejected. The payload is only `{ sub: <user id> }` plus the standard `iat` and `exp`; the role is never in the token. The token expires 30 minutes after it was issued, whether or not the user is active. The token is never in a response body.
+The access cookie holds a JWT signed with `JWT_SECRET`; only HS256 is accepted, so a token that claims another algorithm or `none` is rejected. The payload is only `{ sub: <user id>, sid: <session id> }` plus the standard `iat` and `exp`; the role is never in the token, and a token without a valid `sid` is rejected like any invalid token. The token expires 30 minutes after it was issued, and the guard also refuses it as soon as its session ends (see "Sessions, refresh and logout (ACC-06)" below). Neither token is ever in a response body.
 
 Password rules (`src/common/validation/password.ts`), checked in this order; the field error is the message of the first rule broken:
 
@@ -618,8 +619,42 @@ Rules:
 - Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
 - `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
-- Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, and repeated failed logins lock the account (ACC-05). Still to come: refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
-- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts` and `auth-lockout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-` or `e2e-lockout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
+- Available now: register and login start a session and set both cookies, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, repeated failed logins lock the account (ACC-05), and refresh, logout and the 30-minute idle expiry work (ACC-06).
+- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts`, `auth-lockout.e2e-spec.ts`, `auth-sessions.e2e-spec.ts`, `auth-refresh.e2e-spec.ts` and `auth-logout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-`, `e2e-lockout-`, `e2e-sessions-`, `e2e-refresh-` or `e2e-logout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix. The sessions, refresh and logout tests also delete their users' sessions; sessions left by the older tests are removed by the TTL index within 5 hours.
+
+### Sessions, refresh and logout (ACC-06)
+
+Every login (and registration) creates one session in the `sessions` collection (`src/auth/sessions/`). A session ends when it is revoked (logout, or all of a user's sessions at once), after 30 minutes without requests (idle timeout), or 5 hours after login (absolute lifetime), whichever comes first. The guard checks the session on every request, so an ended session stops its access token at once, not when the token expires.
+
+- The refresh token is 32 random bytes. Only its SHA-256 hash is stored, never the token itself.
+- Activity (`lastActivityAt`) is recorded at most once a minute, so the idle timeout is exact to within a minute.
+- A TTL index on `expiresAt` deletes expired sessions in the background. It only cleans up: validity is always checked in the query itself, because the deletion can lag.
+
+`POST /api/auth/refresh` (no body; reads only the `refresh_token` cookie):
+
+| Case | Result |
+| --- | --- |
+| A live session and an `ACTIVE` user | 200 with the profile (same as login), a new `access_token` and a new `refresh_token` for the same session. The old refresh token stops working at once (rotation); of two concurrent refreshes with the same token, exactly one succeeds |
+| No cookie, an unknown or already used token, a session that is revoked, idle or past its end, or a user that is missing or not `ACTIVE` | 401 `UNAUTHENTICATED` (`Authentication required`), the same body in every case, and both cookies are cleared. For a user that is not `ACTIVE`, the session is also revoked |
+
+Refresh checks no password, so the login lockout (ACC-05) does not apply to it.
+
+`POST /api/auth/logout` (public, no body) always answers 204 and clears both cookies, whether or not a session existed, so it can be called twice. It ends the session found through the access cookie (the session id from the verified token) or through the refresh cookie; either is enough, so a logout still works after the access token has expired. Other sessions of the same user (other devices) keep working.
+
+For teammates:
+
+- `AuthenticatedUser` (`request.user`) now has a required `sessionId`, set by the guard only from the verified token; never take a session id from the body, query, params or headers. Test fixtures that build an `AuthenticatedUser` must include one, for example `sessionId: '6720f1c2a1b2c3d4e5f60799'`.
+- To sign a user out everywhere, call `SessionsService.revokeAllSessions(userId, { exceptSessionId })` (exported by `AuthModule`). It returns how many sessions it revoked.
+
+  | Requirement | Call |
+  | --- | --- |
+  | ACC-07a (admin password reset), ACC-12 (deactivation), ACC-16 (suspension) | `revokeAllSessions(userId)` |
+  | ACC-08 (password change) | `revokeAllSessions(user.userId, { exceptSessionId: user.sessionId })`, so the device that made the change stays logged in |
+
+- Never write to the `sessions` collection directly or inject the `Session` model outside `src/auth/`; use `SessionsService`.
+- Tokens issued before ACC-06 have no `sid` and now get 401: log in again.
+
+Shared Atlas database: the `expiresAt_1` index on `sessions` must be the TTL index (`expireAfterSeconds: 0`). Do not run e2e tests from a branch whose schema defines a different index on `sessions`: on startup it would try to create a conflicting index on the shared database.
 
 ### Account lockout (ACC-05)
 
@@ -706,11 +741,11 @@ export class HotelsController {
 
 Import `AuthenticatedUser` with `import type`: TypeScript requires it for a type used only in a decorated parameter with this project's settings.
 
-`request.user` is `{ userId, role }` (`AuthenticatedUser`). The guard loads the user from the database on every request, so the role always comes from the database, and a suspension or role change applies to the very next request.
+`request.user` is `{ userId, role, sessionId }` (`AuthenticatedUser`). The guard loads the user from the database on every request, so the role always comes from the database, and a suspension or role change applies to the very next request.
 
 | Status | `code` | When |
 | --- | --- | --- |
-| 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
+| 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a token without a session id, a session that is revoked, idle or past its end, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
 | 403 | `FORBIDDEN` (`You do not have permission to do this`) | Logged in, but the role is not in `@Roles` |
 
 Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 401, plus a 403 when roles apply:
@@ -733,7 +768,8 @@ Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 40
 
 Trying it in Swagger UI:
 
-- Run `POST /api/auth/login` (or register). The browser stores the cookie and sends it with every later request from Swagger UI, so no Authorize step is needed.
+- Run `POST /api/auth/login` (or register). The browser stores both cookies and sends them with every later request from Swagger UI, so protected endpoints work with no Authorize step.
+- Swagger UI does not call refresh by itself. After 30 minutes without requests the session is idle and you must log in again; before then, you can run `POST /api/auth/refresh` yourself to get a new access cookie.
 - The curl preview that Swagger UI shows has no cookie, because page scripts cannot read an httpOnly cookie. A copied curl command therefore gets 401.
 - Safari may refuse `Secure` cookies over `http://localhost`; use Chrome or Firefox for Swagger.
 
@@ -750,7 +786,7 @@ await request(app.getHttpServer())
   .expect(200);
 ~~~
 
-The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, the guards and the `User` schema are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, `SessionsService`, the guards and the `User` and `Session` schemas are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
 
 ## Seat inventory and flight bookings (FLT-22)
 
