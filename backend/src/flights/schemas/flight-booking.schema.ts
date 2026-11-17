@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import Decimal from 'decimal.js';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { BookingStatus } from '../../common/bookings/booking-status';
 import { IATA_CODE } from '../../common/reference-data/reference-data.patterns';
@@ -37,10 +38,11 @@ const decimalAtLeast =
     if (value === null) {
       return true;
     }
-    const amount = Number(value.toString());
+    // Compared as a decimal, never through a float (README money rule).
+    const amount = new Decimal(value.toString());
     return (
-      Number.isFinite(amount) &&
-      (inclusive ? amount >= minimum : amount > minimum)
+      amount.isFinite() &&
+      (inclusive ? amount.gte(minimum) : amount.gt(minimum))
     );
   };
 const isPositiveDecimal = decimalAtLeast(0, false);
@@ -51,10 +53,10 @@ const isWholeNumber = (value: number): boolean => Number.isInteger(value);
 // Later price or schedule edits (FLT-05) never change an existing booking.
 @Schema({ _id: false, versionKey: false })
 export class FlightSegment {
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   flightId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   airlineId: Types.ObjectId;
 
   @Prop({ type: String, required: true })
@@ -179,7 +181,7 @@ export const PassengerSchema = SchemaFactory.createForClass(Passenger);
 // Extra bags of one passenger (FLT-19); the limits come from the airline policy (FLT-08).
 @Schema({ _id: false, versionKey: false })
 export class Baggage {
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   passengerId: Types.ObjectId;
 
   @Prop({
@@ -209,20 +211,6 @@ export class Baggage {
 }
 
 export const BaggageSchema = SchemaFactory.createForClass(Baggage);
-
-// The airline's extra-bag rule as accepted with the booking (FLT-08, PAY-02).
-@Schema({ _id: false, versionKey: false })
-export class BaggagePolicySnapshot {
-  @Prop({ type: SchemaTypes.Decimal128, required: true })
-  extraBagPrice: Types.Decimal128;
-
-  @Prop({ type: Number, required: true, min: 0 })
-  maxExtraBagsPerPassenger: number;
-}
-
-export const BaggagePolicySnapshotSchema = SchemaFactory.createForClass(
-  BaggagePolicySnapshot,
-);
 
 // Totals at booking time in the platform currency (PAY-04). The service computes them.
 @Schema({ _id: false, versionKey: false })
@@ -259,9 +247,6 @@ export class PriceSnapshot {
 
   @Prop({ type: String, required: true, enum: ['USD'], default: 'USD' })
   currency: string;
-
-  @Prop({ type: BaggagePolicySnapshotSchema, required: true })
-  baggagePolicySnapshot: BaggagePolicySnapshot;
 }
 
 export const PriceSnapshotSchema = SchemaFactory.createForClass(PriceSnapshot);
@@ -280,11 +265,63 @@ export const CancellationTierSnapshotSchema = SchemaFactory.createForClass(
   CancellationTierSnapshot,
 );
 
+// The airline's terms this booking was made under (FLT-08, FLT-09): the outbound airline's
+// policy when the seats were held (a round trip is cancelled with the outbound tier,
+// FLT-12). Payments shows and stores exactly this for PAY-02, so a later policy edit never
+// changes what the user accepted.
+@Schema({ _id: false, versionKey: false })
+export class PolicySnapshot {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  airlineId: Types.ObjectId;
+
+  // The airline policy's version; 0 when the airline had not defined a policy yet.
+  @Prop({
+    type: Number,
+    required: true,
+    min: 0,
+    validate: {
+      validator: isWholeNumber,
+      message: 'version must be a whole number',
+    },
+  })
+  version: number;
+
+  // Price of one extra bag; null when no baggage policy was set, so none could be bought.
+  @Prop({
+    type: SchemaTypes.Decimal128,
+    default: null,
+    validate: {
+      validator: isPositiveDecimal,
+      message: 'extraBagPrice must be greater than 0',
+    },
+  })
+  extraBagPrice: Types.Decimal128 | null;
+
+  @Prop({
+    type: Number,
+    default: null,
+    min: 0,
+    validate: {
+      validator: (value: number | null): boolean =>
+        value === null || isWholeNumber(value),
+      message: 'maxExtraBagsPerPassenger must be a whole number',
+    },
+  })
+  maxExtraBagsPerPassenger: number | null;
+
+  // Highest threshold first. Empty when the airline set none: a cancellation refunds 0%.
+  @Prop({ type: [CancellationTierSnapshotSchema], default: [] })
+  cancellationTiers: CancellationTierSnapshot[];
+}
+
+export const PolicySnapshotSchema =
+  SchemaFactory.createForClass(PolicySnapshot);
+
 // Filled once when a CONFIRMED booking is cancelled (FLT-26 by the user, FLT-06 at 100%).
 @Schema({ _id: false, versionKey: false })
 export class Cancellation {
   // The user, moderator or admin who cancelled.
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   cancelledBy: Types.ObjectId;
 
   @Prop({ type: String, trim: true, maxlength: 500, default: null })
@@ -304,7 +341,7 @@ export class Cancellation {
   refundAmount: Types.Decimal128;
 
   // The refunds document (PAY-03); null when the refund is 0.
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   refundId: Types.ObjectId | null;
 
   @Prop({ type: Date, required: true })
@@ -322,7 +359,7 @@ export const CancellationSchema = SchemaFactory.createForClass(Cancellation);
 export class FlightBooking {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   userId: Types.ObjectId;
 
   // Generated after a verified payment (FLT-23); absent until then.
@@ -357,10 +394,10 @@ export class FlightBooking {
   cancelledAt: Date | null;
 
   // policyAcceptances and payments documents (PAY-02, PAY-01).
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   policyAcceptanceId: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   paymentId: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -435,6 +472,9 @@ export class FlightBooking {
 
   @Prop({ type: PriceSnapshotSchema, required: true })
   priceSnapshot: PriceSnapshot;
+
+  @Prop({ type: PolicySnapshotSchema, required: true })
+  policySnapshot: PolicySnapshot;
 
   @Prop({ type: CancellationSchema, default: null })
   cancellation: Cancellation | null;
