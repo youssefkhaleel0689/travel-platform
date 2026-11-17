@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import { BookingStatus } from '../../common/bookings/booking-status';
 import { IATA_CODE } from '../../common/reference-data/reference-data.patterns';
 import { parseLocalDate } from '../../common/time/local-date-time';
 import { CabinCategory } from './flight.schema';
@@ -8,13 +9,14 @@ export type FlightBookingDocument = HydratedDocument<FlightBooking>;
 
 // Booking lifecycle (GEN-11): PENDING_PAYMENT -> CONFIRMED -> COMPLETED,
 // PENDING_PAYMENT -> EXPIRED and CONFIRMED -> CANCELLED. The services set it; a client never does.
-export enum BookingStatus {
-  PENDING_PAYMENT = 'PENDING_PAYMENT',
-  CONFIRMED = 'CONFIRMED',
-  COMPLETED = 'COMPLETED',
-  EXPIRED = 'EXPIRED',
-  CANCELLED = 'CANCELLED',
-}
+//
+// Declared once, in common/bookings/booking-status.ts, which also holds the allowed
+// transitions (GEN-11 owns the lifecycle). It used to be declared here as well with the
+// same five values: two declarations of the same enum are different types to TypeScript,
+// so BookingsPort could not be implemented against this schema without a cast, and either
+// copy could drift. Re-exported so `import { BookingStatus } from './flight-booking.schema'`
+// keeps working.
+export { BookingStatus };
 
 export enum TripType {
   ONE_WAY = 'ONE_WAY',

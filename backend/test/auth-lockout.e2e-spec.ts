@@ -16,8 +16,12 @@ import {
   MAX_FAILED_LOGIN_ATTEMPTS,
 } from './../src/auth/users/login-lockout';
 
-// Connecting to Atlas can take longer than Jest's default 5 seconds.
-const CONNECT_TIMEOUT_MS = 30_000;
+// Connecting to Atlas can take longer than Jest's default 5 seconds, and the
+// hooks here also register accounts over HTTP, each costing a bcrypt hash. The
+// suites run serially (test:e2e uses --runInBand), so this one starts after a
+// queue of others and 30 seconds was not enough: the beforeAll timed out and
+// every test in the file then failed on an undefined app.
+const CONNECT_TIMEOUT_MS = 120_000;
 // Every login computes a real bcrypt hash at the configured cost; the race sends ten at once.
 const REQUEST_TIMEOUT_MS = 60_000;
 

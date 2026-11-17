@@ -56,6 +56,22 @@ describe('Session schema (ACC-06)', () => {
       expect(SessionSchema.path('refreshTokenHash').options.select).toBe(false);
     });
 
+    // A Mixed path (what `type: Types.ObjectId` compiles to through @Prop) casts nothing,
+    // so a string user id would be stored and matched as a string.
+    it('declares userId as an ObjectId path, so string ids are cast', () => {
+      expect(SessionSchema.path('userId').instance).toBe('ObjectId');
+    });
+
+    it('casts a string userId to an ObjectId', () => {
+      const id = new Types.ObjectId();
+      const session = new SessionModel({
+        ...validSession,
+        userId: id.toString(),
+      });
+      expect(session.userId).toBeInstanceOf(Types.ObjectId);
+      expect(session.userId.equals(id)).toBe(true);
+    });
+
     it('references the User model from userId', () => {
       expect(SessionSchema.path('userId').options.ref).toBe('User');
     });

@@ -26,6 +26,8 @@ const PROFILE: UserProfile = {
   role: Role.USER,
   status: UserStatus.ACTIVE,
   mustChangePassword: false,
+  suspendedAt: null,
+  deactivatedAt: null,
   createdAt: new Date('2026-11-12T10:00:00.000Z'),
 };
 
@@ -76,6 +78,9 @@ function setup(
     findById: jest.fn((_id: string): Promise<UserProfile | null> =>
       Promise.resolve(stored),
     ),
+    changeOwnPassword: jest.fn(
+      (_userId: string, _current: string, _next: string) => Promise.resolve(),
+    ),
   };
   const accessTokens = {
     sign: jest.fn((_userId: string, _sessionId: string) =>
@@ -95,6 +100,10 @@ function setup(
     ),
     revoke: jest.fn((_sessionId: string) => Promise.resolve()),
     revokeByRefreshToken: jest.fn((_token: string) => Promise.resolve()),
+    revokeAllSessions: jest.fn(
+      (_userId: string, _options?: { exceptSessionId?: string }) =>
+        Promise.resolve(2),
+    ),
   };
   const res = {
     cookie: jest.fn(
@@ -329,8 +338,9 @@ describe('AuthService.login lockout (ACC-05)', () => {
       expect(users.verifyCredentials).toHaveBeenCalledTimes(1);
       expect(users.create).not.toHaveBeenCalled();
       expect(users.findById).not.toHaveBeenCalled();
+      expect(users.changeOwnPassword).not.toHaveBeenCalled();
       expect(Object.keys(users).sort()).toEqual(
-        ['create', 'findById', 'verifyCredentials'].sort(),
+        ['changeOwnPassword', 'create', 'findById', 'verifyCredentials'].sort(),
       );
     },
   );
@@ -652,6 +662,65 @@ describe('AuthService.currentProfile (ACC-04, ACC-19)', () => {
     expect(error.getResponse()).toEqual({
       code: 'UNAUTHENTICATED',
       message: 'Authentication required',
+    });
+  });
+});
+
+describe('AuthService.changeOwnPassword (ACC-08, ACC-06)', () => {
+  const CALLER: AuthenticatedUser = {
+    userId: PROFILE.id,
+    role: Role.USER,
+    sessionId: SESSION_ID,
+  };
+
+  it('changes the password, then ends every session but the caller’s', async () => {
+    const { service, users, sessions } = setup();
+
+    const ended = await service.changeOwnPassword(
+      CALLER,
+      'OldPass123',
+      'NewPass123',
+    );
+
+    expect(users.changeOwnPassword).toHaveBeenCalledWith(
+      PROFILE.id,
+      'OldPass123',
+      'NewPass123',
+    );
+    expect(sessions.revokeAllSessions).toHaveBeenCalledWith(PROFILE.id, {
+      exceptSessionId: SESSION_ID,
+    });
+    // The count comes straight from SessionsService, so the route can say how
+    // many other devices were signed out.
+    expect(ended).toBe(2);
+  });
+
+  it('revokes nothing when the password change itself fails', async () => {
+    const { service, users, sessions } = setup();
+    users.changeOwnPassword.mockRejectedValueOnce(
+      new HttpException({ code: 'INVALID_CURRENT_PASSWORD' }, 401),
+    );
+
+    await expect(
+      service.changeOwnPassword(CALLER, 'WrongPass123', 'NewPass123'),
+    ).rejects.toBeInstanceOf(HttpException);
+
+    // A wrong current password must not sign the account's other devices out:
+    // that would make a failed guess a way to disrupt the owner.
+    expect(sessions.revokeAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('keeps the caller’s session by id, not by position', async () => {
+    const { service, sessions } = setup();
+    const other: AuthenticatedUser = {
+      ...CALLER,
+      sessionId: '6720f1c2a1b2c3d4e5f60abc',
+    };
+
+    await service.changeOwnPassword(other, 'OldPass123', 'NewPass123');
+
+    expect(sessions.revokeAllSessions).toHaveBeenCalledWith(PROFILE.id, {
+      exceptSessionId: '6720f1c2a1b2c3d4e5f60abc',
     });
   });
 });

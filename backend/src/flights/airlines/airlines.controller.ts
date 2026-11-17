@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   ApiBody,
   ApiCookieAuth,
@@ -7,26 +7,31 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Role } from '../../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import {
+  CurrentUser,
+  OptionalUser,
+} from '../../common/auth/current-user.decorator';
 import { Public } from '../../common/auth/public.decorator';
+import { Roles } from '../../common/auth/roles.decorator';
 import { ApiErrorResponse } from '../../common/swagger/api-error-response.decorator';
-import { resolveWriteActor } from './airline-actor';
-import type { RequestWithActor } from './airline-actor';
 import { AirlinesService } from './airlines.service';
 import { AirlineIdParamDto } from './dto/airline-id-param.dto';
 import { AirlineDto } from './dto/airline.dto';
 import { CreateAirlineDto } from './dto/create-airline.dto';
 import { UpdateAirlineDto } from './dto/update-airline.dto';
 
-// FLT-01: airline profiles.
-// TODO(ACC-04): add the auth guard and role decorators when Youssef's auth is merged:
-// POST needs ADMIN, PATCH needs ADMIN or AIRLINE_MODERATOR, GET stays public.
-// Until then the write endpoints run as a placeholder admin (see airline-actor.ts).
+// FLT-01: airline profiles. POST needs ADMIN, PATCH needs ADMIN or AIRLINE_MODERATOR (a
+// moderator only for the airline they are assigned to, checked in the service), GET is
+// public. The logged-in user comes from @CurrentUser() / @OptionalUser().
 @ApiTags('Airlines')
 @Controller('airlines')
 export class AirlinesController {
   constructor(private readonly airlines: AirlinesService) {}
 
   @Post()
+  @Roles(Role.ADMIN)
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary: 'Create an airline profile (FLT-01, admin only)',
@@ -70,7 +75,7 @@ export class AirlinesController {
     examples: [
       {
         code: 'FORBIDDEN',
-        message: 'Only an admin can create an airline',
+        message: 'You do not have permission to do this',
         path: '/api/airlines',
       },
     ],
@@ -89,9 +94,9 @@ export class AirlinesController {
   })
   create(
     @Body() dto: CreateAirlineDto,
-    @Req() request: RequestWithActor,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<AirlineDto> {
-    return this.airlines.create(dto, resolveWriteActor(request));
+    return this.airlines.create(dto, user);
   }
 
   @Get(':id')
@@ -128,13 +133,14 @@ export class AirlinesController {
   })
   findOne(
     @Param() params: AirlineIdParamDto,
-    @Req() request: RequestWithActor,
+    @OptionalUser() user: AuthenticatedUser | undefined,
   ): Promise<AirlineDto> {
-    // A guest has no user. Reads never use the placeholder admin.
-    return this.airlines.findOne(params.id, request.user);
+    // A guest has no user: the service then hides a DEACTIVATED airline.
+    return this.airlines.findOne(params.id, user);
   }
 
   @Patch(':id')
+  @Roles(Role.ADMIN, Role.AIRLINE_MODERATOR)
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary: "Edit an airline's name and codes (FLT-01)",
@@ -186,7 +192,9 @@ export class AirlinesController {
   })
   @ApiErrorResponse({
     status: 403,
-    description: 'Not an admin, or a moderator of another airline',
+    description:
+      'Not an admin or airline moderator (message: You do not have permission to do this), ' +
+      'or a moderator of another airline (the example below)',
     examples: [
       {
         code: 'FORBIDDEN',
@@ -221,8 +229,8 @@ export class AirlinesController {
   update(
     @Param() params: AirlineIdParamDto,
     @Body() dto: UpdateAirlineDto,
-    @Req() request: RequestWithActor,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<AirlineDto> {
-    return this.airlines.update(params.id, dto, resolveWriteActor(request));
+    return this.airlines.update(params.id, dto, user);
   }
 }
