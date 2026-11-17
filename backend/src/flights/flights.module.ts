@@ -5,6 +5,8 @@ import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
+import { FlightSearchController } from './flight-search/flight-search.controller';
+import { FlightSearchService } from './flight-search/flight-search.service';
 import { FlightStatusJob } from './flight-status/flight-status.job';
 import { FlightStatusService } from './flight-status/flight-status.service';
 import { FlightsController } from './flights/flights.controller';
@@ -49,19 +51,24 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesController,
     FlightsController,
     CabinsController,
+    FlightSearchController,
   ],
   providers: [
     AirlinesService,
     AirlinePoliciesService,
     FlightsService,
     CabinsService,
+    FlightSearchService,
     FlightStatusService,
     FlightStatusJob,
     SeatInventoryService,
   ],
+  // FlightSearchService is exported for itineraries (ITN-26), SeatInventoryService for
+  // payments (FLT-23 and the hold expiry).
   exports: [
     AirlinesService,
     AirlinePoliciesService,
+    FlightSearchService,
     FlightStatusService,
     SeatInventoryService,
   ],

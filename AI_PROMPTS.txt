@@ -597,6 +597,26 @@ I also found something while testing that had nothing to do with the package. Fo
 Verified myself, on this branch: 0 type errors, lint clean, 767 unit tests over 47 suites (the new ones are a DTO spec that pins both halves of the pairing rule, plus the service mapping), 296 e2e tests over 21 suites in one full --runInBand run (38 in the ACC-13 suite, up from 33: the old providerId is refused as an unknown field, the mismatched id is refused by name, and each role is refused with no id at all), and the whole Postman collection green against a live server - 77 requests and 171 assertions, folder 55 being 17 and 41 of those. The response still returns providerId: account.role already says which kind of id it is, and a pair with one half always null would say less.
 ================================================
 ================================================
+Date: 2026-11-14
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-11, FLT-12, FLT-15 (with GEN-06, GEN-05, ITN-26)
+Prompt:
+Design GET /api/flights/search before any code, after reading the open branches of A2 (create flight), C2 (money, booking lifecycle) and B2 (hotel search): query parameters and validation, how free seats, active airlines and past departures are matched, the price used for filtering and sorting, totals with infants at 10%, pagination, the one-way and round-trip response, reuse for ITN-26 and testing without the create-flight endpoint.
+How the output was used:
+Built on develop only, so the PR depends on no open branch. The search query uses the route and date index, keeps cabins with enough free seats and active airlines, and filters and sorts by the cheapest qualifying cabin's price inside MongoDB, where Decimal128 compares exactly. Totals with infants at 10% move to the FLT-21 summary. Matched the hotel search's sortBy and sortOrder style and Marawan's same-airports error message.
+================================================
+================================================
+Date: 2026-11-14
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-11, FLT-12, FLT-15
+Prompt:
+In steps, per the agreed design: FlightSearchQueryDto with the rules between fields (same airports, infants per adult, the 9-seat limit, price range, return date); FlightSearchService.searchLeg (airport checks, no past local date, active airlines, one aggregation on the search index); the inclusive price range and sorting; search() joining both legs, each paged separately; then the public GET /api/flights/search with response DTOs in local time and Swagger; unit and e2e tests; a README section.
+How the output was used:
+Reviewed each step before committing. Claude ran Prettier, the compiler, lint and the tests, and checked on a local MongoDB that the search uses the index and drops cancelled flights, deactivated airlines and full cabins; I ran build, lint, the unit tests (537 passed) and the e2e tests on the shared database (113 passed) myself. Prices compare exactly and the range applies to each cabin, so a flight lists only the cabins in budget. Each mistake in the query gives one error.
+================================================
+================================================
 Date: 2026-11-17
 Student: Youssef Khaleel
 Tool: Claude Code (design and review with Claude chat)
