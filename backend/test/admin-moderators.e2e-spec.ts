@@ -124,9 +124,8 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
    *
    * The provider id follows the role, because the DTO requires the one that
    * matches it and rejects the other: airlineId for an airline moderator,
-   * hotelId for a hotel one. A hotel body gets an id that exists nowhere,
-   * which is harmless while the hotels module is unwired - the 501 is raised
-   * before any hotel is looked up.
+   * hotelId for a hotel one. A hotel body gets an id that exists nowhere, so
+   * a hotel request stops at the 404 before any account is created.
    */
   function body(overrides: Record<string, unknown> = {}) {
     const role = overrides.role ?? Role.AIRLINE_MODERATOR;
@@ -354,16 +353,16 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       createdUserIds.push(retry.body.account.id as string);
     }, SLOW_MS);
 
-    // The hotels module (B1, HTL-01) does not exist yet.
-    it('answers 501 PROVIDER_TYPE_UNAVAILABLE for a hotel moderator', async () => {
+    // The hotels module is wired (HTL-01): an unknown hotelId is a 404, and
+    // nothing is created.
+    it('answers 404 HOTEL_NOT_FOUND for a hotel moderator of an unknown hotel', async () => {
       const res = await request(app.getHttpServer())
         .post(MODERATORS)
         .set('Cookie', admin.cookie)
         .send(body({ role: Role.HOTEL_MODERATOR }))
-        .expect(501);
+        .expect(404);
 
-      expect(res.body.code).toBe('PROVIDER_TYPE_UNAVAILABLE');
-      expect(res.body.message).toContain('hotels module');
+      expect(res.body.code).toBe('HOTEL_NOT_FOUND');
     }, SLOW_MS);
   });
 
