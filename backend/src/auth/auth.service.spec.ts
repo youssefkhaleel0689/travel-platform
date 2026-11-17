@@ -1,9 +1,14 @@
 import { HttpException } from '@nestjs/common';
-import type { CookieOptions, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { accountLocked, AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
+import type {
+  RotatedSession,
+  SessionsService,
+} from './sessions/sessions.service';
 import type { AccessTokenService } from './tokens/access-token.service';
 import type {
   CreateUserInput,
@@ -27,6 +32,17 @@ const PROFILE: UserProfile = {
 };
 
 const TOKEN = 'signed.access.token';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60799';
+const REFRESH_TOKEN = 'refresh-token-from-the-session-service-0123';
+// Far enough ahead that the refresh cookie's maxAge is positive whatever the clock says.
+const SESSION_EXPIRES_AT = new Date(Date.now() + 5 * 60 * 60 * 1000);
+const OLD_REFRESH_TOKEN = 'the-refresh-token-sent-by-the-browser-01234';
+const ROTATED: RotatedSession = {
+  sessionId: SESSION_ID,
+  userId: PROFILE.id,
+  refreshToken: 'the-new-refresh-token-after-rotation-567890',
+  expiresAt: SESSION_EXPIRES_AT,
+};
 
 const dto: RegisterDto = {
   name: 'Sara Ahmed',
@@ -35,13 +51,24 @@ const dto: RegisterDto = {
   acceptTerms: true,
 };
 
-// Fake UsersService, AccessTokenService and response; the casts are done only here.
-// `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile).
-function setup(options: { credentials?: CredentialCheck } = {}) {
+// Fake UsersService, AccessTokenService, SessionsService and response; the casts are done
+// only here.
+// `credentials` is what verifyCredentials resolves to (default: the ACTIVE profile);
+// `rotated` what SessionsService.rotate resolves to (default: a successful rotation);
+// `stored` what UsersService.findById resolves to (default: the ACTIVE profile).
+function setup(
+  options: {
+    credentials?: CredentialCheck;
+    rotated?: RotatedSession | null;
+    stored?: UserProfile | null;
+  } = {},
+) {
   const credentials: CredentialCheck = options.credentials ?? {
     kind: 'ok',
     profile: PROFILE,
   };
+  const rotated = options.rotated === undefined ? ROTATED : options.rotated;
+  const stored = options.stored === undefined ? PROFILE : options.stored;
   const users = {
     create: jest.fn((_input: CreateUserInput) => Promise.resolve(PROFILE)),
     verifyCredentials: jest.fn(
@@ -49,25 +76,44 @@ function setup(options: { credentials?: CredentialCheck } = {}) {
         Promise.resolve(credentials),
     ),
     findById: jest.fn((_id: string): Promise<UserProfile | null> =>
-      Promise.resolve(PROFILE),
+      Promise.resolve(stored),
     ),
   };
   const accessTokens = {
-    sign: jest.fn((_userId: string) => Promise.resolve(TOKEN)),
+    sign: jest.fn((_userId: string, _sessionId: string) =>
+      Promise.resolve(TOKEN),
+    ),
+  };
+  const sessions = {
+    create: jest.fn((_userId: string) =>
+      Promise.resolve({
+        sessionId: SESSION_ID,
+        refreshToken: REFRESH_TOKEN,
+        expiresAt: SESSION_EXPIRES_AT,
+      }),
+    ),
+    rotate: jest.fn((_token: string): Promise<RotatedSession | null> =>
+      Promise.resolve(rotated),
+    ),
+    revoke: jest.fn((_sessionId: string) => Promise.resolve()),
+    revokeByRefreshToken: jest.fn((_token: string) => Promise.resolve()),
   };
   const res = {
     cookie: jest.fn(
       (_name: string, _value: string, _options: CookieOptions) => undefined,
     ),
+    clearCookie: jest.fn((_name: string, _options: CookieOptions) => undefined),
   };
   const service = new AuthService(
     users as unknown as UsersService,
     accessTokens as unknown as AccessTokenService,
+    sessions as unknown as SessionsService,
   );
   return {
     service,
     users,
     accessTokens,
+    sessions,
     res,
     response: res as unknown as Response,
   };
@@ -98,16 +144,22 @@ describe('AuthService.register (ACC-01)', () => {
     expect(users.create.mock.calls[0][0].role).toBe(Role.USER);
   });
 
-  it('logs the new user in: signs a token for its id and sets the cookie', async () => {
-    const { service, accessTokens, res, response } = setup();
+  it('logs the new user in: starts a session, signs a token for it and sets both cookies', async () => {
+    const { service, accessTokens, sessions, res, response } = setup();
     await service.register(dto, response);
 
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
-    expect(res.cookie).toHaveBeenCalledTimes(1);
+    expect(sessions.create).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(res.cookie).toHaveBeenCalledTimes(2);
     expect(res.cookie).toHaveBeenCalledWith(
       'access_token',
       TOKEN,
       expect.objectContaining({ httpOnly: true, maxAge: 1_800_000 }),
+    );
+    expect(res.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      REFRESH_TOKEN,
+      expect.objectContaining({ httpOnly: true, path: '/api/auth' }),
     );
   });
 
@@ -116,24 +168,60 @@ describe('AuthService.register (ACC-01)', () => {
     await expect(service.register(dto, response)).resolves.toBe(PROFILE);
   });
 
-  it('sets no cookie when the user cannot be created', async () => {
-    const { service, users, accessTokens, res, response } = setup();
+  it('starts no session and sets no cookie when the user cannot be created', async () => {
+    const { service, users, accessTokens, sessions, res, response } = setup();
     users.create.mockRejectedValueOnce(new Error('duplicate'));
 
     await expect(service.register(dto, response)).rejects.toThrow('duplicate');
+    expect(sessions.create).not.toHaveBeenCalled();
     expect(accessTokens.sign).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
   });
 });
 
-describe('AuthService.startSession (ACC-04, ACC-19)', () => {
-  it('sets the signed token as the cookie and returns the profile', async () => {
-    const { service, accessTokens, res, response } = setup();
+describe('AuthService.startSession (ACC-04, ACC-06, ACC-19)', () => {
+  it('creates the session first, then signs the token for that session', async () => {
+    const { service, accessTokens, sessions, response } = setup();
     await expect(service.startSession(response, PROFILE)).resolves.toBe(
       PROFILE,
     );
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
-    expect(res.cookie.mock.calls[0][1]).toBe(TOKEN);
+    expect(sessions.create).toHaveBeenCalledTimes(1);
+    expect(sessions.create).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(sessions.create.mock.invocationCallOrder[0]).toBeLessThan(
+      accessTokens.sign.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('sets the access token and the refresh token cookies', async () => {
+    const { service, res, response } = setup();
+    const before = Date.now();
+    await service.startSession(response, PROFILE);
+    const after = Date.now();
+
+    expect(res.cookie).toHaveBeenCalledTimes(2);
+    const access = res.cookie.mock.calls.find((c) => c[0] === 'access_token');
+    expect(access?.[1]).toBe(TOKEN);
+
+    const refresh = res.cookie.mock.calls.find((c) => c[0] === 'refresh_token');
+    expect(refresh?.[1]).toBe(REFRESH_TOKEN);
+    expect(refresh?.[2]).toMatchObject({
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/api/auth',
+    });
+    // Until the session's expiresAt, in whole seconds.
+    const maxAge = refresh?.[2].maxAge ?? -1;
+    expect(maxAge % 1000).toBe(0);
+    expect(maxAge).toBeLessThanOrEqual(SESSION_EXPIRES_AT.getTime() - before);
+    expect(maxAge).toBeGreaterThan(SESSION_EXPIRES_AT.getTime() - after - 1000);
+  });
+
+  it('puts the refresh token in its cookie only, never in the returned profile', async () => {
+    const { service, response } = setup();
+    const returned = await service.startSession(response, PROFILE);
+    expect(JSON.stringify(returned)).not.toContain(REFRESH_TOKEN);
   });
 });
 
@@ -165,7 +253,7 @@ describe('AuthService.login (ACC-04)', () => {
       'Travel2026',
     );
     expect(startSession).toHaveBeenCalledWith(response, PROFILE);
-    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id);
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
     expect(res.cookie).toHaveBeenCalledWith(
       'access_token',
       TOKEN,
@@ -201,7 +289,7 @@ describe('AuthService.login (ACC-04)', () => {
   ])(
     'rejects %s without starting a session',
     async (_label, credentials, status, body) => {
-      const { service, accessTokens, res, response } = setup({
+      const { service, accessTokens, sessions, res, response } = setup({
         credentials,
       });
       const startSession = jest.spyOn(service, 'startSession');
@@ -210,6 +298,8 @@ describe('AuthService.login (ACC-04)', () => {
       expect(error.getStatus()).toBe(status);
       expect(error.getResponse()).toEqual(body);
       expect(startSession).not.toHaveBeenCalled();
+      // ACC-06: a session is created only after a fully successful login.
+      expect(sessions.create).not.toHaveBeenCalled();
       expect(accessTokens.sign).not.toHaveBeenCalled();
       expect(res.cookie).not.toHaveBeenCalled();
     },
@@ -249,7 +339,7 @@ describe('AuthService.login lockout (ACC-05)', () => {
 
   it('maps locked to 423 ACCOUNT_LOCKED with details and Retry-After seconds', async () => {
     const lockedUntil = new Date(Date.now() + 14 * 60 * 1000 + 500);
-    const { service, accessTokens, res, response } = setup({
+    const { service, accessTokens, sessions, res, response } = setup({
       credentials: { kind: 'locked', lockedUntil },
     });
 
@@ -272,6 +362,7 @@ describe('AuthService.login lockout (ACC-05)', () => {
     // Rounded up: 14 minutes and a half second is 841 seconds.
     expect(seconds).toBe(841);
 
+    expect(sessions.create).not.toHaveBeenCalled();
     expect(accessTokens.sign).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
   });
@@ -287,6 +378,263 @@ describe('accountLocked (ACC-05)', () => {
   ])('gives Retry-After for a lock %s', (_label, until, seconds) => {
     const body = accountLocked(new Date(until), NOW).getResponse();
     expect(body).toMatchObject({ retryAfterSeconds: seconds });
+  });
+});
+
+// A request carrying only the given cookies; the cast is done only here.
+function requestWith(cookies?: Record<string, unknown>): Request {
+  return { cookies } as unknown as Request;
+}
+
+describe('AuthService.refresh (ACC-06)', () => {
+  it('rotates the refresh token, checks the user, signs for the same session and sets both cookies', async () => {
+    const { service, users, sessions, accessTokens, res, response } = setup();
+    const before = Date.now();
+
+    await expect(
+      service.refresh(
+        requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+        response,
+      ),
+    ).resolves.toBe(PROFILE);
+
+    expect(sessions.rotate).toHaveBeenCalledTimes(1);
+    expect(sessions.rotate).toHaveBeenCalledWith(OLD_REFRESH_TOKEN);
+    expect(users.findById).toHaveBeenCalledWith(ROTATED.userId);
+    // Same session: the sid does not change on refresh.
+    expect(accessTokens.sign).toHaveBeenCalledWith(PROFILE.id, SESSION_ID);
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
+
+    expect(res.cookie).toHaveBeenCalledTimes(2);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'access_token',
+      TOKEN,
+      expect.objectContaining({ httpOnly: true, path: '/', maxAge: 1_800_000 }),
+    );
+    const refresh = res.cookie.mock.calls.find((c) => c[0] === 'refresh_token');
+    expect(refresh?.[1]).toBe(ROTATED.refreshToken);
+    expect(refresh?.[2]).toMatchObject({ httpOnly: true, path: '/api/auth' });
+    // Until the session's expiresAt, not a fresh lifetime.
+    expect(refresh?.[2].maxAge ?? 0).toBeLessThanOrEqual(
+      SESSION_EXPIRES_AT.getTime() - before,
+    );
+  });
+
+  it('never puts either token in the returned profile', async () => {
+    const { service, response } = setup();
+    const returned = await service.refresh(
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+    const json = JSON.stringify(returned);
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain(ROTATED.refreshToken);
+    expect(json).not.toContain(OLD_REFRESH_TOKEN);
+  });
+
+  it('gives 401 and clears both cookies when the rotation fails', async () => {
+    const { service, users, sessions, accessTokens, res, response } = setup({
+      rotated: null,
+    });
+
+    const error = await rejection(
+      service.refresh(
+        requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+        response,
+      ),
+    );
+    expect(error.getStatus()).toBe(401);
+    expect(error.getResponse()).toEqual({
+      code: 'UNAUTHENTICATED',
+      message: 'Authentication required',
+    });
+    expect(res.clearCookie.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'access_token',
+      'refresh_token',
+    ]);
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.objectContaining({ path: '/api/auth' }),
+    );
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(users.findById).not.toHaveBeenCalled();
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(accessTokens.sign).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, Record<string, unknown> | undefined]>([
+    ['no cookies at all', undefined],
+    ['no refresh_token cookie', { access_token: 'x' }],
+    ['a refresh_token that is not a string', { refresh_token: 42 }],
+  ])('passes an empty token to rotate for %s', async (_label, cookies) => {
+    const { service, sessions, response } = setup({ rotated: null });
+    await rejection(service.refresh(requestWith(cookies), response));
+    expect(sessions.rotate).toHaveBeenCalledWith('');
+  });
+
+  it.each<[string, UserProfile | null]>([
+    ['an unknown user', null],
+    ['a SUSPENDED user', { ...PROFILE, status: UserStatus.SUSPENDED }],
+    ['a DEACTIVATED user', { ...PROFILE, status: UserStatus.DEACTIVATED }],
+  ])(
+    'revokes the session, gives the same 401 and clears both cookies for %s',
+    async (_label, stored) => {
+      const { service, sessions, accessTokens, res, response } = setup({
+        stored,
+      });
+
+      const error = await rejection(
+        service.refresh(
+          requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+          response,
+        ),
+      );
+      expect(error.getStatus()).toBe(401);
+      expect(error.getResponse()).toEqual({
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      });
+      expect(sessions.revoke).toHaveBeenCalledTimes(1);
+      expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+      expect(res.clearCookie).toHaveBeenCalledTimes(2);
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(accessTokens.sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<[string, NonNullable<Parameters<typeof setup>[0]>]>([
+    ['a successful refresh', {}],
+    ['a failed rotation', { rotated: null }],
+    [
+      'a suspended user',
+      { stored: { ...PROFILE, status: UserStatus.SUSPENDED } },
+    ],
+  ])('never touches the login lockout for %s', async (_label, options) => {
+    const { service, users, response } = setup(options);
+    await service
+      .refresh(requestWith({ refresh_token: OLD_REFRESH_TOKEN }), response)
+      .catch((error: unknown) => {
+        if (!(error instanceof HttpException)) {
+          throw error;
+        }
+      });
+    // verifyCredentials holds the whole lockout (ACC-05); refresh checks no password.
+    expect(users.verifyCredentials).not.toHaveBeenCalled();
+    expect(users.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.logout (ACC-06)', () => {
+  const USER: AuthenticatedUser = {
+    userId: PROFILE.id,
+    role: Role.USER,
+    sessionId: SESSION_ID,
+  };
+
+  // Both cookies cleared, with the options they were set with.
+  function expectBothCookiesCleared(res: ReturnType<typeof setup>['res']) {
+    expect(res.clearCookie).toHaveBeenCalledTimes(2);
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'access_token',
+      expect.objectContaining({ path: '/' }),
+    );
+    expect(res.clearCookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.objectContaining({ path: '/api/auth' }),
+    );
+    expect(res.cookie).not.toHaveBeenCalled();
+  }
+
+  it('revokes the session of the logged-in user, by the sessionId from the token', async () => {
+    const { service, sessions, res, response } = setup();
+    await expect(
+      service.logout(USER, requestWith({}), response),
+    ).resolves.toBeUndefined();
+
+    expect(sessions.revoke).toHaveBeenCalledTimes(1);
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+    expect(sessions.revokeByRefreshToken).not.toHaveBeenCalled();
+    expectBothCookiesCleared(res);
+  });
+
+  it('revokes by the refresh token when there is only the refresh cookie', async () => {
+    const { service, sessions, res, response } = setup();
+    await service.logout(
+      undefined,
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+
+    expect(sessions.revoke).not.toHaveBeenCalled();
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledTimes(1);
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledWith(
+      OLD_REFRESH_TOKEN,
+    );
+    expectBothCookiesCleared(res);
+  });
+
+  it('does both when the user and the refresh cookie are present', async () => {
+    const { service, sessions, res, response } = setup();
+    await service.logout(
+      USER,
+      requestWith({ refresh_token: OLD_REFRESH_TOKEN }),
+      response,
+    );
+
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+    expect(sessions.revokeByRefreshToken).toHaveBeenCalledWith(
+      OLD_REFRESH_TOKEN,
+    );
+    expectBothCookiesCleared(res);
+  });
+
+  it.each<[string, Record<string, unknown> | undefined]>([
+    ['no cookies at all', undefined],
+    ['an empty refresh cookie', { refresh_token: '' }],
+    ['a refresh cookie that is not a string', { refresh_token: 42 }],
+  ])(
+    'revokes nothing but still clears both cookies with %s',
+    async (_label, cookies) => {
+      const { service, sessions, res, response } = setup();
+      await expect(
+        service.logout(undefined, requestWith(cookies), response),
+      ).resolves.toBeUndefined();
+
+      expect(sessions.revoke).not.toHaveBeenCalled();
+      expect(sessions.revokeByRefreshToken).not.toHaveBeenCalled();
+      expectBothCookiesCleared(res);
+    },
+  );
+
+  it('ignores a session id anywhere but the authenticated user', async () => {
+    const { service, sessions, response } = setup();
+    const forged = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    const request = {
+      cookies: { sid: forged, sessionId: forged },
+      body: { sessionId: forged },
+      query: { sessionId: forged },
+      params: { sessionId: forged },
+      headers: { 'x-session-id': forged },
+    } as unknown as Request;
+
+    await service.logout(undefined, request, response);
+    expect(sessions.revoke).not.toHaveBeenCalled();
+
+    await service.logout(USER, request, response);
+    expect(sessions.revoke).toHaveBeenCalledTimes(1);
+    expect(sessions.revoke).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it('clears the cookies before revoking, so they are dropped even if a revoke fails', async () => {
+    const { service, sessions, res, response } = setup();
+    sessions.revoke.mockRejectedValueOnce(new Error('database down'));
+
+    await expect(
+      service.logout(USER, requestWith({}), response),
+    ).rejects.toThrow('database down');
+    expect(res.clearCookie).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -36,7 +36,11 @@ function contextFor(
 }
 
 function asRole(role: Role): AuthenticatedUser {
-  return { userId: '6720f1c2a1b2c3d4e5f60718', role, mustChangePassword: false };
+  return {
+    userId: '6720f1c2a1b2c3d4e5f60718',
+    role,
+    sessionId: '6720f1c2a1b2c3d4e5f60799',
+  };
 }
 
 function thrownBy(fn: () => unknown): HttpException {

@@ -370,6 +370,26 @@ How the output was used:
 I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
 ================================================
 ================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+Design SeatInventoryService and the flightBookings schema on the merged flight schema (no stored availableSeats): method names and signatures, the conditional update and 409 code for each method, an all-or-nothing round-trip hold, the order of POST /flight-bookings and POST /flight-bookings/hold without a draft status, and a concurrency test on the shared database.
+How the output was used:
+Chose four counter methods with an optional session, and one transaction that holds every segment and inserts the booking, so a full return flight or a crash leaves nothing held. POST /flight-bookings returns the summary without storing anything; the hold creates the PENDING_PAYMENT booking. Claude ran the queries on a local MongoDB 8 replica set: 50 concurrent holds for the last seat gave one winner.
+================================================
+================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+In steps, following the agreed design: SeatInventoryService with hold (option A filter, then a read that explains a failure as 404, 409 or 400) and releaseHeld (500 when counters are out of sync); convertHeldToBooked and releaseBooked through one guarded update; unit tests on a fake model; an e2e concurrency test on the shared database; the flightBookings schema with validators and indexes; a README section.
+How the output was used:
+Reviewed each step before committing it. Claude ran Prettier, the compiler, lint and the unit suite; I ran lint, all unit tests (294 passed) and the e2e test on Atlas (7 passed). Claude also ran it against a deliberate read-then-write hold, where it failed: 18 of 20 requests got the last seat. The bookingReference index is partial, so unpaid bookings do not collide. The README check also updated the module table and where bookings live.
+================================================
+================================================
 Date: 2026-11-12
 Student: Youssef Khaleel
 Tool: Claude (chat)
@@ -575,4 +595,24 @@ Where I disagreed on design rather than on facts: the package enforces "the id m
 The package's other aim was a Swagger dropdown for role, and it got that far - role is an enum, so Swagger UI renders a select. What its notes keep apologising for is that both airlineId and hotelId then show in the body, because Swagger UI cannot hide one property based on another's value (its v4 attempt at a oneOf discriminator had already been abandoned by v5). The part nobody noticed is that this makes the sample body Swagger UI fills Try it out with invalid: it contains both ids at once, which the endpoint now refuses. So I added two named @ApiBody examples, Airline moderator and Hotel moderator, and checked the generated document rather than trusting the decorator: /api/docs-json carries both, so Try it out starts from a body that works and the example picker is the airline-or-hotel choice the package was reaching for.
 I also found something while testing that had nothing to do with the package. Folder 55 failed at request 01 with INVALID_CREDENTIALS, because ADMIN_EMAIL in .env is itself a test_c2_ address and our Postman cleanup sweep of "every test_c2_ account" had taken the seeded admin with it. `npm run seed:admin` put it back, and I wrote the trap into the cleanup section of POSTMAN.md so the next person loses minutes instead of an afternoon.
 Verified myself, on this branch: 0 type errors, lint clean, 767 unit tests over 47 suites (the new ones are a DTO spec that pins both halves of the pairing rule, plus the service mapping), 296 e2e tests over 21 suites in one full --runInBand run (38 in the ACC-13 suite, up from 33: the old providerId is refused as an unknown field, the mismatched id is refused by name, and each role is refused with no id at all), and the whole Postman collection green against a live server - 77 requests and 171 assertions, folder 55 being 17 and 41 of those. The response still returns providerId: account.role already says which kind of id it is, and a pair with one half always null would say less.
+================================================
+================================================
+Date: 2026-11-17
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-06 (Leader PR 4: sessions, refresh and logout)
+Prompt:
+Six prompts, one per commit: (1) add a sessions collection and SessionsService (create, validate on every request with a once-a-minute activity write, rotate the refresh token in one atomic update, revoke one session, revoke all of a user's sessions with an optional session to keep); (2) create a session at login and register, sign the access token as { sub, sid }, set an httpOnly refresh_token cookie limited to /api/auth, and make the guard check the session on every request; (3) add POST /api/auth/refresh with rotation and the generic 401; (4) add a public, idempotent POST /api/auth/logout that always answers 204 and clears both cookies; (5) document sessions, refresh and logout in the README; (6) write this entry.
+How the output was used:
+Before any code I decided the design: server-side sessions checked by the guard on every request instead of stateless JWTs; the access token stays 30 minutes; a 30-minute idle timeout and a 5-hour absolute lifetime; the session id carried inside the signed access token in the httpOnly Secure cookie, not in a separate cookie; the refresh token as random bytes stored only as a SHA-256 hash; rotation on every refresh; a public, idempotent logout; old tokens without sid get 401. I reviewed sessions.service.ts against a checklist (the liveness filter, the userId filter, the conditional once-a-minute write, rotation as a single findOneAndUpdate, the plain token never stored). I kept AuthenticatedUser.sessionId required and approved the two test fixture edits it needed, and required tsc --noEmit on top of build, lint and unit tests, because the build and Jest do not type-check the specs. I asked for @ApiNoContentResponse on logout instead of an undocumented 204, and reviewed the README diff against the constants and cookie helpers. The e2e suite first failed: a non-TTL expiresAt_1 index on the shared sessions collection, created by older branches of C2, conflicted with the TTL index. It was traced with git grep across the remote branches, the stale index was dropped in Atlas with my approval, and the README now warns about it. I ran all e2e tests locally (final: 16 suites, 123 tests). The exceptSessionId option of revokeAllSessions was adopted from C2's ACC-08 branch (revokeAllForUser). Commits: caab3bd, 520b82a, e555f68, c817834, 88687c9; this entry is committed separately.
+================================================
+================================================
+Date: 2026-11-17
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-11 (Leader PR 5: owner-only access; also the mustChangePassword enforcement for ACC-07a and ACC-13)
+Prompt:
+Four prompts, one per commit: (1) add a reusable ownership helper in src/common/auth/ (ownerFilter and findOwnedOrThrow: the owner in the query filter, the same 404 for a missing, someone else's or malformed id), with unit tests and an e2e test on a temporary collection; (2) make JwtAuthGuard return 403 PASSWORD_CHANGE_REQUIRED on protected routes while a user's mustChangePassword flag is set, with an opt-in @AllowWhenPasswordChangeRequired() decorator used on GET /api/auth/me, plus unit and e2e tests; (3) document both in the README; (4) write this entry.
+How the output was used:
+Before any code I decided the design: the owner check lives in the database filter (ownerFilter / findOwnedOrThrow), not a comparison after loading and not a guard or a permissions library; a missing resource, someone else's and a malformed id all give the same 404, so ids cannot be enumerated, and 403 is only for the wrong role; no admin bypass in the helper, because admin views are separate @Roles(ADMIN) endpoints; mustChangePassword is enforced in the same PR, with an opt-in decorator rather than a list of paths, login still succeeds, and other routes get 403 PASSWORD_CHANGE_REQUIRED. In review I accepted that the ownership e2e test calls the helper directly against a temporary collection, because no endpoint uses it yet, and that it stores userId as an ObjectId to prove Mongoose casts the string id from the token. I accepted keeping mustChangePassword inside the guard instead of adding it to AuthenticatedUser, which avoided another breaking change for my teammates' test fixtures. I read the guard diff line by line (status checked before the flag, public routes unaffected, the exemption compared with === true so it fails closed), and reviewed the README diff against the helper's signature, the BookingStatus enum and the guard's code and message. The README also corrects the JWT_SECRET note found in the ACC-06 review. Verified: tsc --noEmit, build and lint clean; unit tests 35 suites, 638 tests; e2e run locally: 18 suites, 132 tests. Commits: fc39081, db2d6a5, 40a48f3; this entry is committed separately.
 ================================================

@@ -2,13 +2,15 @@ import { ExecutionContext, HttpException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
-import { AllowPasswordChangePending } from '../../common/auth/password-change-pending.decorator';
+import { AllowWhenPasswordChangeRequired } from '../../common/auth/password-change.decorator';
 import { Public } from '../../common/auth/public.decorator';
+import type { SessionsService } from '../sessions/sessions.service';
 import type { AccessTokenService } from '../tokens/access-token.service';
 import type { UserProfile, UsersService } from '../users/users.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 const USER_ID = '6720f1c2a1b2c3d4e5f60718';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60799';
 const GOOD_TOKEN = 'good.token.value';
 
 function profile(overrides: Partial<UserProfile> = {}): UserProfile {
@@ -21,9 +23,10 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
     role: Role.AIRLINE_MODERATOR,
     status: UserStatus.ACTIVE,
     mustChangePassword: false,
+    createdAt: new Date('2026-11-12T10:00:00.000Z'),
+    // ACC-12, ACC-16 added these to UserProfile; null is "never been in that state".
     suspendedAt: null,
     deactivatedAt: null,
-    createdAt: new Date('2026-11-12T10:00:00.000Z'),
     ...overrides,
   };
 }
@@ -34,6 +37,14 @@ class ProtectedController {
 
   @Public()
   publicRoute(this: void): void {}
+
+  @AllowWhenPasswordChangeRequired()
+  allowedRoute(this: void): void {}
+}
+
+@AllowWhenPasswordChangeRequired()
+class AllowedController {
+  route(this: void): void {}
 }
 
 @Public()
@@ -46,16 +57,21 @@ interface FakeRequest {
   user?: AuthenticatedUser;
 }
 
-// Only what the guard uses; the casts are done only here.
+// Only what the guard uses; the casts are done only here. `sessionLive` is what
+// validateForRequest resolves to (default true).
 function setup(
-  options: { stored?: UserProfile | null; tokenUserId?: string } = {},
+  options: {
+    stored?: UserProfile | null;
+    tokenUserId?: string;
+    sessionLive?: boolean;
+  } = {},
 ) {
   const stored = options.stored === undefined ? profile() : options.stored;
   const accessTokens = {
     verify: jest.fn((token: string) =>
       Promise.resolve(
         token === GOOD_TOKEN
-          ? { userId: options.tokenUserId ?? USER_ID }
+          ? { userId: options.tokenUserId ?? USER_ID, sessionId: SESSION_ID }
           : null,
       ),
     ),
@@ -63,12 +79,18 @@ function setup(
   const users = {
     findById: jest.fn((_id: string) => Promise.resolve(stored)),
   };
+  const sessions = {
+    validateForRequest: jest.fn((_sessionId: string, _userId: string) =>
+      Promise.resolve(options.sessionLive ?? true),
+    ),
+  };
   const guard = new JwtAuthGuard(
     new Reflector(),
     accessTokens as unknown as AccessTokenService,
     users as unknown as UsersService,
+    sessions as unknown as SessionsService,
   );
-  return { guard, accessTokens, users };
+  return { guard, accessTokens, users, sessions };
 }
 
 function contextFor(
@@ -93,6 +115,14 @@ const publicMethod = (request: FakeRequest) =>
   );
 const publicClass = (request: FakeRequest) =>
   contextFor(PublicController, PublicController.prototype.route, request);
+const allowedMethod = (request: FakeRequest) =>
+  contextFor(
+    ProtectedController,
+    ProtectedController.prototype.allowedRoute,
+    request,
+  );
+const allowedClass = (request: FakeRequest) =>
+  contextFor(AllowedController, AllowedController.prototype.route, request);
 
 async function rejection(promise: Promise<unknown>): Promise<HttpException> {
   try {
@@ -130,6 +160,13 @@ describe('JwtAuthGuard on a @Public route (ACC-04)', () => {
     expect(request.user).toBeUndefined();
   });
 
+  it('lets a token whose session has ended through as a guest (ACC-06)', async () => {
+    const { guard } = setup({ sessionLive: false });
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await expect(guard.canActivate(publicMethod(request))).resolves.toBe(true);
+    expect(request.user).toBeUndefined();
+  });
+
   it('lets a suspended user through as a guest', async () => {
     const { guard } = setup({
       stored: profile({ status: UserStatus.SUSPENDED }),
@@ -146,13 +183,19 @@ describe('JwtAuthGuard on a @Public route (ACC-04)', () => {
     expect(request.user).toEqual({
       userId: USER_ID,
       role: Role.AIRLINE_MODERATOR,
-      mustChangePassword: false,
+      sessionId: SESSION_ID,
     });
   });
 });
 
 describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
-  it.each<[string, FakeRequest, { stored?: UserProfile | null }]>([
+  it.each<
+    [
+      string,
+      FakeRequest,
+      { stored?: UserProfile | null; sessionLive?: boolean },
+    ]
+  >([
     ['no cookies at all', {}, {}],
     ['no access_token cookie', { cookies: { other: 'x' } }, {}],
     ['an empty cookie', { cookies: { access_token: '' } }, {}],
@@ -162,6 +205,11 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
       'an unknown user',
       { cookies: { access_token: GOOD_TOKEN } },
       { stored: null },
+    ],
+    [
+      'a session that is revoked, idle or past its end (ACC-06)',
+      { cookies: { access_token: GOOD_TOKEN } },
+      { sessionLive: false },
     ],
     [
       'a SUSPENDED user',
@@ -197,10 +245,49 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
     expect(request.user).toEqual({
       userId: USER_ID,
       role: Role.ADMIN,
-      // ACC-07a: the guard carries this so it can refuse every route but
-      // change-password while a temporary password is pending.
-      mustChangePassword: false,
+      sessionId: SESSION_ID,
     });
+  });
+
+  it('checks the session named by the verified token before loading the user (ACC-06)', async () => {
+    const { guard, sessions, users } = setup();
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await guard.canActivate(protectedRoute(request));
+
+    expect(sessions.validateForRequest).toHaveBeenCalledTimes(1);
+    expect(sessions.validateForRequest).toHaveBeenCalledWith(
+      SESSION_ID,
+      USER_ID,
+    );
+    expect(
+      sessions.validateForRequest.mock.invocationCallOrder[0],
+    ).toBeLessThan(users.findById.mock.invocationCallOrder[0]);
+  });
+
+  it('does not load the user when the session has ended (ACC-06)', async () => {
+    const { guard, users } = setup({ sessionLive: false });
+    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await rejection(guard.canActivate(protectedRoute(request)));
+    expect(users.findById).not.toHaveBeenCalled();
+  });
+
+  it('takes sessionId only from the verified token, never from the request', async () => {
+    const { guard } = setup();
+    const forged = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+    const request: FakeRequest & {
+      body?: unknown;
+      query?: unknown;
+      params?: unknown;
+      headers?: unknown;
+    } = {
+      cookies: { access_token: GOOD_TOKEN, sid: forged },
+      body: { sessionId: forged, sid: forged },
+      query: { sessionId: forged },
+      params: { sessionId: forged },
+      headers: { 'x-session-id': forged },
+    };
+    await guard.canActivate(protectedRoute(request));
+    expect(request.user?.sessionId).toBe(SESSION_ID);
   });
 
   it('loads the user named by the token', async () => {
@@ -216,58 +303,97 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
   });
 });
 
-// ACC-07a, ACC-13: the flag on the user is only worth storing if it is
-// enforced, otherwise a temporary password would give full access.
-class PendingPasswordController {
-  anyRoute(this: void): void {}
+describe('JwtAuthGuard and mustChangePassword (ACC-11)', () => {
+  const MUST_CHANGE = profile({ mustChangePassword: true });
+  const goodCookie = (): FakeRequest => ({
+    cookies: { access_token: GOOD_TOKEN },
+  });
 
-  @AllowPasswordChangePending()
-  changePassword(this: void): void {}
-}
-
-describe('JwtAuthGuard with a password change pending (ACC-07a)', () => {
-  const pending = () => profile({ mustChangePassword: true });
-
-  const anyRoute = (request: FakeRequest) =>
-    contextFor(
-      PendingPasswordController,
-      PendingPasswordController.prototype.anyRoute,
-      request,
-    );
-  const changePassword = (request: FakeRequest) =>
-    contextFor(
-      PendingPasswordController,
-      PendingPasswordController.prototype.changePassword,
-      request,
-    );
-
-  it('refuses an ordinary route with 403 PASSWORD_CHANGE_REQUIRED', async () => {
-    const { guard } = setup({ stored: pending() });
-    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
-
-    const error = await rejection(guard.canActivate(anyRoute(request)));
-
+  it('blocks a protected route with 403 PASSWORD_CHANGE_REQUIRED', async () => {
+    const { guard } = setup({ stored: MUST_CHANGE });
+    const request = goodCookie();
+    const error = await rejection(guard.canActivate(protectedRoute(request)));
     expect(error.getStatus()).toBe(403);
     expect(error.getResponse()).toEqual({
       code: 'PASSWORD_CHANGE_REQUIRED',
-      message: 'A new password must be set before continuing',
+      message: 'password change required',
     });
+    expect(request.user).toBeUndefined();
   });
 
-  it('allows a route marked @AllowPasswordChangePending', async () => {
-    const { guard } = setup({ stored: pending() });
-    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+  it.each([
+    ['on the method', allowedMethod],
+    ['on the class', allowedClass],
+  ])(
+    'allows a route marked @AllowWhenPasswordChangeRequired() %s',
+    async (_label, context) => {
+      const { guard } = setup({ stored: MUST_CHANGE });
+      const request = goodCookie();
+      await expect(guard.canActivate(context(request))).resolves.toBe(true);
+      expect(request.user).toEqual({
+        userId: USER_ID,
+        role: Role.AIRLINE_MODERATOR,
+        sessionId: SESSION_ID,
+      });
+    },
+  );
 
-    await expect(
-      guard.canActivate(changePassword(request)),
-    ).resolves.toBe(true);
-    expect(request.user?.mustChangePassword).toBe(true);
-  });
-
-  it('does not get in the way once the password has been chosen', async () => {
+  it('allows a protected route when the flag is false', async () => {
     const { guard } = setup({ stored: profile({ mustChangePassword: false }) });
-    const request: FakeRequest = { cookies: { access_token: GOOD_TOKEN } };
+    await expect(guard.canActivate(protectedRoute(goodCookie()))).resolves.toBe(
+      true,
+    );
+  });
 
-    await expect(guard.canActivate(anyRoute(request))).resolves.toBe(true);
+  it.each([
+    ['@Public() on the method', publicMethod],
+    ['@Public() on the class', publicClass],
+  ])(
+    'does not affect a route with %s, and still sets request.user',
+    async (_label, context) => {
+      const { guard } = setup({ stored: MUST_CHANGE });
+      const request = goodCookie();
+      await expect(guard.canActivate(context(request))).resolves.toBe(true);
+      expect(request.user?.userId).toBe(USER_ID);
+    },
+  );
+
+  it.each([
+    ['SUSPENDED', UserStatus.SUSPENDED],
+    ['DEACTIVATED', UserStatus.DEACTIVATED],
+  ])(
+    'checks the flag only after the status: a %s user with the flag still gets the 401',
+    async (_label, status) => {
+      const { guard } = setup({
+        stored: profile({ status, mustChangePassword: true }),
+      });
+      const error = await rejection(
+        guard.canActivate(protectedRoute(goodCookie())),
+      );
+      expect(error.getStatus()).toBe(401);
+      expect(error.getResponse()).toEqual(UNAUTHENTICATED);
+    },
+  );
+
+  it('checks the flag only after the session: an ended session still gets the 401', async () => {
+    const { guard } = setup({ stored: MUST_CHANGE, sessionLive: false });
+    const error = await rejection(
+      guard.canActivate(protectedRoute(goodCookie())),
+    );
+    expect(error.getStatus()).toBe(401);
+  });
+
+  it('reads the flag from the user loaded on each request', async () => {
+    const { guard, users } = setup({ stored: MUST_CHANGE });
+    await rejection(guard.canActivate(protectedRoute(goodCookie())));
+
+    // The flag is cleared in the database: the very next request passes.
+    users.findById.mockResolvedValueOnce(
+      profile({ mustChangePassword: false }),
+    );
+    await expect(guard.canActivate(protectedRoute(goodCookie()))).resolves.toBe(
+      true,
+    );
+    expect(users.findById).toHaveBeenCalledTimes(2);
   });
 });

@@ -6,20 +6,25 @@ import {
   HttpStatus,
   Patch,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
 import {
   ApiBody,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
-import { CurrentUser } from '../common/auth/current-user.decorator';
-import { AllowPasswordChangePending } from '../common/auth/password-change-pending.decorator';
+import {
+  CurrentUser,
+  OptionalUser,
+} from '../common/auth/current-user.decorator';
+import { AllowWhenPasswordChangeRequired } from '../common/auth/password-change.decorator';
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
@@ -30,8 +35,8 @@ import { RegisterDto } from './dto/register.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { UsersService } from './users/users.service';
 
-// Account endpoints: register (ACC-01), login (ACC-04) and me (ACC-04, ACC-19); the rest
-// come in later PRs.
+// Account endpoints: register (ACC-01), login (ACC-04), refresh and logout (ACC-06) and me
+// (ACC-04, ACC-19); the rest come in later PRs.
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -49,7 +54,8 @@ export class AuthController {
       'Public. Creates an ACTIVE account with the USER role; the role cannot be chosen. ' +
       'acceptTerms must be true. The password is stored only as a bcrypt hash (GEN-13). ' +
       'On success the user is logged in: the response sets the httpOnly access_token ' +
-      'cookie (30 minutes); the token is never in the body.',
+      'cookie (30 minutes) and the httpOnly refresh_token cookie (path /api/auth, until the ' +
+      'session ends); neither token is ever in the body.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiCreatedResponse({ type: UserResponseDto })
@@ -80,7 +86,7 @@ export class AuthController {
   })
   async register(
     @Body() dto: RegisterDto,
-    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.register(dto, res));
@@ -92,8 +98,9 @@ export class AuthController {
   @ApiOperation({
     summary: 'Log in with email and password (ACC-04, ACC-05)',
     description:
-      'Public. On success the response sets the httpOnly access_token cookie (30 minutes); ' +
-      'the token is never in the body. A wrong password and an unknown email give the same ' +
+      'Public. On success the response sets the httpOnly access_token cookie (30 minutes) ' +
+      'and the httpOnly refresh_token cookie (path /api/auth, until the session ends); ' +
+      'neither token is ever in the body. A wrong password and an unknown email give the same ' +
       '401, and the account status is checked only after the password matches. After 5 ' +
       'consecutive wrong passwords the account is locked for 15 minutes (423), and a ' +
       'successful login resets the count.',
@@ -167,13 +174,73 @@ export class AuthController {
   })
   async login(
     @Body() dto: LoginDto,
-    // passthrough lets Nest still send the returned body while the service sets the cookie.
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.login(dto, res));
   }
 
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get a new access token from the refresh token (ACC-06)',
+    description:
+      'Public, no body. Uses only the httpOnly refresh_token cookie (path /api/auth) and ' +
+      'rotates it: the response sets a new access_token cookie and a new refresh_token ' +
+      'cookie for the same session, and the old refresh token stops working at once. ' +
+      'Neither token is ever in the body. Any failure (no or unknown cookie, a session that ' +
+      'is revoked, idle for 30 minutes or past its end, an account that is not active) ' +
+      'gives the same 401 and clears both cookies.',
+  })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiErrorResponse({
+    status: 401,
+    description:
+      'No valid refresh token, or the session is no longer valid (UNAUTHENTICATED)',
+    examples: [
+      {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+        path: '/api/auth/refresh',
+      },
+    ],
+  })
+  async refresh(
+    @Req() req: Request,
+    // passthrough lets Nest still send the returned body while the service sets the cookies.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<UserResponseDto> {
+    return UserResponseDto.from(await this.auth.refresh(req, res));
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Log out of the current session (ACC-06)',
+    description:
+      'Public, no body, always 204. Ends the current session found through the ' +
+      'access_token cookie or the refresh_token cookie (either is enough), and always ' +
+      'clears both cookies. Never fails for a missing or already ended session.',
+  })
+  @ApiNoContentResponse({
+    description:
+      'Logged out. Both auth cookies are cleared. Returned whether or not a session existed.',
+  })
+  async logout(
+    // Set by JwtAuthGuard from a valid access cookie; undefined otherwise.
+    @OptionalUser() user: AuthenticatedUser | undefined,
+    @Req() req: Request,
+    // passthrough lets Nest still send the 204 while the service clears the cookies.
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.auth.logout(user, req, res);
+  }
+
   @Get('me')
+  // A user who must change the password still needs to learn who is logged in.
+  @AllowWhenPasswordChangeRequired()
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary: 'Who is logged in (ACC-04, ACC-19)',
@@ -201,7 +268,7 @@ export class AuthController {
   @Patch('change-password')
   // The one authenticated route an account on a temporary password may reach
   // (ACC-07a), which is how it gets out of that state.
-  @AllowPasswordChangePending()
+  @AllowWhenPasswordChangeRequired()
   @HttpCode(HttpStatus.OK)
   @ApiCookieAuth('access_token')
   @ApiOperation({

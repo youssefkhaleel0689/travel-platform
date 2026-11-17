@@ -6,6 +6,10 @@ import {
   currentUserFactory,
   optionalUserFactory,
 } from './current-user.decorator';
+import {
+  ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+  AllowWhenPasswordChangeRequired,
+} from './password-change.decorator';
 import { IS_PUBLIC_KEY, Public } from './public.decorator';
 import { Roles, ROLES_KEY } from './roles.decorator';
 
@@ -17,13 +21,23 @@ class ProbeController {
   @Roles(Role.ADMIN, Role.AIRLINE_MODERATOR)
   managed(this: void): void {}
 
+  @AllowWhenPasswordChangeRequired()
+  whileChangeRequired(this: void): void {}
+
   plain(this: void): void {}
 }
+
+@AllowWhenPasswordChangeRequired()
+class AllowedProbeController {}
 
 const reflector = new Reflector();
 const proto = ProbeController.prototype;
 
-const USER: AuthenticatedUser = { userId: '6720f1c2a1b2c3d4e5f60718', role: Role.USER, mustChangePassword: false };
+const USER: AuthenticatedUser = {
+  userId: '6720f1c2a1b2c3d4e5f60718',
+  role: Role.USER,
+  sessionId: '6720f1c2a1b2c3d4e5f60799',
+};
 
 // Only what the factories use: switchToHttp().getRequest(). The cast is done only here.
 function contextWith(user: AuthenticatedUser | undefined): ExecutionContext {
@@ -49,6 +63,35 @@ describe('@Public()', () => {
 
   it('leaves other routes unmarked', () => {
     expect(reflector.get<boolean>(IS_PUBLIC_KEY, proto.plain)).toBeUndefined();
+  });
+});
+
+describe('@AllowWhenPasswordChangeRequired()', () => {
+  it('marks a method', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        proto.whileChangeRequired,
+      ),
+    ).toBe(true);
+  });
+
+  it('marks a class', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        AllowedProbeController,
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves other routes unmarked', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        proto.plain,
+      ),
+    ).toBeUndefined();
   });
 });
 

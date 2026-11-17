@@ -10,11 +10,11 @@ export interface AuthenticatedUser {
   userId: string;
   role: Role;
   /**
-   * ACC-07a, ACC-13: true while the account is on a temporary password set by
-   * an admin. The guard refuses every route but the ones marked
-   * @AllowPasswordChangePending() until the account chooses its own.
+   * The current session (ACC-06), taken by the guard from the verified token's sid only;
+   * never from the body, query, params or another header. Logout and a password change
+   * (ACC-08, keep this session) use it.
    */
-  mustChangePassword: boolean;
+  sessionId: string;
 }
 
 // No installed type package declares Request.user (there is no @types/passport), so it is
