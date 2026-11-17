@@ -166,6 +166,158 @@ How the output was used:
 Claude Code found no violations and proved the rule is active by linting a throwaway file with an explicit any (exit 1). It checked README, .gitignore, docs/ and backend/ before deleting the root .env.example with git rm. Reviewed the diff; build, lint and 91 unit tests pass.
 ================================================
 ================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-08, ACC-19, GEN-13 (branch feature/ACC-08-account-core)
+Prompt:
+Implement the account core: the users and sessions schemas from the schema PDF, bcrypt password hashing, access and refresh tokens as httpOnly cookies, AuthenticatedGuard and RolesGuard with @CurrentUser and @Roles, and PATCH /api/auth/change-password. Do not add registration or login; export the services those will need.
+How the output was used:
+Reviewed every file. Points I checked and can explain:
+ - passwordHash and refreshTokenHash both use select: false, so an ordinary query cannot return them.
+ - the refresh token is 32 random bytes hashed with SHA-256, not bcrypt. I asked why and accepted the answer: the token is 256 bits of randomness, so there is nothing to brute-force, unlike a password.
+ - the guard reloads the session and the user on every request instead of trusting the token's claims, so a suspension or a role change takes effect at once. A unit test proves a token claiming ADMIN does not grant the admin role.
+ - @CurrentUser throws instead of returning undefined when the guard is missing, which would otherwise look like "no user" and skip an ownership check.
+Claude Code ran build, lint, 60 unit tests and 17 e2e tests against Atlas. I read the e2e test list and checked the 401/403 codes myself on the running server.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-09, ACC-11 (branch feature/ACC-09-profile-management)
+Prompt:
+Add GET /api/users/me and PATCH /api/users/me for name, phone and preferred currency, with field-level validation, the seeded-currency check through ReferenceDataService, and e2e tests.
+How the output was used:
+Reviewed the diff. The response mapping is in one place (UserProfileDto.fromDocument), which is what keeps the password hash and the lockout fields out of the response; an e2e test asserts each of those field names is absent. Sending email, role or status is a 400 rather than a silently ignored field, because the global pipe runs forbidNonWhitelisted, and a test covers each one. Build, lint, 76 unit tests and 15 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: GEN-01 (branch feature/GEN-01-notifications)
+Prompt:
+Implement the in-app notification service and its endpoints: unread count, paginated list with an unreadOnly filter, mark one as read, mark all as read. It has to be callable by every other module.
+How the output was used:
+Two decisions I had to agree to before the code was committed:
+ - the README planned notifications for src/common/, but the three endpoints need AuthenticatedGuard and common/ must not import a feature module, so it became the feature module src/notifications/ and I noted the deviation in the README.
+ - notify() swallows and logs a database failure instead of throwing. I pushed back and then accepted: a missed notification must not be the reason a confirmed payment reports an error.
+The e2e suite found two real bugs before review, which is the main reason I am keeping e2e tests on every module: Mongoose 9 rejects an aggregation-pipeline update without updatePipeline: true, and the list came back oldest first whenever several rows shared a createdAt, which is exactly what happens when one flight cancellation notifies every passenger. Fixed by sorting on _id descending as well. 11 unit and 19 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-07a, ACC-14, ACC-16 (branch feature/ACC-14-admin-account-administration)
+Prompt:
+Add the admin account endpoints: the paginated searchable account list, suspend and reactivate, and the temporary-password reset. Use the notification service for the suspension notice.
+How the output was used:
+Reviewed the diff and asked about three things:
+ - the search term is escaped before it becomes a regular expression. I checked this matters: without it a term like (.*)+$ is compiled as a pattern and can stall the server. An e2e test sends ".*" and expects zero results.
+ - the service refuses to act on an admin account or on the admin's own account. I agreed to add it: admin accounts are seeded (ACC-18) and there is no way to re-enable one from inside the API, so either would lock the platform out of its own administration.
+ - the reset endpoint returns 200, not Nest's default 201, because nothing is created. The e2e test caught the 201 first.
+The temporary password is returned once and stored only as a bcrypt hash, and every session of the account is revoked. Build, lint, 88 unit tests and 21 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude (chat)
+Related Requirement: GEN-11, PAY-01 (design discussion before coding)
+Prompt:
+Payments (PAY-01 to PAY-03) all act on a flight booking or a hotel reservation, and neither collection exists yet because they belong to A1 and B2. Discuss the options for building payments now without taking over their collections, and what the integration contract should contain.
+How the output was used:
+Took the "port" option: payments defines one interface per booking module and the flights and hotels modules provide an implementation under a DI token. This is the handshake the playbook asks for in week 1. I decided the five methods myself from what my own requirements need (findPayable, findPolicies, confirmAfterPayment, releaseHold for PAY-01 and PAY-02, hasUpcomingConfirmedBookings for ACC-12) and documented them in the README so A1 and B2 can implement against them. I also decided findPolicies must return the booking's own policy snapshot rather than the provider's latest, so a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user already gave.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: GEN-11, PAY-04 (branch feature/GEN-11-booking-lifecycle)
+Prompt:
+Implement the GEN-11 booking lifecycle as one shared table of allowed transitions, the BookingsPort interface and its gateway with optional ports, and the money helpers for the single platform currency including the Stripe minor-unit conversion.
+How the output was used:
+Reviewed the diff. Two things I want to be able to explain at the demo:
+ - a transition from a state to itself is refused, not allowed. A caller that can run twice (a webhook Stripe retried, the expiry sweep racing a payment) has to notice the work is already done rather than repeat its side effects. The unit test walks all 25 state pairs and asserts only the four GEN-11 transitions pass.
+ - the money helpers are not ceremony. The test pins the real double values: 19.99 * 100 is 1998.9999999999998 and 1.13 * 100 is 112.99999999999999, so Number(amount) * 100 is wrong for ordinary prices. Only toMinorUnits turns an amount into a native number, and only for Stripe.
+Later in the same session I renamed BookingPaymentPort to BookingsPort and added hasUpcomingConfirmedBookings, because ACC-12 needs the same question answered by both booking modules and one interface is less for A1 and B2 to implement than two. 103 unit tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-12 (branch feature/ACC-12-account-deactivation)
+Prompt:
+Add DELETE /api/users/me. It must require an explicit confirmation, be blocked while the account has an upcoming confirmed booking, revoke the sessions and not delete any row.
+How the output was used:
+Reviewed the diff. The confirmation is a required confirm: true field rather than an empty DELETE, because GEN-13 says the backend enforces the rule regardless of what the frontend does, and ACC-12 says "after confirmation". Deactivation only changes the status: the blog and itinerary modules derive "hidden" and "Deleted user" from it, so nothing has to be rewritten now or undone later, and past bookings, payments and refunds keep pointing at a real account. The upcoming-booking check goes through the gateway, so a booking module that is not connected yet simply reports none and deactivation is not impossible. 81 unit and 9 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: PAY-02 (branch feature/PAY-02-policy-acceptance)
+Prompt:
+Implement the policy endpoints: show the provider's terms for a booking and record the acceptance with a timestamp, owner-only, and block it once the booking is no longer awaiting payment.
+How the output was used:
+Reviewed the diff. I asked for the policyVersion to be required in the acceptance body so acceptance can only be given for terms that were really displayed; a stale value is a 409 rather than silent agreement to different terms. One acceptance per booking per version is a unique index, so a double click returns the first acceptance with its original timestamp instead of writing a second row, and a race ends as the same answer for both requests. Another account's booking answers 404 rather than 403, so booking ids cannot be probed; ACC-11 allows either and I chose to use 404 everywhere. 17 unit and 26 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude (chat)
+Related Requirement: PAY-01 (learning, before coding)
+Prompt:
+Explain Stripe PaymentIntents in test mode, webhooks and signature verification, and idempotency, then quiz me: why confirm a booking from the verified webhook instead of when the browser says it paid, and what happens if the webhook arrives twice.
+How the output was used:
+Used as the tutorial the playbook asks for, not as code. The two answers I had to be able to give before writing anything: the browser can lie, can be closed before it reports and cannot be trusted about money, while Stripe signs its events; and a repeated webhook must be made a no-op, because Stripe retries until it gets a 2xx and can deliver the same event twice regardless. That is where the stripeWebhookEvents collection and the conditional status update in the implementation come from.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: PAY-01, PAY-04, GEN-11 (branch feature/PAY-01-stripe-payments)
+Prompt:
+Implement PAY-01 in steps: the payments and stripeWebhookEvents schemas, a StripeService wrapper, POST /api/payments, POST /api/payments/:id/retry, GET /api/payments/:id, the signature-verified webhook that confirms the booking, and the sweep that cancels the PaymentIntent when the hold expires.
+How the output was used:
+Reviewed each step. What I checked and can explain:
+ - the amount is read from the booking, never from the request, and a unit test asserts it.
+ - the webhook reads req.rawBody and binds no body DTO, because re-serialising the JSON changes the bytes Stripe signed. main.ts now creates the app with rawBody: true.
+ - exactly-once handling has two independent guards, the claimed event id and the conditional status update, and tests prove that neither the same event twice nor two different success events confirms a booking twice.
+ - the expiry sweep cancels at Stripe before writing the status, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction. A unit test asserts that order.
+ - an unknown Stripe status maps to FAILED, never to SUCCEEDED, so a booking is never confirmed without money.
+The e2e suite found a real bug in my retry endpoint: it handed back a usable client secret without re-checking the hold, so a user could have paid for inventory that had already been released. The fix moves the hold check before the shortcut. A second finding changed the design: a declined card does not finish a PaymentIntent, Stripe puts it back to requires_payment_method, so a retry reuses the same intent instead of opening a new one.
+Signature verification is tested for real, offline, with Stripe's own generateTestHeaderString, including a body changed after signing. Stripe's HTTP API is mocked, so no Stripe account or network call was used; the live Stripe demo still has to be run with a real test key before the deadline. 112 unit and 41 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: PAY-03 (branch feature/PAY-03-refunds)
+Prompt:
+Implement refunds: a service the flights and hotels modules call when they cancel a booking, with the provider's tier for a user cancellation and 100% for a provider cancellation, plus GET /api/refunds/:id. Record the status and notify the user.
+How the output was used:
+Reviewed the diff and made three calls:
+ - the caller passes the tier, because the tiers belong to the provider, but a PROVIDER cancellation is forced to 100% in the service so a mistake on the calling side cannot short-change a traveller.
+ - a Stripe failure is recorded as FAILED and not thrown. The cancellation has already happened, so an error would make a completed cancellation look broken; the refund shows on the booking details and can be retried instead.
+ - there is no endpoint to create a refund, only to read one. A refund only ever follows a cancellation, so a create endpoint would be a way to get money back without cancelling anything.
+The e2e suite found another real bug: the unique index on stripeRefundId was sparse, but a sparse index only skips documents where the field is absent, and the field has an explicit null default, so the second refund waiting on Stripe was rejected. Changed to a partial index on string values. I dropped the old index from the shared Atlas database myself and confirmed the new one; the refunds collection was empty, so no teammate's data was touched.
+Also reviewed and accepted that the unreachable "total refunds exceed the captured amount" branch is kept as a documented backstop rather than being presented as a live check. 137 unit and 13 e2e tests pass.
+================================================
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Documentation for ACC-*, PAY-*, GEN-01, GEN-11 (branch docs/account-payments-modules)
+Prompt:
+Document the new modules in the README: the cookie and guard design with the error codes, the account endpoints, the notification service, the BookingsPort contract that A1 and B2 have to implement, the money rules, and the payment, policy and refund flow including how to demonstrate a payment with the Stripe CLI.
+How the output was used:
+Read the whole section and corrected the emphasis in a few places. It is written for my teammates rather than as a summary of the code: the BookingsPort table says what each method must guarantee, the notification section says not to wrap notify() in try/catch and why, and the money section gives the real double values that explain why the helpers exist. Also added the new environment variables and two troubleshooting rows.
+================================================
+================================================
+Date: 2026-11-10
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Manual testing of ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, PAY-01 to PAY-04
+Prompt:
+"i want to manually test each endpoint via postman so i need you to guide me through setup and protocol", and to log this in AI_PROMPTS.txt on the docs branch.
+How the output was used:
+Claude Code first proposed a backend/src/auth/dev/dev-signin.ts script that minted an access-token cookie from the command line, because without ACC-04 there is no way to get a cookie into Postman. It built it, wired an npm run dev:signin script, ran it, and proved the cookie worked on the live API. I stopped it there and told it to delete the script: I am waiting for my teammate to implement ACC-04 (login) and I do not want a second way of creating sessions in the repository that we would then have to remember to remove. Claude Code reverted the script and the npm entry, and deleted the three test_c2_ accounts, their 5 sessions and 1 notification that it had created on the shared Atlas database while testing it.
+What I kept is the Postman collection and the protocol document, rewritten to use the real login endpoint: Postman has a cookie jar, so once POST /api/auth/login exists it stores the httpOnly cookie and sends it automatically, and no token is ever copied by hand. Each folder starts with its own sign-in request so folders can be run on their own.
+Decisions I made during this:
+ - folder 60 (deactivation) gets its own throwaway account. The first run of the collection failed four assertions because folder 50's admin password reset revokes the target account's sessions, which killed the cookie folder 60 needed. That is a real ordering problem, not a test bug, so the folder now documents that deactivation is destructive and needs a disposable account.
+ - folder 30 changes the password and changes it back, so it can be run more than once against the same account.
+ - the collection asserts the 501 BOOKING_TYPE_UNAVAILABLE that folders 70 to 90 return today, rather than pretending they work, and each request says what to change when A1 or B2 wires its BookingsPort in.
+I also corrected a claim Claude Code had written: it described the validation cases in folders 70 and 80 as "fully testable today". Running them showed 401, not 400, because AuthenticatedGuard runs before the validation pipe. The collection and the document now list the exact 7 requests and 12 assertions that pass with no sign-in at all - the public currency list, the two guard refusals, the two webhook refusals and the non-existent refund route - and say plainly that everything else waits on ACC-04. Verified against a running server with newman: folder 00 is 5/5, the two webhook requests are 5/5, POST /refunds is 2/2.
+================================================
+=======
 Date: 2026-11-08
 Student: Khaled Elshitany
 Tool: Claude (chat)
@@ -332,6 +484,22 @@ Add an AdminSeeder in src/auth/seed/ and a standalone `npm run seed:admin` entry
 How the output was used:
 I took ACC-18 over from B1 and chose to keep the admin credentials only in .env. Claude Code wrote the seeder (19 unit tests), the entry point, the npm script and an e2e test. I ran the unit tests and the e2e suite (11 suites, 95 tests), then seeded the shared Atlas database myself: the first run created the admin and the second reported "already exists". I logged in as the admin in Swagger and /auth/me returned role ADMIN. A screenshot of that login showed the password in Swagger's curl preview, so I rotated it (deleted the admin, new password, seeded again) and confirmed the old password is rejected. I reviewed the README section before committing.
 ================================================
+Date: 2026-11-13
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Integration of ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11, PAY-01 to PAY-04 with the merged ACC-01, ACC-04, ACC-11 and ACC-18
+Prompt:
+Merge develop (which now has the leader's register, login, global guards and admin seed) into my docs branch, integrate my work with it, and then tell me how to manually test each of my endpoints. I pasted the leader's PR description so the breaking changes were known up front.
+How the output was used:
+Claude Code read the leader's auth module on develop before merging, which was the right order: it turned out they had built a complete parallel src/auth/ with the same filenames as the one I had written while login did not exist. The decision I made, and that the merge follows, is that their module is the foundation and mine goes: the user schema, password service, users service, token and cookie services, guards, decorators and enums I had are deleted, and my work moves onto theirs rather than beside it. My account operations are now methods on their UsersService, my PATCH and DELETE go in the slot their controller had left commented for C2, and my change-password DTO uses their shared @IsValidPassword so ACC-01 and ACC-08 cannot drift apart.
+I also decided to drop my sessions collection entirely. Their access token is stateless and ACC-06 (logout, refresh, 30-minute idle) is their PR 4, so keeping my session layer would have meant two competing auth systems. The cost is that a password change cannot yet revoke the account's other devices; the place to do it is marked in UsersService and the gap is written into the README rather than left for someone to discover.
+Two real bugs the merge created, which Claude Code found and I reviewed:
+ - the Stripe webhook had no @Public(), so the new global guard would have answered 401 to Stripe and no booking would ever have been confirmed. It now relies on the signature over the raw body, which is the stronger check anyway.
+ - mustChangePassword was stored by their schema and enforced nowhere, so my ACC-07a admin reset left the account with full access. I had Claude Code add the enforcement to their JwtAuthGuard with an @AllowPasswordChangePending() decorator, marked on change-password only, plus three guard tests. This is a change to a shared file and the leader should know about it.
+Where we disagreed on error codes, theirs win: FORBIDDEN not my FORBIDDEN_ROLE, UNAUTHENTICATED not UNAUTHORIZED, and a suspended account is the guard's 401 rather than a 403 of mine. I also had my controllers adopt their @ApiErrorResponse convention, which their swagger-docs e2e suite enforces, through a small standard-errors helper so the repeated bodies stay identical instead of being written out 50 times.
+Verified myself: 0 type errors, lint clean, 689 unit tests, 250 e2e tests, and a manual pass over every one of my endpoints on a running server - register, login, profile read and edit, change password, the admin list with search and filters, suspend and reactivate, the temporary-password lockout and the way out of it, the notification the suspension creates, and the 501 the payment routes correctly return while no booking module provides a BookingsPort.
+Two things worth recording for the team. test:e2e now runs with --runInBand: nineteen suites each opening a Nest app against our one shared Atlas database exhausted connections and made app.e2e-spec fail at random, and serially all 250 pass. And the Postman collection had a real design fault that only showed up once login worked - folder 50 suspended and reset "the first ACTIVE USER account it found", which was the collection's own test user, so every later folder failed to sign in. It now registers a target of its own. All 60 requests and 134 assertions pass against a running server.
+=======
 ================================================
 Date: 2026-11-13
 Student: Youssef Khaleel
@@ -341,6 +509,92 @@ Prompt:
 Decide the lockout response (423 Locked with lockedUntil and a Retry-After header, chosen over 429, 403 and 401) and the rules: 5 consecutive failures lock the account for 15 minutes, the counter resets when the lock starts, the lock is checked before the password, and existing sessions are not affected. Extend the shared error format with an optional details object and retryAfterSeconds (sent as the Retry-After header, never in the body). Implement the lockout with an atomic database update, and write unit and e2e tests. Follow-up prompts: redesign the check after the review below, make a stuck last ticket heal itself, fix an e2e warning, and document the lockout in the README.
 How the output was used:
 Several problems were found and fixed before any commit. The first implementation checked the lock before bcrypt but counted the failure after it; reading the diff showed a time-of-check/time-of-use flaw, because parallel requests could all have their password checked. It was redesigned so each attempt reserves a "ticket" with one atomic update before bcrypt, so at most 5 passwords are checked per lock period. Claude Code then pointed out that a request dying while holding the last ticket would lock the account forever, so a self-healing conditional lock was added. A MaxListenersExceededWarning in the new e2e test (supertest starting the server for every request) was fixed by starting the server once. I reviewed every diff and ran lint, the unit tests (477) and the e2e tests (102) myself, repeating the runs that include a 10-request parallel race. I tested by hand in Swagger UI with a throwaway account: the 401 to 423 sequence, the Retry-After header and the automatic unlock. Commits: c03b0fd, e9f354b, 679bb17; this entry is committed separately.
+Date: 2026-11-09
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: Scope clarification for ACC-07a, ACC-08, ACC-09, ACC-12, ACC-14, ACC-16, ACC-17, PAY-01 to PAY-04, GEN-01, GEN-11
+Prompt:
+Gave Claude Code the project description PDF, the reviewed requirements workbook, the final cleaned schema PDF and the Milestone 1 leader playbook, plus the MongoDB connection string, and asked it to implement my C2 endpoints, test them, keep them consistent with the rest of the project, use feature branches and conventional commits, and log every prompt here.
+How the output was used:
+Claude Code read all four documents and the existing repository first and then stopped to ask two scope questions instead of guessing, which was the right call:
+ - the repository has no auth module at all, and my ACC-07a/08/09/12 cannot exist without one, while the schema PDF makes users and sessions C2-owned collections. I chose "only C2's slice": build the users and sessions schemas, the password and session services and the guards, but leave registration, login, logout and /auth/me to the leader (ACC-01, ACC-04, ACC-06, ACC-19).
+ - no booking collection exists either, and PAY-01 to PAY-03 all act on a booking. I said to leave bookings to the team, and then chose to build the payments module behind an interface rather than create booking collections that belong to A1 and B2.
+Everything below follows from those two decisions. I reviewed each step's diff before it was committed.
+================================================
+================================================
+Date: 2026-11-13
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-05 integration with ACC-07a and ACC-08
+Prompt:
+Merge the leader's PR 3 (ACC-05 account lockout) from develop into my branch and check how it interacts with my work, after the team message saying login now returns 423 ACCOUNT_LOCKED and asking whether the admin password reset should also clear the lock.
+How the output was used:
+The merge was almost clean: one import line in users.service.ts, where their ticket-based lockout and my account operations had both grown in the same file, and the usual AI_PROMPTS append. Their verifyCredentials is now a ticket reservation with a conditional update, which is a nicer answer to five simultaneous wrong passwords than a counter read followed by a write.
+On the leader's question I checked the code before answering rather than agreeing in principle: resetPasswordToTemporary (ACC-07a), changeOwnPassword (ACC-08) and setStatus back to ACTIVE (ACC-16) already set failedLoginAttempts to 0 and lockedUntil to null, because I had written them that way when I first built the account operations. So the answer is yes, and it is already true. My reasoning, which I will give the leader: the admin has just replaced the password, so a lock earned by the old one is meaningless, and there is no other way to clear a lock through the API - the message itself says to edit lockedUntil in Atlas by hand, which is not something we should need.
+To make that agreement concrete rather than a chat message, I had Claude Code add two unit tests on the clearing behaviour and one e2e test that drives the whole flow: five wrong passwords, the 423, the right password still refused while locked, the admin reset, and the temporary password logging in straight away. If anyone later removes the lock clearing from the reset, those fail.
+I also had to add generateTemporary to their password service mock in users.service.spec.ts, because my resetPasswordToTemporary calls it.
+Not done on purpose: their new optional details object would suit my POLICY_VERSION_MISMATCH error, which could carry the current policyVersion so the client knows what to re-accept without another request. That is a small improvement rather than part of this merge, so I left it out and noted it instead.
+Verified: 0 type errors, lint clean, 736 unit tests and the full e2e suite.
+================================================
+================================================
+Date: 2026-11-13
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-05 (test harness fix after the merge)
+Prompt:
+Run the full e2e suite after merging ACC-05 and fix whatever it reports.
+How the output was used:
+The run showed 7 failures, all in the leader's own test/auth-lockout.e2e-spec.ts, and all from one cause: its beforeAll timed out at 30 seconds, after which app was undefined and every test in the file failed on getHttpServer. Not a defect in ACC-05 and nothing to do with my code: the suites now run serially because I had added --runInBand, so this one starts after a queue of others, and its hooks register several accounts over HTTP with a real bcrypt hash each.
+I raised that file's CONNECT_TIMEOUT_MS to 90 seconds, the same value I had already given every other suite for the same reason, and wrote the reason into the comment so nobody lowers it again. All 7 pass. I am telling the leader rather than quietly editing their file.
+================================================
+================================================
+Date: 2026-11-14
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-13 (admin creates an airline or hotel moderator), touching ACC-07a, ACC-08, ACC-11, ACC-18 and FLT-01
+Prompt:
+"you forgot to make ACC 13 this whole time when it was assigned to C2?", then after I showed the schema PDF section that lists the users collection as C2-owned with ACC-13 in its Rules column: "can u just make acc-13 since it seems the schema you are following is outdated".
+How the output was used:
+Worth recording why this was built late. The Milestone 1 leader playbook assigns ACC-13 to B1, on the reasoning that it needs airlines and hotels to exist first (FLT-01, HTL-01), and that is the document my scope was taken from in the first entry above. The schema PDF disagrees: it makes users a C2 collection and lists ACC-13 among its rules. Claude Code said plainly which document said what rather than quietly agreeing with me, and I decided to take it, because the account half of the requirement is entirely mine - the users row, the role, the temporary password, the forced password change - and only the provider link is not. I need to tell B1 before they start it, since the playbook still has their name on it.
+It turned out A2 had already written the hook for me: AirlinesService.assignModerator carries the comment "For ACC-13 (admin creates an airline moderator)" and FlightsModule exports the service, so the airline side was expected to be driven from outside the flights module. Our shared password validator already said "shared by ACC-01, ACC-07a, ACC-08 and ACC-13", and the administration module's own docstring said "and later ACC-13". So the slot existed; nobody had filled it.
+The design question was the hotels half, because there is no hotels module at all - no collection, no service, nothing to link to. I had Claude Code use the same shape as the BookingsPort I built for payments: a ModeratorAssignmentPort in common/providers with two methods, a gateway that routes a role to whichever module owns that kind of provider, and both ports optional. The airline side is wired by a thin adapter over A2's exported service; HOTEL_MODERATOR_ASSIGNMENT_PORT is left unprovided, so asking for a hotel moderator answers 501 PROVIDER_TYPE_UNAVAILABLE with a message that says the hotels module has not been built. When B1 lands HTL-01 they provide that one token and the hotel half is done; nothing in my module changes. Worth knowing: the shared Atlas database already has hotels and hotelModeratorAssignment collections, so that work is clearly in flight on somebody's branch even though no hotels module exists in develop. The 501 is about what this branch can reach, not about what exists in the database. I would rather ship the half that can work than block the whole requirement on another person's module, and this is the same trade I already made for payments.
+The part I spent most of the review on is that ACC-13 writes two collections in two different modules with no transaction across them, so a failure halfway could leave a moderator account that manages nothing and holds an email nobody can register again. The order is the fix: the provider is checked first, so the likely mistakes (an unknown or deactivated providerId) cost nothing; then the account; then the link, and if the link fails the account is deleted again before the error is rethrown. That needed a UsersService.deleteById, which is the first and only place in the project that deletes an account row, so I had the comment say so explicitly - ACC-12 and ACC-16 change a status and keep the row, because bookings, payments and the audit log point at it. A rollback that fails is logged and swallowed rather than replacing the error the admin needs to see.
+One real bug, found by my own test rather than by reading: the gateway's methods returned the port's promise directly, so an unwired provider type threw the 501 synchronously instead of rejecting. My .rejects assertion failed, which is exactly what it was there for. Both methods are now async, with a comment saying why, because a caller writing only .catch() would otherwise have missed it. The same shape exists in the BookingsGateway I wrote earlier and I have left it alone for now rather than touch working code in this branch.
+Two decisions that go slightly beyond the literal requirement, both deliberate: the admin-set password is optional (leave it out and the server generates one the way ACC-07a does, and either way it comes back exactly once), and a deactivated airline is refused with 400 PROVIDER_DEACTIVATED rather than given a new moderator. The role field accepts only the two moderator roles, so this route cannot mint an ADMIN - admins are seeded (ACC-18) and users register (ACC-01), and there is now no path to an admin account through the API at all.
+Verified myself: 0 type errors, lint clean, 756 unit tests and 291 e2e tests passing, including 33 new e2e tests that drive the whole thing against the real database - the account and its single assignment row, the login on the temporary password, the 403 PASSWORD_CHANGE_REQUIRED on everything else, the way out through ACC-08, a second moderator on the same airline, the 409, the 404, the 400 on a deactivated airline, the 501 for hotels, and the proof that a failed creation leaves the email free. I also added folder 55 to the Postman collection (15 requests), which makes its own airline and generates a fresh moderator email each run so it can be re-run without editing anything, and wrote the three things it leaves behind into the cleanup section - two of them are outside the users collection and easy to forget.
+================================================
+================================================
+Date: 2026-11-14
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-13 (review before merging, and the test-harness fix it turned up)
+Prompt:
+"review and make sure related endpoints are modularly functional and then merge to docs, then reformat the PR".
+How the output was used:
+The review itself found two things. The password field on my create-moderator DTO used @IsOptional(), which skips null as well as undefined, so "password": null was quietly accepted and a password generated instead of the admin being told their body was wrong. A2's airline DTOs already solve exactly that with @ValidateIf(isSent) and a comment explaining why, so ACC-13 now matches the convention rather than inventing its own. I also had the reasoning written down for why my ModeratorAssignmentsGateway is provided in the administration module instead of a module under common/ next to BookingsGateway: BookingsModule exists because two modules consume it, mine has one consumer, and a reviewer comparing the two would otherwise fairly ask.
+The more useful half was deciding not to take the integration on trust. ACC-13's output is only worth anything if the account it creates can do a moderator's job, and that happens inside A2's module, so I had six tests written for it: the moderator can edit the airline it was assigned to, is refused on any other one, still cannot create airlines, and the admin routes treat it as an ordinary account (the ACC-14 role filter finds it, ACC-07a resets it, ACC-16 suspends it and the assignment row survives, because suspension is not unassignment). All six pass, so the two modules really are connected and not just compiling together.
+Then the part worth recording for the team. I had been quoting a test count assembled from two separate runs, so I ran the whole suite in one pass before merging - and my ACC-13 suite failed entirely, 33 of 33, while passing 33/33 on its own minutes earlier. The cause was beforeAll exceeding 120 seconds, which fails every test in the file at once and looks far worse than it is. My beforeAll does more than any other suite's: a Nest app against the shared cluster, two accounts registered and logged in over HTTP with a bcrypt hash each, and an airline created through the real FLT-01 endpoint, all starting after a queue of twenty suites. I ruled out the two tempting explanations before changing anything - afterAll had still run, so nothing was left behind, and the airlines collection holds three documents, so my two-character IATA retry loop was not spinning. The fix is both halves: the deactivated airline is built on first use rather than in the hook, so the hook does one creation and one update less, and the timeout goes to 180 seconds with the measurement written into the comment so nobody lowers it back.
+Making that airline lazy then introduced a bug of its own, which is the detail I would not have predicted: writing .send(body({ providerId: await deactivatedAirline() })) fails, because supertest binds to an ephemeral listener the moment request() is called, and awaiting a second supertest call inside the argument list closes the listener the outer request is holding. It surfaces as "Cannot read properties of null (reading 'address')", which says nothing about the real cause. The id is now resolved before the request is built, with a comment, and it is a trap worth knowing about for anyone else writing these suites.
+Lesson I am taking from this: a suite passing in isolation proves nothing about a --runInBand run, and a hook failure is indistinguishable from a broken feature until you read why. Verified after the fix: 0 type errors, lint clean, 756 unit tests, and 291 e2e tests over 21 suites passing in a single full run. Merged into docs/account-payments-modules as a merge commit, not a squash, so the six ACC-13 commits stay in the history.
+================================================
+================================================
+Date: 2026-11-15
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-13 (role-specific request body, and a hotel integration package reviewed against this branch)
+Prompt:
+I dropped a folder of files generated outside this repository - C2_ACC13_Hotel_Assignment_Integration_v5, with its own README and five more notes - and said: "this folder contains fixed versions of some files from my working directory please check them and implement them into docs, test some of the related endpoints of the changed files and recreate the PR again. Note any worthwhile changes in the PR too."
+How the output was used:
+The package held eleven files and two separate ideas, and the useful part of this session was telling them apart before applying anything. One idea is hotel-independent: name the provider in the body by what it is - airlineId for an airline moderator, hotelId for a hotel one - instead of one generic providerId that does not say which collection the id has to come from. The other is the hotel half of ACC-13 itself: an adapter over B1's HotelsService, plus the module wiring that provides HOTEL_MODERATOR_ASSIGNMENT_PORT.
+I took the first and rejected the second, for the same reason I gave when I first built ACC-13: there is no hotels module on develop or on my branch. I checked rather than assumed - `git branch -r --contains origin/feature/HOTEL-partner` lists only that branch, so B1's module is still unmerged. Its own README says as much ("Before applying these replacements, the target backend must contain B1's backend/src/hotels/ module from feature/HOTEL-partner"), which means the adapter cannot compile here, and the only way to make it compile would be to merge B1's whole module into my branch and put several hundred lines of someone else's work into my PR. The port stays unprovided and hotels keep answering 501. I did read the hotel adapter against B1's current code, and it is correct - findById(hotelId, actor) with HotelActor { id, role }, assignModerator(moderatorId, hotelId), HotelStatus.DEACTIVATED all match - so when HOTEL-partner lands, finishing the hotel half is two files and one import.
+Three things in the package would have been wrong on this branch, and are the reason I did not apply it as-is:
+ - it deletes the 501 PROVIDER_TYPE_UNAVAILABLE response from the controller's Swagger documentation. That is right once hotels are wired and wrong until then: on this branch the 501 is the answer a hotel moderator actually gets, and removing its documentation would leave a reachable response undocumented. I kept it.
+ - its comments in moderator-assignment.port.ts, the gateway and the airline adapter were rewritten to say the hotel adapter exists. On this branch that is simply untrue, so I kept mine.
+ - its own notes claim "Prettier formatting: passed for all changed TypeScript files". It had reformatted the airline adapter's class declaration onto one 82-character line while wrapping a 79-character line elsewhere, which prettier would not do either way, so that claim is not reliable. Our gates are the build, oxlint and the tests, not formatting, but a validation note that is wrong about the easy half is worth distrusting on the rest - and its notes do say plainly that no build, Jest or e2e run succeeded in its environment.
+Where I disagreed on design rather than on facts: the package enforces "the id must match the role" inside AdminModeratorsService, which hand-builds a VALIDATION_FAILED body and reaches the provider id through non-null assertions. I moved both halves of the rule into one validator on CreateModeratorDto instead, because then ValidationPipe produces the 400 through validationExceptionFactory like every other field error, and there is no second copy of that body shape to keep in step. @ValidateIf could not do it - it switches a property's whole decorator list on or off, and the two cases need different checks - so it is a small ValidateBy validator next to the DTO, which also keeps quiet when role itself is wrong so a bad role reports one field rather than three. The service now only maps the role-specific field to the generic providerId the ports take, with one guard for the non-HTTP caller the DTO cannot protect.
+The package's other aim was a Swagger dropdown for role, and it got that far - role is an enum, so Swagger UI renders a select. What its notes keep apologising for is that both airlineId and hotelId then show in the body, because Swagger UI cannot hide one property based on another's value (its v4 attempt at a oneOf discriminator had already been abandoned by v5). The part nobody noticed is that this makes the sample body Swagger UI fills Try it out with invalid: it contains both ids at once, which the endpoint now refuses. So I added two named @ApiBody examples, Airline moderator and Hotel moderator, and checked the generated document rather than trusting the decorator: /api/docs-json carries both, so Try it out starts from a body that works and the example picker is the airline-or-hotel choice the package was reaching for.
+I also found something while testing that had nothing to do with the package. Folder 55 failed at request 01 with INVALID_CREDENTIALS, because ADMIN_EMAIL in .env is itself a test_c2_ address and our Postman cleanup sweep of "every test_c2_ account" had taken the seeded admin with it. `npm run seed:admin` put it back, and I wrote the trap into the cleanup section of POSTMAN.md so the next person loses minutes instead of an afternoon.
+Verified myself, on this branch: 0 type errors, lint clean, 767 unit tests over 47 suites (the new ones are a DTO spec that pins both halves of the pairing rule, plus the service mapping), 296 e2e tests over 21 suites in one full --runInBand run (38 in the ACC-13 suite, up from 33: the old providerId is refused as an unknown field, the mismatched id is refused by name, and each role is refused with no id at all), and the whole Postman collection green against a live server - 77 requests and 171 assertions, folder 55 being 17 and 41 of those. The response still returns providerId: account.role already says which kind of id it is, and a pair with one half always null would say less.
 ================================================
 ================================================
 Date: 2026-11-17
@@ -371,4 +625,34 @@ Prompt:
 Youssef asked me to switch the airline endpoints to the real logged-in user now that auth is merged: use AuthenticatedUser { userId, role, sessionId }, remove PLACEHOLDER_ADMIN and the TODO(ACC-04) comments, and update test/airlines.e2e-spec.ts. I asked Claude to read the airlines controller, service and tests on develop, and to check which other branches call the airlines service before changing any signature.
 How the output was used:
 I reviewed the change before committing it. The controller now takes the user from @CurrentUser() (POST and PATCH) and @OptionalUser() (the public GET), POST has @Roles(ADMIN) and PATCH has @Roles(ADMIN, AIRLINE_MODERATOR); the moderator-of-this-airline check stays in the service. PLACEHOLDER_ADMIN, resolveWriteActor and RequestWithActor are deleted. The service still accepts an AirlineActor, whose role is typed from the Role enum as a string union: ACC-13 (B1) calls airlines.findOne(id, { userId, role: 'ADMIN' }) without a sessionId, so the service must not require the full AuthenticatedUser or that branch would stop compiling after it merges. The e2e test now sets request.user from a header (the same pattern as the cabins and policies tests) and checks that the real user reaches the service, a guest reaches findOne as undefined, and POST/PATCH without a user give 401. Build, lint (0 warnings, 0 errors), all 35 unit suites (638 tests) and the filtered e2e (3 suites, 31 tests) pass. Nothing was run against Atlas.
+================================================
+Date: 2026-11-17
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-06 and ACC-11 integration into C2's modules (ACC-07a, ACC-08, ACC-12, ACC-16, GEN-01, PAY-01, PAY-02), plus the three changes asked for in the review of PR 30
+Prompt:
+Two team messages (the Leader's notes on merging PR 31 and PR 32, and the review of my own PR) and one instruction from me: "pull the new implementations from develop and get to integrating", then "read the comments on the pr as well".
+How the output was used:
+This was a merge and an integration, not new endpoints, so the work was deciding which of two versions of the same idea survives each conflict - and then making the places I had marked "when sessions arrive" actually do it.
+Seven files conflicted. Four of them were the same pattern: develop and my branch had both built the mustChangePassword lockout, because I needed it for ACC-07a before the Leader's ACC-11 landed. His version wins everywhere, which deleted my password-change-pending.decorator.ts, my guard change and my guard tests. I checked that before accepting it instead of assuming: his jwt-auth.guard.spec.ts covers everything mine did and four cases mine did not, including the decorator on a class as well as a method, so nothing was lost by taking his wholesale. He also chose to keep mustChangePassword inside the guard rather than put it on AuthenticatedUser as I had; his is better, because only the guard ever reads it, and it spared the team a second breaking change to their test fixtures. The other three conflicts were real both-sides merges: the controller's imports, the module's providers and exports (AccountsService and SessionsService, not either), and one test fixture.
+The Leader's note said to find the AuthenticatedUser.sessionId fallout with `npx tsc --noEmit`, because the build and Jest do not type-check the specs. One error, and not the one advertised: my UserProfile requires suspendedAt and deactivatedAt (ACC-12 and ACC-16 added them), which his new guard fixture did not set.
+Then the integration proper. revokeAllSessions(userId, { exceptSessionId }) exists because the Leader took the idea from my old ACC-08 branch, and his doc comment lists its four callers - all four are mine. So: ACC-08 keeps the caller's session and revokes the rest; ACC-07a, ACC-16 and ACC-12 revoke all of them. Two decisions worth recording. First, the revoke goes after the write it belongs to, never before, so a wrong current password or a new password equal to the old one signs nothing out - otherwise a failed guess would be a way to disrupt the owner, and there is now an e2e test that fails if anyone reverses it. Second, I did not put any of it in UsersService. That service owns the users collection and nothing else; it is the reason AccountsService exists at all. So the session half lives one layer up, in AuthService.changeOwnPassword, AdminAccountsService and AccountsService, and nothing of mine writes the sessions collection directly, which is what the Leader asked.
+One existing e2e test then failed, and it was right to. It held a cookie from before an admin reset and expected 403 PASSWORD_CHANGE_REQUIRED; now the reset revokes that session, so the honest answer is 401 - there is no session left to tell the user they owe a password change. Its own comment said "the access token is stateless until ACC-06 adds sessions", so the premise had expired, not the behaviour. I rewrote it to assert both halves: the old cookie is dead, and the new login made with the temporary password is the one that gets the 403.
+On ACC-11 I changed no code, which was the finding rather than a shortcut. The Leader's rule is that ownership belongs in the query filter and that missing and not-yours give the same 404. My notification, payment and refund reads already did exactly that, with the same 404 both ways, and PATCH /api/notifications/:id/read does it in a single conditional update - findOwnedOrThrow followed by a write would add a query and lose the atomicity, and the one update is also what keeps the first read time when it runs twice. The one place that cannot use a filter is a refund, because its owner lives on its payment; it is checked after the load, with an identical 404 either way. I wrote that reasoning into the README rather than churn working code to look compliant.
+The review asked for three things. The README conflict resolved itself when merged in this direction (develop into my branch), so both sections are there. BookingStatus was declared twice - A1's flight-booking.schema.ts and my common/bookings/booking-status.ts - which TypeScript treats as two different types, so A1 could not have implemented BookingsPort against his own schema without a cast. GEN-11 owns the lifecycle, so the shared one stays the source of truth and his file now imports and re-exports it; his five suites and 125 tests still pass, including the one that pins the order of the enum's values. The third was the 409 examples: the services throw HOLD_EXPIRED, ALREADY_PAID, BOOKING_NOT_AWAITING_PAYMENT, PAYMENT_ATTEMPT_CLOSED, UNSUPPORTED_BOOKING_CURRENCY and POLICY_VERSION_MISMATCH, and Swagger showed a code called CONFLICT, which the API never returns, with a description cut off mid-sentence. Each 409 now has one example per real code with the real message, which ApiErrorResponse renders as a dropdown. While I was there I found the same defect in the neighbouring 404 and 503 blocks - the example's message was a copy of the description text, so "No such payment for this account" was documented where the API says "Payment not found" - and in one example path that pointed at /policies on the accept-policies endpoint. Those are fixed too, because Swagger UI is what Milestone 1 is graded on and a body nobody can receive is worse than no example.
+Also from the review, not blocking: backend/package.json now declares "engines": { "node": ">=24.9" }, and the README says why rather than just the number - Jest loads this project's ESM dependencies through require(esm), which Node gained in 24.9, so on Node 22 every suite fails to load with "Must use import to load ES Module" while the app itself still starts. I hit it myself in this session by running jest without the --experimental-vm-modules flag the npm script passes.
+Verified myself, on the merged branch: 0 type errors (tsc --noEmit over src and test), lint clean, 930 unit tests over 52 suites, and 328 e2e tests over 27 suites in a full --runInBand run. The unit tests are 11 more than before: the three revocation call sites, the two "revokes nothing when the action failed" cases, and the ACC-08 pair in the e2e suite that proves a second login is signed out while the caller stays in. I did not reformat with prettier: it reports style issues in 49 files across the repo, almost none of them mine, and the enforced gate is oxlint.
+The most useful thing in this session came from cleaning up after myself rather than from the task. Deleting the rows my newman runs had created, I checked the sessions collection and every userId in it was a BSON string, while the schema declares @Prop({ type: Types.ObjectId }) - and 514 of 514 rows were strings, including ones written minutes earlier, so it was not old data from my abandoned ACC-08 branch. Plain Mongoose casts all three spellings of ObjectId correctly, so I compiled the two decorator spellings side by side with the project's own tsc and printed the path: through Nest's @Prop, type: Types.ObjectId gives a Mixed path and type: SchemaTypes.ObjectId gives ObjectId. A Mixed path casts nothing, so whatever you pass is stored as-is. All 22 id references in the repo used the first spelling. It works today only because each module is accidentally self-consistent: sessions pass strings everywhere, my collections wrap every id in new Types.ObjectId() so they hold real ObjectIds. The part that makes it worth reporting rather than shrugging at is ACC-11: ownerFilter and findOwnedOrThrow pass the plain string from the token and rely on the cast, and the helper's e2e test passes only because its probe schema declares Schema.Types.ObjectId. Pointed at any real collection in this repo it would have returned 404 for everything - a failure that reads as a working endpoint. I switched the five schemas I own, which is a no-op for the stored data and makes the helpers usable against them, and I left the Leader's sessions schema alone on purpose: casting there would stop matching the 514 string rows and log every teammate out, which is a data decision and his to time. The flights schemas are A1's and A2's, and BookingsPort will be written against them, so I reported those rather than editing eleven paths in someone else's module. The rule and a one-line way to check it (SomeSchema.path('userId').instance) are now in the README conventions.
+Running the whole Postman collection against a live server afterwards turned up three defects in the collection - mine, not the API's - and the worst one was the quiet kind. Folder 60 registered a fixed throwaway address and then deactivated it for good, so it worked exactly once per database. Folder 50 had the same fixed address but tolerated the 409, and because secondUserId is only set on a 201, its suspend, reactivate and reset requests skipped themselves on every later run while the folder still reported green - four assertions that had stopped running without telling anyone. And folder 50 request 09, an admin cannot suspend their own account, skipped on every run including the first, because nothing ever set adminUserId: one of the two guards that stop the platform being locked out of its own administration was never exercised. Both folders now generate their address per run the way folder 55 already did, and the admin sign-in captures its own id. A clean run is 77 requests, 174 assertions, 0 failures, exit 0, with one skip that explains itself. I also checked the 409 work in the generated document rather than trusting the decorators: /api/docs-json carries each dropdown, every example's code matches its name and its statusCode matches the response, and no CONFLICT placeholder is left anywhere.
+One more thing that first full run turned up, in the Leader's file rather than mine: npm run test:e2e exited 1 while all 328 tests passed. ownership.e2e-spec.ts queries only its own probe collection, so app.close() can run while the other models' Model.init() calls are still authenticating against Atlas, and the driver then loads a file after Jest has torn the environment down. It is a race, not a certainty - the run before it was clean - which is exactly the kind of thing that gets blamed on whoever merged last. swagger-docs.e2e-spec.ts had already hit it and documents the fix in a comment, so the repair was the same two lines in beforeAll, in its own commit that says whose file it is.
+================================================
+================================================
+Date: 2026-11-18
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: ACC-06, ACC-11 (fix: sessions.userId declared as a Mixed path)
+Prompt:
+Fix one bug class in my own code, in one branch and one PR, with a plan explained before any code: through Nest's @Prop, type: Types.ObjectId compiles to a Mixed path that casts nothing, so sessions stored userId as a string. Change it to SchemaTypes.ObjectId and lock it with a test; prove ownerFilter and findOwnedOrThrow cast a token's string id against a real app schema (the ACC-11 e2e test only used a probe schema that was already correct); add a repo-wide test that fails on any Mixed id reference, with the teammates' existing paths in a commented allowlist; touch no teammate's code and no Atlas data. Follow-up prompts chose the options below, asked to see the list of Mixed paths before the allowlist was written, and asked for a final full verification.
+How the output was used:
+I asked for a plan first and chose from it: the ACC-11 proof as a unit test that runs Mongoose's own casting (Query#cast) on the real Session schema, with no writes to the shared cluster; and the lockfile engines sync committed on its own. Each new test was checked against the old schema before committing: the two Session schema tests and the two ownership tests all fail on the Mixed path. Seeing the scanner's output before the allowlist was written mattered: my rule (names ending in Id, or a ref) missed createdBy and cancelledBy, so I extended it to names ending in By; the allowlist has 17 entries (12 declarations in src/flights/, five also nested in the booking schema), each marked as owned by A1/A2 to be fixed in their PR, and a second test fails if a fixed entry is left in the list. The scan also showed PaymentSchema.amount and RefundSchema.amount as Mixed (Types.Decimal128 has the same problem); that is C2's code, left untouched and listed as a follow-up. The first e2e runs failed only in the payments and refunds suites, because my local backend/.env lacked the Stripe placeholders the merged payments work needs; Claude Code traced it in the code without opening .env, and later confirmed both keys were set with a check that printed only true or false. Verified: tsc --noEmit clean, lint clean, unit tests 54 suites and 936 tests, e2e 27 suites and 328 tests (exit 0). Existing sessions store userId as a string and no longer match, so everyone signed in logs in again once; the e2e cleanups now really delete their test sessions. Commits: 7768e84, dcb1c0a, 6886491, a308a24; this entry is committed separately.
 ================================================
