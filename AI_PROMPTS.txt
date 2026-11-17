@@ -617,6 +617,24 @@ How the output was used:
 Before any code I decided the design: the owner check lives in the database filter (ownerFilter / findOwnedOrThrow), not a comparison after loading and not a guard or a permissions library; a missing resource, someone else's and a malformed id all give the same 404, so ids cannot be enumerated, and 403 is only for the wrong role; no admin bypass in the helper, because admin views are separate @Roles(ADMIN) endpoints; mustChangePassword is enforced in the same PR, with an opt-in decorator rather than a list of paths, login still succeeds, and other routes get 403 PASSWORD_CHANGE_REQUIRED. In review I accepted that the ownership e2e test calls the helper directly against a temporary collection, because no endpoint uses it yet, and that it stores userId as an ObjectId to prove Mongoose casts the string id from the token. I accepted keeping mustChangePassword inside the guard instead of adding it to AuthenticatedUser, which avoided another breaking change for my teammates' test fixtures. I read the guard diff line by line (status checked before the flag, public routes unaffected, the exemption compared with === true so it fails closed), and reviewed the README diff against the helper's signature, the BookingStatus enum and the guard's code and message. The README also corrects the JWT_SECRET note found in the ACC-06 review. Verified: tsc --noEmit, build and lint clean; unit tests 35 suites, 638 tests; e2e run locally: 18 suites, 132 tests. Commits: fc39081, db2d6a5, 40a48f3; this entry is committed separately.
 ================================================
 ================================================
+Date: 2026-11-12
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (create flight), FLT-02, GEN-06
+Prompt:
+Build POST /api/flights on feature/FLT-03-create-flight for an airline moderator: a CreateFlightDto with the local departure and arrival date-times, a FlightDto with the computed duration, and a FlightsService that takes the airline from airlineModeratorAssignment (never from the body), accepts only seeded airports through ReferenceDataService, converts both local times to UTC and computes departureDateKey with the GEN-06 helpers, rejects identical airports, a departure in the past, an arrival not after the departure in UTC and a duplicate flight number on the same departure date, and creates the flight SCHEDULED with no cabins. Use @Roles, @CurrentUser, @ApiCookieAuth and @ApiErrorResponse, register everything in FlightsModule, and add unit tests and a fake-service e2e test. Do not run the e2e tests that need Atlas and do not commit.
+How the output was used:
+I chose to make the endpoint moderator-only and to take the airline from the assignment so a moderator cannot create a flight for another airline. I read the generated files against FLT-03 and the schema, checked the UTC conversion and the local departureDateKey with my own examples (Cairo and Dubai in December, a flight after midnight in Cairo, a time skipped by the Egypt clock change), and ran prettier, the build, the linter and the unit tests (results in the PR). I tested nothing against Atlas yet because no moderator account or assignment exists in develop (ACC-13 and ACC-18 are missing). Cabins (FLT-04), editing (FLT-05) and cancelling (FLT-06) are left for later PRs.
+================================================
+================================================
+Date: 2026-11-17
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (review fix), ACC-15
+Prompt:
+Youssef reviewed PR #25 and asked that a moderator of a DEACTIVATED airline cannot create flights (403 with a clear code, a unit test and a Swagger example), and that the "How to test" text be updated because ACC-18 is already merged. I asked Claude Code to add the check.
+How the output was used:
+I added a check right after the assignment lookup in FlightsService.create: it reads the airline status and returns 403 AIRLINE_DEACTIVATED before any other lookup or insert. I added unit tests for a DEACTIVATED and an ACTIVE airline, added the example to the 403 ApiErrorResponse, and ran build, lint, unit and the filtered e2e tests. I updated the PR description myself. Cabins (FLT-04) get the same rule in their own PR.
 Date: 2026-11-17
 Student: Marawan Elgendy
 Tool: Claude Code
