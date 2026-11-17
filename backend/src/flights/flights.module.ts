@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
+import { FlightStatusJob } from './flight-status/flight-status.job';
+import { FlightStatusService } from './flight-status/flight-status.service';
 import {
   AirlineModeratorAssignment,
   AirlineModeratorAssignmentSchema,
@@ -14,8 +16,8 @@ import {
 import { Flight, FlightSchema } from './schemas/flight.schema';
 import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
-// Flights feature module. FLT-01 adds airlines and FLT-03 the flight model; later PRs add
-// the flight, cabin and policy endpoints here.
+// Flights feature module. FLT-01 adds airlines and FLT-03 the flight model and FLT-30 the
+// job that marks flights DEPARTED; later PRs add the flight, cabin and policy endpoints here.
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -29,7 +31,12 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     ]),
   ],
   controllers: [AirlinesController],
-  providers: [AirlinesService, SeatInventoryService],
-  exports: [AirlinesService, SeatInventoryService],
+  providers: [
+    AirlinesService,
+    FlightStatusService,
+    FlightStatusJob,
+    SeatInventoryService,
+  ],
+  exports: [AirlinesService, FlightStatusService, SeatInventoryService],
 })
 export class FlightsModule {}
