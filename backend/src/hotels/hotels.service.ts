@@ -531,9 +531,40 @@ export class HotelsService {
     moderatorId: string,
     hotelId: string,
   ): Promise<boolean> {
-    if (!Types.ObjectId.isValid(moderatorId)) return false;
-    const found = await this.assignmentModel.exists({ moderatorId, hotelId });
-    return found !== null;
+    const validModeratorId = Types.ObjectId.isValid(moderatorId);
+    const validHotelId = Types.ObjectId.isValid(hotelId);
+
+    if (!validModeratorId || !validHotelId) {
+      console.log('[B1 ASSIGNMENT DEBUG] Invalid IDs:', {
+        moderatorId,
+        hotelId,
+        validModeratorId,
+        validHotelId,
+      });
+      return false;
+    }
+
+    const filter = {
+      moderatorId: new Types.ObjectId(moderatorId),
+      hotelId: new Types.ObjectId(hotelId),
+    };
+
+    // Compare the normal Mongoose model query with a raw collection lookup.
+    // This is temporary diagnostic logging; remove it after the root cause is found.
+    const modelResult = await this.assignmentModel.exists(filter);
+    const rawResult = await this.assignmentModel.collection.findOne(filter);
+
+    console.log('[B1 ASSIGNMENT DEBUG]', {
+      moderatorId,
+      hotelId,
+      database: this.assignmentModel.db.name,
+      modelName: this.assignmentModel.modelName,
+      collection: this.assignmentModel.collection.name,
+      modelFound: modelResult !== null,
+      rawFound: rawResult !== null,
+    });
+
+    return modelResult !== null;
   }
 
   // cityId and countryId must be seeded, and the city must be in the country.
