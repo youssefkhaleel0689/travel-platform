@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { PassengerType, TripType } from '../../schemas/flight-booking.schema';
+import {
+  BookingStatus,
+  PassengerType,
+  TripType,
+} from '../../schemas/flight-booking.schema';
 import { CabinCategory } from '../../schemas/flight.schema';
 
 // Response shapes of the flight booking endpoints (FLT-19, FLT-21, FLT-22). Money is a
@@ -173,4 +177,32 @@ export class FlightBookingSummaryDto {
 
   @ApiProperty({ type: FlightBookingPriceDto })
   price: FlightBookingPriceDto;
+}
+
+// A stored booking: the hold (FLT-22) and later its confirmation (FLT-23).
+export class FlightBookingDto extends FlightBookingSummaryDto {
+  @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60720' })
+  id: string;
+
+  @ApiProperty({ enum: BookingStatus, example: BookingStatus.PENDING_PAYMENT })
+  status: BookingStatus;
+
+  @ApiProperty({
+    example: '2026-11-18T12:10:00.000Z',
+    description:
+      'End of the 10-minute hold. After it the booking can only become EXPIRED.',
+  })
+  holdExpiresAt: string;
+
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    type: String,
+    description:
+      'Generated when a verified payment confirms the booking (FLT-23).',
+  })
+  bookingReference: string | null;
+
+  @ApiProperty({ example: '2026-11-18T12:00:00.000Z' })
+  createdAt: string;
 }

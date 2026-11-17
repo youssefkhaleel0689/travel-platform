@@ -1,15 +1,20 @@
-import { HttpException } from '@nestjs/common';
-import type { Model } from 'mongoose';
+import { ConflictException, HttpException } from '@nestjs/common';
+import type { ClientSession, Connection, Model } from 'mongoose';
 import { Types } from 'mongoose';
+import { Role } from '../../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import type { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import {
+  BookingStatus,
+  FlightBooking,
   PassengerType,
   PolicySnapshot,
   TripType,
 } from '../schemas/flight-booking.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import type { FlightBookingRequestDto } from './dto/flight-booking-request.dto';
+import type { SeatInventoryService } from '../seat-inventory/seat-inventory.service';
 import { FlightBookingPolicyReader } from './flight-booking-policy.reader';
 import { FlightBookingsService } from './flight-bookings.service';
 
@@ -17,6 +22,14 @@ const NOW = new Date('2026-11-18T12:00:00.000Z');
 const AIRLINE_ID = new Types.ObjectId();
 const OUTBOUND_ID = new Types.ObjectId();
 const INBOUND_ID = new Types.ObjectId();
+const BOOKING_ID = new Types.ObjectId();
+const USER: AuthenticatedUser = {
+  userId: new Types.ObjectId().toString(),
+  role: Role.USER,
+  sessionId: '6720f1c2a1b2c3d4e5f60799',
+};
+// Stands in for the transaction's session; only its identity matters here.
+const SESSION = { id: 'test-session' } as unknown as ClientSession;
 
 const ZONES: Record<string, string> = {
   CAI: 'Africa/Cairo',
@@ -118,10 +131,15 @@ function roundTrip(overrides: Record<string, unknown> = {}) {
   });
 }
 
-// A query stand-in: session(), lean() and exec() resolve to the given result.
+// A query stand-in: session(), lean() and exec() resolve to the given result. Every
+// session() call is recorded, to prove the reads run inside the hold's transaction.
+const sessions: unknown[] = [];
 function query<R>(result: R) {
   const chain = {
-    session: () => chain,
+    session: (session: unknown) => {
+      sessions.push(session);
+      return chain;
+    },
     lean: () => chain,
     exec: () => Promise.resolve(result),
   };
@@ -169,13 +187,33 @@ function setup(
       }),
     );
   }
+  const bookingModel = {
+    create: jest.fn((docs: Partial<FlightBooking>[]) =>
+      Promise.resolve(
+        docs.map((doc) => ({
+          toObject: () => ({ _id: BOOKING_ID, createdAt: NOW, ...doc }),
+        })),
+      ),
+    ),
+  };
+  // Runs the callback once with the stand-in session, as a committed transaction would.
+  const connection = {
+    transaction: jest.fn((fn: (session: ClientSession) => Promise<unknown>) =>
+      fn(SESSION),
+    ),
+  };
+  const seatInventory = { hold: jest.fn(() => Promise.resolve()) };
+  sessions.length = 0;
   const service = new FlightBookingsService(
     flightModel as unknown as Model<Flight>,
     airlineModel as unknown as Model<Airline>,
+    bookingModel as unknown as Model<FlightBooking>,
+    connection as unknown as Connection,
+    seatInventory as unknown as SeatInventoryService,
     referenceData as unknown as ReferenceDataService,
     policies,
   );
-  return { service, flightModel, policies };
+  return { service, flightModel, policies, bookingModel, seatInventory };
 }
 
 async function failure(promise: Promise<unknown>): Promise<HttpException> {
@@ -526,5 +564,144 @@ describe('FlightBookingsService.summarize (FLT-19, FLT-21)', () => {
         maxExtraBagsPerPassenger: 2,
       });
     });
+  });
+});
+
+describe('FlightBookingsService.hold (FLT-22)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: NOW });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const bagPolicy = {
+    version: 2,
+    extraBagPrice: Types.Decimal128.fromString('25.00'),
+    maxExtraBagsPerPassenger: 2,
+  };
+
+  it('holds a seat per adult and child on every segment, inside the transaction', async () => {
+    const { service, seatInventory } = setup();
+    await service.hold(roundTrip({ passengers: [adult, adult, infant] }), USER);
+
+    expect(seatInventory.hold.mock.calls).toEqual([
+      [
+        { flightId: OUTBOUND_ID, category: CabinCategory.ECONOMY, seats: 2 },
+        SESSION,
+      ],
+      [
+        { flightId: INBOUND_ID, category: CabinCategory.ECONOMY, seats: 2 },
+        SESSION,
+      ],
+    ]);
+    // Every flight and airline read used the transaction's session.
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions.every((session) => session === SESSION)).toBe(true);
+  });
+
+  it('stores the booking with its snapshots for 10 minutes and returns it', async () => {
+    const { service, bookingModel } = setup({ policy: bagPolicy });
+    const booking = await service.hold(
+      request({
+        passengers: [
+          passenger({ extraBags: { count: 1, weightKg: 20 } }),
+          infant,
+        ],
+      }),
+      USER,
+    );
+
+    const [docs, options] = bookingModel.create.mock.calls[0] as unknown as [
+      Partial<FlightBooking>[],
+      { session: ClientSession },
+    ];
+    expect(options).toEqual({ session: SESSION });
+    const doc = docs[0];
+    expect(doc.userId?.toString()).toBe(USER.userId);
+    expect(doc.status).toBe(BookingStatus.PENDING_PAYMENT);
+    expect(doc.holdExpiresAt).toEqual(new Date('2026-11-18T12:10:00.000Z'));
+    expect(doc.segments?.[0]).toMatchObject({
+      flightId: OUTBOUND_ID,
+      airlineId: AIRLINE_ID,
+      cabinCategory: CabinCategory.ECONOMY,
+      seatsRequired: 1,
+    });
+    expect(doc.segments?.[0].cabinPrice.toString()).toBe('199.99');
+    expect(
+      doc.passengers?.map((p) => [
+        p.passengerType,
+        p.seatRequired,
+        p.fareAmount.toString(),
+      ]),
+    ).toEqual([
+      [PassengerType.ADULT, true, '199.99'],
+      [PassengerType.INFANT, false, '20.00'],
+    ]);
+    expect(doc.baggage).toHaveLength(1);
+    expect(doc.baggage?.[0].passengerId).toBe(doc.passengers?.[0]._id);
+    expect(doc.baggage?.[0].fee.toString()).toBe('25.00');
+    expect(doc.priceSnapshot?.total.toString()).toBe('244.99');
+    expect(doc.policySnapshot).toMatchObject({
+      airlineId: AIRLINE_ID,
+      version: 2,
+    });
+
+    expect(booking).toMatchObject({
+      id: BOOKING_ID.toString(),
+      status: BookingStatus.PENDING_PAYMENT,
+      holdExpiresAt: '2026-11-18T12:10:00.000Z',
+      bookingReference: null,
+      createdAt: NOW.toISOString(),
+      price: {
+        subtotal: '219.99',
+        baggageTotal: '25.00',
+        total: '244.99',
+        currency: 'USD',
+      },
+    });
+    expect(booking.passengers[0]).toMatchObject({
+      documentNumber: '•••••5678',
+      extraBags: { count: 1, weightKg: 20, fee: '25.00' },
+    });
+    expect(booking.segments[0].departureLocalTime).toBe(
+      '2026-12-20T08:30:00+02:00',
+    );
+  });
+
+  it('holds and stores nothing when the request does not pass the checks', async () => {
+    const { service, seatInventory, bookingModel } = setup();
+    const error = await failure(
+      service.hold(
+        request({ passengers: [passenger({ dateOfBirth: '2018-01-01' })] }),
+        USER,
+      ),
+    );
+
+    expect(error.getResponse()).toMatchObject({
+      code: 'PASSENGER_TYPE_MISMATCH',
+    });
+    expect(seatInventory.hold).not.toHaveBeenCalled();
+    expect(bookingModel.create).not.toHaveBeenCalled();
+  });
+
+  it('stores nothing when a segment cannot be held: the transaction aborts', async () => {
+    const { service, seatInventory, bookingModel } = setup();
+    seatInventory.hold
+      .mockImplementationOnce(() => Promise.resolve())
+      .mockImplementationOnce(() =>
+        Promise.reject(
+          new ConflictException({
+            code: 'SEAT_UNAVAILABLE',
+            message: 'No seats left in ECONOMY',
+          }),
+        ),
+      );
+    const error = await failure(service.hold(roundTrip(), USER));
+
+    expect(error.getStatus()).toBe(409);
+    expect(seatInventory.hold).toHaveBeenCalledTimes(2);
+    expect(bookingModel.create).not.toHaveBeenCalled();
   });
 });

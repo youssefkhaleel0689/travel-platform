@@ -4,13 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import type { ClientSession, Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Types } from 'mongoose';
+import type { ClientSession, Connection, Model } from 'mongoose';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import type { FieldErrorDto } from '../../common/dto/error-response.dto';
-import { decimal128ToString } from '../../common/money/money';
+import {
+  decimal128ToString,
+  HOLD_MINUTES,
+  PLATFORM_CURRENCY,
+  toDecimal128,
+} from '../../common/money/money';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import {
+  BookingStatus,
+  FlightBooking,
   PassengerType,
   PolicySnapshot,
   TripType,
@@ -21,7 +30,10 @@ import type {
   PassengerDto,
   SegmentChoiceDto,
 } from './dto/flight-booking-request.dto';
-import type { FlightBookingSummaryDto } from './dto/flight-booking-response.dto';
+import type {
+  FlightBookingDto,
+  FlightBookingSummaryDto,
+} from './dto/flight-booking-response.dto';
 import { FlightBookingPolicyReader } from './flight-booking-policy.reader';
 import {
   BookingPrice,
@@ -32,8 +44,10 @@ import {
   moneyString,
   SegmentView,
   SummaryView,
+  toBookingDto,
   toSummaryDto,
 } from './flight-booking.mapper';
+import { SeatInventoryService } from '../seat-inventory/seat-inventory.service';
 
 /** One flight of a quote, read in the same session as the seats it will hold. */
 interface QuotedSegment {
@@ -56,6 +70,8 @@ export interface Quote {
   policy: PolicySnapshot;
 }
 
+const MINUTE_MS = 60_000;
+
 function errorBody(
   code: string,
   message: string,
@@ -75,6 +91,10 @@ export class FlightBookingsService {
   constructor(
     @InjectModel(Flight.name) private readonly flightModel: Model<Flight>,
     @InjectModel(Airline.name) private readonly airlineModel: Model<Airline>,
+    @InjectModel(FlightBooking.name)
+    private readonly bookingModel: Model<FlightBooking>,
+    @InjectConnection() private readonly connection: Connection,
+    private readonly seatInventory: SeatInventoryService,
     private readonly referenceData: ReferenceDataService,
     private readonly policies: FlightBookingPolicyReader,
   ) {}
@@ -85,6 +105,38 @@ export class FlightBookingsService {
   ): Promise<FlightBookingSummaryDto> {
     const quote = await this.quote(dto, new Date());
     return toSummaryDto(this.quoteView(quote));
+  }
+
+  /**
+   * FLT-22: holds the seats for 10 minutes and creates the PENDING_PAYMENT booking, in one
+   * transaction. The quote is re-read inside it, so the stored prices and times are the
+   * ones the seats were held at; if any segment cannot be held (a full return flight), no
+   * segment is held and nothing is stored.
+   */
+  async hold(
+    dto: FlightBookingRequestDto,
+    user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    const now = new Date();
+    const booking = await this.connection.transaction(async (session) => {
+      const quote = await this.quote(dto, now, session);
+      for (const segment of quote.segments) {
+        await this.seatInventory.hold(
+          {
+            flightId: segment.flight._id,
+            category: segment.cabin.category,
+            seats: quote.seats,
+          },
+          session,
+        );
+      }
+      const [created] = await this.bookingModel.create(
+        [this.newBooking(quote, user, now)],
+        { session },
+      );
+      return created.toObject<FlightBooking>();
+    });
+    return this.toDto(booking);
   }
 
   /**
@@ -337,6 +389,123 @@ export class FlightBookingsService {
         ),
       );
     }
+  }
+
+  // The booking document: snapshots of the flights, passengers, prices and policy as they
+  // were when the seats were held. The owner comes from the login, never from the body.
+  private newBooking(
+    quote: Quote,
+    user: AuthenticatedUser,
+    now: Date,
+  ): Partial<FlightBooking> {
+    const passengers = quote.passengers.map((passenger, index) => ({
+      _id: new Types.ObjectId(),
+      fullName: passenger.fullName,
+      dateOfBirth: passenger.dateOfBirth,
+      passengerType: passenger.passengerType,
+      documentNumber: passenger.documentNumber,
+      fareAmount: toDecimal128(quote.price.fares[index]),
+      seatRequired: passenger.passengerType !== PassengerType.INFANT,
+    }));
+    const baggage = quote.passengers.flatMap((passenger, index) =>
+      passenger.extraBags
+        ? [
+            {
+              passengerId: passengers[index]._id,
+              extraBagCount: passenger.extraBags.count,
+              extraBagWeightKg: passenger.extraBags.weightKg,
+              fee: toDecimal128(quote.price.bagFees[index]),
+            },
+          ]
+        : [],
+    );
+    return {
+      userId: new Types.ObjectId(user.userId),
+      tripType: quote.tripType,
+      status: BookingStatus.PENDING_PAYMENT,
+      holdExpiresAt: new Date(now.getTime() + HOLD_MINUTES * MINUTE_MS),
+      segments: quote.segments.map(({ flight, cabin }) => ({
+        flightId: flight._id,
+        airlineId: flight.airlineId,
+        flightNumber: flight.flightNumber,
+        departureAirportId: flight.departureAirportId,
+        arrivalAirportId: flight.arrivalAirportId,
+        departureAtUtc: flight.departureAtUtc,
+        arrivalAtUtc: flight.arrivalAtUtc,
+        cabinCategory: cabin.category,
+        seatsRequired: quote.seats,
+        cabinPrice: cabin.price,
+        freeBaggageCount: cabin.freeBaggageCount,
+        maxBagWeightKg: cabin.maxBagWeightKg,
+      })),
+      passengers,
+      baggage,
+      priceSnapshot: {
+        subtotal: toDecimal128(quote.price.subtotal),
+        baggageTotal: toDecimal128(quote.price.baggageTotal),
+        total: toDecimal128(quote.price.total),
+        currency: PLATFORM_CURRENCY,
+      },
+      policySnapshot: quote.policy,
+    };
+  }
+
+  /** A stored booking as the API returns it, with local times at each airport. */
+  async toDto(booking: FlightBooking): Promise<FlightBookingDto> {
+    const zones = new Map<string, string>();
+    for (const segment of booking.segments) {
+      for (const id of [segment.departureAirportId, segment.arrivalAirportId]) {
+        if (!zones.has(id)) {
+          zones.set(
+            id,
+            (await this.referenceData.getAirportOrThrow(id)).timeZone,
+          );
+        }
+      }
+    }
+    const bags = new Map(
+      booking.baggage.map((bag) => [bag.passengerId.toString(), bag]),
+    );
+    const view: SummaryView = {
+      tripType: booking.tripType,
+      segments: booking.segments.map((segment) => ({
+        flightId: segment.flightId,
+        airlineId: segment.airlineId,
+        flightNumber: segment.flightNumber,
+        departureAirportId: segment.departureAirportId,
+        arrivalAirportId: segment.arrivalAirportId,
+        departureAtUtc: segment.departureAtUtc,
+        arrivalAtUtc: segment.arrivalAtUtc,
+        cabin: segment.cabinCategory,
+        pricePerSeat: moneyString(segment.cabinPrice),
+        freeBaggageCount: segment.freeBaggageCount,
+        maxBagWeightKg: segment.maxBagWeightKg,
+        departureTimeZone: zones.get(segment.departureAirportId) as string,
+        arrivalTimeZone: zones.get(segment.arrivalAirportId) as string,
+      })),
+      passengers: booking.passengers.map((passenger) => {
+        const bag = bags.get(passenger._id.toString());
+        return {
+          fullName: passenger.fullName,
+          dateOfBirth: passenger.dateOfBirth,
+          passengerType: passenger.passengerType,
+          documentNumber: passenger.documentNumber,
+          fare: moneyString(passenger.fareAmount),
+          extraBags: bag
+            ? {
+                count: bag.extraBagCount,
+                weightKg: bag.extraBagWeightKg,
+                fee: moneyString(bag.fee),
+              }
+            : null,
+        };
+      }),
+      policy: booking.policySnapshot,
+      subtotal: moneyString(booking.priceSnapshot.subtotal),
+      baggageTotal: moneyString(booking.priceSnapshot.baggageTotal),
+      total: moneyString(booking.priceSnapshot.total),
+    };
+    return toBookingDto(booking, view);
   }
 
   private quoteView(quote: Quote): SummaryView {

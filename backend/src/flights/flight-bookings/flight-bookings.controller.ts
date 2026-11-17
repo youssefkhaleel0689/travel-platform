@@ -9,11 +9,14 @@ import {
 import {
   ApiBody,
   ApiCookieAuth,
+  ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { Role } from '../../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { Roles } from '../../common/auth/roles.decorator';
 import {
   ApiErrorResponse,
@@ -24,10 +27,14 @@ import {
   unauthenticated,
 } from '../../common/swagger/standard-errors';
 import { FlightBookingRequestDto } from './dto/flight-booking-request.dto';
-import { FlightBookingSummaryDto } from './dto/flight-booking-response.dto';
+import {
+  FlightBookingDto,
+  FlightBookingSummaryDto,
+} from './dto/flight-booking-response.dto';
 import { FlightBookingsService } from './flight-bookings.service';
 
 const SUMMARY_PATH = '/api/flight-bookings';
+const HOLD_PATH = '/api/flight-bookings/hold';
 
 // The errors the summary and the hold share: both check the same request against the
 // same flights (FLT-19, FLT-21, FLT-22).
@@ -193,5 +200,27 @@ export class FlightBookingsController {
     @Body() dto: FlightBookingRequestDto,
   ): Promise<FlightBookingSummaryDto> {
     return this.bookings.summarize(dto);
+  }
+
+  @Post('hold')
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'Hold the seats for 10 minutes (FLT-22)',
+    description:
+      'Same body as the summary. In one transaction it checks and prices the request ' +
+      'again, holds a seat per adult and child on every segment and creates the booking ' +
+      'in PENDING_PAYMENT with holdExpiresAt 10 minutes ahead. If any segment is full, ' +
+      'no seat is held at all. Then accept the policies (GET and POST ' +
+      '/api/bookings/flight/{id}/policies) and pay (POST /api/payments). An unpaid hold ' +
+      'expires and its seats are released.',
+  })
+  @ApiBody({ type: FlightBookingRequestDto })
+  @ApiCreatedResponse({ type: FlightBookingDto })
+  @ApiBookingRequestErrors(HOLD_PATH)
+  hold(
+    @Body() dto: FlightBookingRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    return this.bookings.hold(dto, user);
   }
 }

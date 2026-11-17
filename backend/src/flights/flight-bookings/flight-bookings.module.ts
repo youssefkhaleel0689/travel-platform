@@ -7,6 +7,7 @@ import {
   FlightBookingSchema,
 } from '../schemas/flight-booking.schema';
 import { Flight, FlightSchema } from '../schemas/flight.schema';
+import { FlightsModule } from '../flights.module';
 import { FlightBookingPolicyReader } from './flight-booking-policy.reader';
 import { FlightBookingsController } from './flight-bookings.controller';
 import { FlightBookingsService } from './flight-bookings.service';
@@ -20,6 +21,8 @@ import { FlightBookingsService } from './flight-bookings.service';
       { name: Flight.name, schema: FlightSchema },
       { name: FlightBooking.name, schema: FlightBookingSchema },
     ]),
+    // SeatInventoryService: the only code that writes the seat counters (FLT-22).
+    FlightsModule,
     ReferenceDataModule,
   ],
   controllers: [FlightBookingsController],

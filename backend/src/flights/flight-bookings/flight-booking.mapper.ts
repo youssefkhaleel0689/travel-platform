@@ -5,12 +5,14 @@ import {
 } from '../../common/money/money';
 import { toAirportLocalIso } from '../../common/time/airport-time';
 import type {
+  FlightBooking,
   PassengerType,
   PolicySnapshot,
   TripType,
 } from '../schemas/flight-booking.schema';
 import type { CabinCategory } from '../schemas/flight.schema';
 import type {
+  FlightBookingDto,
   FlightBookingPassengerDto,
   FlightBookingPolicyDto,
   FlightBookingSegmentDto,
@@ -150,5 +152,25 @@ export function toSummaryDto(view: SummaryView): FlightBookingSummaryDto {
       total: view.total,
       currency: PLATFORM_CURRENCY,
     },
+  };
+}
+
+/** A stored booking, shown the same way as its summary plus its state. */
+export function toBookingDto(
+  booking: FlightBooking,
+  view: SummaryView,
+): FlightBookingDto {
+  const summary = toSummaryDto(view);
+  return {
+    id: booking._id.toString(),
+    status: booking.status,
+    holdExpiresAt: booking.holdExpiresAt.toISOString(),
+    bookingReference: booking.bookingReference ?? null,
+    createdAt: booking.createdAt.toISOString(),
+    tripType: summary.tripType,
+    segments: summary.segments,
+    passengers: summary.passengers,
+    policy: summary.policy,
+    price: summary.price,
   };
 }
