@@ -372,3 +372,13 @@ Build POST /api/flights on feature/FLT-03-create-flight for an airline moderator
 How the output was used:
 I chose to make the endpoint moderator-only and to take the airline from the assignment so a moderator cannot create a flight for another airline. I read the generated files against FLT-03 and the schema, checked the UTC conversion and the local departureDateKey with my own examples (Cairo and Dubai in December, a flight after midnight in Cairo, a time skipped by the Egypt clock change), and ran prettier, the build, the linter and the unit tests (results in the PR). I tested nothing against Atlas yet because no moderator account or assignment exists in develop (ACC-13 and ACC-18 are missing). Cabins (FLT-04), editing (FLT-05) and cancelling (FLT-06) are left for later PRs.
 ================================================
+================================================
+Date: 2026-11-17
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-03 (review fix), ACC-15
+Prompt:
+Youssef reviewed PR #25 and asked that a moderator of a DEACTIVATED airline cannot create flights (403 with a clear code, a unit test and a Swagger example), and that the "How to test" text be updated because ACC-18 is already merged. I asked Claude Code to add the check.
+How the output was used:
+I added a check right after the assignment lookup in FlightsService.create: it reads the airline status and returns 403 AIRLINE_DEACTIVATED before any other lookup or insert. I added unit tests for a DEACTIVATED and an ACTIVE airline, added the example to the 403 ApiErrorResponse, and ran build, lint, unit and the filtered e2e tests. I updated the PR description myself. Cabins (FLT-04) get the same rule in their own PR.
+================================================

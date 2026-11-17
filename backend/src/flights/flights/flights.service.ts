@@ -13,6 +13,7 @@ import {
   toUtcFromAirportLocal,
 } from '../../common/time/airport-time';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
+import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import { Flight, FlightStatus } from '../schemas/flight.schema';
 import { CreateFlightDto } from './dto/create-flight.dto';
 import { FlightDto } from './dto/flight.dto';
@@ -50,6 +51,7 @@ export class FlightsService {
     @InjectModel(Flight.name) private readonly flightModel: Model<Flight>,
     @InjectModel(AirlineModeratorAssignment.name)
     private readonly assignmentModel: Model<AirlineModeratorAssignment>,
+    @InjectModel(Airline.name) private readonly airlineModel: Model<Airline>,
     private readonly referenceData: ReferenceDataService,
   ) {}
 
@@ -58,13 +60,15 @@ export class FlightsService {
    * Date-times are entered in each airport's local time and stored in UTC. Rejects
    * identical airports, an unknown airport, an arrival not after the departure (compared
    * in UTC), a departure in the past, and a duplicate airline + flight number + departure
-   * date. Cabins are added later (FLT-04).
+   * date. A DEACTIVATED airline cannot add flights (ACC-15, team leader decision).
+   * Cabins are added later (FLT-04).
    */
   async create(
     dto: CreateFlightDto,
     actor: AuthenticatedUser,
   ): Promise<FlightDto> {
     const airlineId = await this.assignedAirlineId(actor);
+    await this.assertAirlineActive(airlineId);
 
     if (dto.departureAirportId === dto.arrivalAirportId) {
       throw fieldError(
@@ -146,6 +150,24 @@ export class FlightsService {
         });
       }
       throw error;
+    }
+  }
+
+  // ACC-15: a deactivated airline is hidden from search and cannot be booked, so its
+  // moderator cannot add flights either. Checked right after the assignment lookup.
+  private async assertAirlineActive(
+    airlineId: Flight['airlineId'],
+  ): Promise<void> {
+    const airline = await this.airlineModel
+      .findById(airlineId)
+      .select('status')
+      .lean<Pick<Airline, 'status'>>()
+      .exec();
+    if (airline?.status === AirlineStatus.DEACTIVATED) {
+      throw new ForbiddenException({
+        code: 'AIRLINE_DEACTIVATED',
+        message: 'Your airline is deactivated and cannot add flights',
+      });
     }
   }
 
