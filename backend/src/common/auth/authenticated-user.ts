@@ -9,6 +9,12 @@ import { Role } from './auth.enums';
 export interface AuthenticatedUser {
   userId: string;
   role: Role;
+  /**
+   * The current session (ACC-06), taken by the guard from the verified token's sid only;
+   * never from the body, query, params or another header. Logout and a password change
+   * (ACC-08, keep this session) use it.
+   */
+  sessionId: string;
 }
 
 // No installed type package declares Request.user (there is no @types/passport), so it is
