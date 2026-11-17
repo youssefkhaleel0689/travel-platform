@@ -1699,7 +1699,7 @@
                 "reset-password"
               ]
             },
-            "description": "ACC-07a. 200, not 201: nothing is created. The temporary password is shown once and stored only as a hash.\n\nTo see the lockout it causes: log in as that account with the temporary password, call GET /api/users/me and get 403 PASSWORD_CHANGE_REQUIRED, then PATCH /api/auth/change-password and watch the rest of the API open up. The old password no longer logs in.\n\nThe cookie the account already held keeps working as a token - it is stateless until ACC-06 - but the guard refuses every route except change-password, so the reset takes effect immediately anyway."
+            "description": "ACC-07a. 200, not 201: nothing is created. The temporary password is shown once and stored only as a hash.\n\nTo see the lockout it causes: log in as that account with the temporary password, call GET /api/users/me and get 403 PASSWORD_CHANGE_REQUIRED, then PATCH /api/auth/change-password and watch the rest of the API open up. The old password no longer logs in.\n\nThe reset also ends every session the account had (ACC-06), so a device that was signed in before it answers 401 and has to sign in again with the temporary password."
           },
           "event": [
             {
