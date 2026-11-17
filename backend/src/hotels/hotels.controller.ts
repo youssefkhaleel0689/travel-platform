@@ -36,6 +36,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { createReadStream } from 'node:fs';
+import { normaliseUser } from '../common/auth/auth-user';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { ApiPaginatedResponse } from '../common/pagination/api-paginated-response.decorator';
 import { PageDto } from '../common/pagination/dto/page.dto';
@@ -49,17 +50,25 @@ import {
   HOTEL_PHOTO_MIME_TYPES,
 } from './schemas/hotel.schema';
 
-// The auth guard (C2) sets req.user = { id, role } on authenticated requests.
-type RequestWithActor = Request & { user?: HotelActor };
+// Reuse the shared auth normalizer so B1 accepts the agreed Auth shape and
+// compatible id aliases without duplicating authentication parsing here.
+type RequestWithActor = Request & { user?: unknown };
+
+function toHotelActor(rawUser: unknown): HotelActor | undefined {
+  const user = normaliseUser(rawUser);
+  if (!user) return undefined;
+  return { id: user.userId, role: user.role };
+}
 
 function requireActor(req: RequestWithActor): HotelActor {
-  if (!req.user) {
+  const actor = toHotelActor(req.user);
+  if (!actor) {
     throw new UnauthorizedException({
       code: 'UNAUTHORIZED',
       message: 'Login required',
     });
   }
-  return req.user;
+  return actor;
 }
 
 const HOTEL_ID_PARAM = {
@@ -126,7 +135,7 @@ export class HotelsController {
     @Param('id') id: string,
     @Req() req: RequestWithActor,
   ): Promise<HotelResponseDto> {
-    return this.hotelsService.findById(id, req.user);
+    return this.hotelsService.findById(id, toHotelActor(req.user));
   }
 
   @Patch(':id')
@@ -230,7 +239,11 @@ export class HotelsController {
     @Param('photoId') photoId: string,
     @Req() req: RequestWithActor,
   ): Promise<StreamableFile> {
-    const photo = await this.hotelsService.getPhotoFile(id, photoId, req.user);
+    const photo = await this.hotelsService.getPhotoFile(
+      id,
+      photoId,
+      toHotelActor(req.user),
+    );
     return new StreamableFile(createReadStream(photo.path), {
       type: photo.mimeType,
       length: photo.sizeBytes,
