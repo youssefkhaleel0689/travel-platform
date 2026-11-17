@@ -8,12 +8,13 @@ import { ReferenceDataModule } from './common/reference-data/reference-data.modu
 import { FlightsModule } from './flights/flights.module';
 
 // B2 (Hotel side)
-import { HotelSearchModule } from './hotel-search/hotel-search.module';
-import { RoomsModule } from './rooms/rooms.module';
-import { AvailabilityModule } from './availability/availability.module';
-import { HotelPoliciesModule } from './hotel-policies/hotel-policies.module';
-import { HotelBookingsModule } from './hotel-bookings/hotel-bookings.module';
-import { ReviewsModule } from './reviews/reviews.module';
+import { HotelsModule } from './hotels/hotels.module';
+import { HotelSearchModule } from './hotels/search/hotel-search.module';
+import { RoomsModule } from './hotels/rooms/rooms.module';
+import { AvailabilityModule } from './hotels/availability/availability.module';
+import { HotelPoliciesModule } from './hotels/policies/hotel-policies.module';
+import { HotelBookingsModule } from './hotels/bookings/hotel-bookings.module';
+import { ReviewsModule } from './hotels/reviews/reviews.module';
 
 @Module({
   imports: [
@@ -25,8 +26,9 @@ import { ReviewsModule } from './reviews/reviews.module';
       }),
     }),
 
-    // HotelSearchModule must stay before B1's hotels module so GET /hotels/search
-    // is registered before GET /hotels/:id.
+    // HotelSearchModule must stay before a future GET /hotels/:id controller so
+    // GET /hotels/search is registered first.
+    HotelsModule,
     HotelSearchModule,
     RoomsModule,
     AvailabilityModule,
