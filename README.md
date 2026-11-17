@@ -109,7 +109,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
 | `501 BOOKING_TYPE_UNAVAILABLE` | No booking module provides a `BookingsPort` yet; expected until A1 or B2 lands |
-| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a hotel moderator; expected until the hotels module (HTL-01) lands |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a moderator of a provider type whose module is not wired (both airline and hotel are wired now) |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `querySrv ECONNREFUSED` | Your machine's DNS resolver will not answer the SRV lookup `mongodb+srv://` needs. Use the non-SRV form of the string (`mongodb://host1,host2,host3/db?replicaSet=...&authSource=admin&ssl=true`) in your own `.env` |
@@ -809,7 +809,7 @@ Every route requires a logged-in user unless it is marked `@Public()`. The two g
 | `@OptionalUser()` | Parameter: the logged-in user or `undefined`, for public routes that behave differently for a logged-in user |
 | `@AllowWhenPasswordChangeRequired()` | On a method or a class: a user who must change the password may still call it (see "Password change required (ACC-07a, ACC-13)") |
 
-Example (illustration only: the hotels module does not exist yet):
+Example (illustration only, simplified from the real hotels module):
 
 ~~~
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
@@ -940,7 +940,13 @@ Why two parallel holds cannot take the last room: `InventoryService.lockRooms()`
 
 Run `npm run seed:hotels` after `npm run seed` and `npm run seed:admin` to load demo hotels and rooms in the seeded reference cities, so every hotel endpoint has data in Swagger. The seed is idempotent and needs `ADMIN_EMAIL` in `backend/.env` for `createdBy`.
 
-C2 integration: hotel reservations are exposed to the Payments module through the `HOTEL_BOOKINGS_PORT` provider in `src/hotel-bookings/hotel-bookings.port.ts`. Its `confirmAfterPayment(bookingId, paymentId)` mirrors C2's shared `BookingsPort` contract and returns `{ bookingId, status, bookingReference }`; a repeated webhook returns the same reference and does not confirm twice. PAY-02 policy acceptance is checked when C2 creates the Payment, so confirmation does not read an acceptance id from the hotel booking.
+How the hotel side fits together:
+
+- **One hotel module.** `src/hotels/` (HTL-01) owns the `hotels` and `hotelModeratorAssignment` collections. Rooms, availability, policies, search, reservations and reviews read hotels only through the `HotelsService` it exports: `getActiveHotelOrThrow`, `assertManagesHotel` (the assigned moderator, or an admin where `allowAdmin` is set), `findActiveByCityOrCountry`, `briefs` and `setRatingAggregate`.
+- **Payments (PAY-01, PAY-02).** Hotel reservations implement the shared `BookingsPort` in `src/hotel-bookings/hotel-bookings.port.ts`, provided as `HOTEL_BOOKINGS_PORT` by the global `HotelBookingsModule`. Statuses and port types come from `src/common/bookings/`, never from a copy. `confirmAfterPayment` is idempotent: a repeated webhook returns the same reference. The Stripe webhook sends the `BOOKING_CONFIRMED` notice, so the hotel side does not send it again.
+- **Hold expiry.** The hotel worker marks expired holds `EXPIRED`. C2's `PaymentExpiryService` then cancels the open PaymentIntent of any booking that is no longer payable.
+- **Refunds (HTL-21, PAY-03).** A cancellation calls C2's `RefundsService.issueForCancellation` through `HotelPaymentsAdapter` (`src/hotel-bookings/hotel-integration.adapters.ts`). The adapter looks `RefundsService` up when a refund is needed instead of injecting it, which breaks the provider cycle gateway → hotel port → hotel bookings → refunds → payments → gateway without `forwardRef`. A failed Stripe refund is recorded as `FAILED` and never undoes the cancellation.
+- **Notifications (GEN-01).** `HotelNotificationsAdapter` sends the cancellation notice through `NotificationsService`.
 ## Flight search (FLT-11, FLT-12, FLT-15)
 
 `GET /api/flights/search` is public, so guests and logged-in users can both use it. It lists the SCHEDULED flights of ACTIVE airlines that have not departed yet, on the departure date at the departure airport, that have a cabin with a free seat for every adult and child. Each result shows only the cabins that match the search. The code is in `src/flights/flight-search/`.
@@ -1140,11 +1146,10 @@ declares the two methods (`assertAssignable`, `assign`) and
 `ModeratorAssignmentsGateway` routes a role to the module that owns it, the same
 shape as `BookingsPort`. The airline side is wired today by
 `AirlineModeratorAssignmentAdapter`, on top of the `AirlinesService` that
-`FlightsModule` exports. `HOTEL_MODERATOR_ASSIGNMENT_PORT` is deliberately
-unprovided until the hotels module exists (B1, HTL-01), so asking for a hotel
-moderator answers **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of the app
-refusing to start. Providing that token in `HotelsModule` is all it takes to
-finish the hotel half; nothing in administration changes.
+`FlightsModule` exports, and the hotel side by `HotelModeratorAssignmentAdapter`,
+on top of the `HotelsService` that `HotelsModule` exports. A provider type whose
+module is not wired would answer **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of
+the app refusing to start.
 
 ## Notifications (GEN-01)
 
@@ -1195,7 +1200,8 @@ Anything else, **including a state to itself**, is refused by `assertBookingTran
 Payments and account deactivation never read or write a booking collection. They ask the module that owns it through one interface, which is what lets them be built and tested before those collections exist, and keeps the seat and room rules inside the module that owns them.
 
 ~~~
-// flights.module.ts (A1). hotels.module.ts (B2) is the same with HOTEL_BOOKINGS_PORT.
+// flights.module.ts (A1). hotel-bookings.module.ts is the same with HOTEL_BOOKINGS_PORT.
+@Global()
 @Module({
   providers: [
     FlightBookingsPortAdapter,
@@ -1205,6 +1211,8 @@ Payments and account deactivation never read or write a booking collection. They
 })
 export class FlightsModule {}
 ~~~
+
+The module that provides a port must be `@Global()`. `BookingsGateway` lives in `BookingsModule` under `src/common/`, which must not import a feature module, and Nest only resolves a provider from a module's own imports or from a global module. Without `@Global()` the gateway's optional port stays empty and that booking type answers 501. `HotelBookingsModule` does this for `HOTEL_BOOKINGS_PORT`.
 
 `BookingsPort` has five methods:
 
