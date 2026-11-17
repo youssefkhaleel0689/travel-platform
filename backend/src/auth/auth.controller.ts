@@ -23,6 +23,7 @@ import {
   CurrentUser,
   OptionalUser,
 } from '../common/auth/current-user.decorator';
+import { AllowWhenPasswordChangeRequired } from '../common/auth/password-change.decorator';
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
@@ -231,6 +232,8 @@ export class AuthController {
   }
 
   @Get('me')
+  // A user who must change the password still needs to learn who is logged in.
+  @AllowWhenPasswordChangeRequired()
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary: 'Who is logged in (ACC-04, ACC-19)',
