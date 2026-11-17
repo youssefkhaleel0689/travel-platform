@@ -10,7 +10,9 @@ import { Session, SessionSchema } from './session.schema';
 // path (what `type: Types.ObjectId` compiles to through @Prop) it would stay a string and
 // never match an ObjectId row. Query#cast() runs the same casting Mongoose runs before
 // sending a query, so these tests fail on a Mixed userId.
-const SessionModel = model(`${Session.name}OwnershipProbe`, SessionSchema);
+// Typed as Model<Session>, the type findOwnedOrThrow takes; inferring it from the
+// schema would add the `id` virtual to the type and not match.
+const SessionModel = model<Session>(`${Session.name}OwnershipProbe`, SessionSchema);
 
 const OWNER_ID = new Types.ObjectId();
 const SESSION_ID = new Types.ObjectId();
