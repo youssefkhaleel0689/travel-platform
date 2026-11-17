@@ -2,6 +2,7 @@ import { ExecutionContext, HttpException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role, UserStatus } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { AllowWhenPasswordChangeRequired } from '../../common/auth/password-change.decorator';
 import { Public } from '../../common/auth/public.decorator';
 import type { SessionsService } from '../sessions/sessions.service';
 import type { AccessTokenService } from '../tokens/access-token.service';
@@ -33,6 +34,14 @@ class ProtectedController {
 
   @Public()
   publicRoute(this: void): void {}
+
+  @AllowWhenPasswordChangeRequired()
+  allowedRoute(this: void): void {}
+}
+
+@AllowWhenPasswordChangeRequired()
+class AllowedController {
+  route(this: void): void {}
 }
 
 @Public()
@@ -103,6 +112,14 @@ const publicMethod = (request: FakeRequest) =>
   );
 const publicClass = (request: FakeRequest) =>
   contextFor(PublicController, PublicController.prototype.route, request);
+const allowedMethod = (request: FakeRequest) =>
+  contextFor(
+    ProtectedController,
+    ProtectedController.prototype.allowedRoute,
+    request,
+  );
+const allowedClass = (request: FakeRequest) =>
+  contextFor(AllowedController, AllowedController.prototype.route, request);
 
 async function rejection(promise: Promise<unknown>): Promise<HttpException> {
   try {
@@ -280,5 +297,100 @@ describe('JwtAuthGuard on a protected route (ACC-04, ACC-19)', () => {
     await guard.canActivate(protectedRoute(request));
     expect(users.findById).toHaveBeenCalledWith(otherId);
     expect(request.user?.userId).toBe(otherId);
+  });
+});
+
+describe('JwtAuthGuard and mustChangePassword (ACC-11)', () => {
+  const MUST_CHANGE = profile({ mustChangePassword: true });
+  const goodCookie = (): FakeRequest => ({
+    cookies: { access_token: GOOD_TOKEN },
+  });
+
+  it('blocks a protected route with 403 PASSWORD_CHANGE_REQUIRED', async () => {
+    const { guard } = setup({ stored: MUST_CHANGE });
+    const request = goodCookie();
+    const error = await rejection(guard.canActivate(protectedRoute(request)));
+    expect(error.getStatus()).toBe(403);
+    expect(error.getResponse()).toEqual({
+      code: 'PASSWORD_CHANGE_REQUIRED',
+      message: 'password change required',
+    });
+    expect(request.user).toBeUndefined();
+  });
+
+  it.each([
+    ['on the method', allowedMethod],
+    ['on the class', allowedClass],
+  ])(
+    'allows a route marked @AllowWhenPasswordChangeRequired() %s',
+    async (_label, context) => {
+      const { guard } = setup({ stored: MUST_CHANGE });
+      const request = goodCookie();
+      await expect(guard.canActivate(context(request))).resolves.toBe(true);
+      expect(request.user).toEqual({
+        userId: USER_ID,
+        role: Role.AIRLINE_MODERATOR,
+        sessionId: SESSION_ID,
+      });
+    },
+  );
+
+  it('allows a protected route when the flag is false', async () => {
+    const { guard } = setup({ stored: profile({ mustChangePassword: false }) });
+    await expect(guard.canActivate(protectedRoute(goodCookie()))).resolves.toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ['@Public() on the method', publicMethod],
+    ['@Public() on the class', publicClass],
+  ])(
+    'does not affect a route with %s, and still sets request.user',
+    async (_label, context) => {
+      const { guard } = setup({ stored: MUST_CHANGE });
+      const request = goodCookie();
+      await expect(guard.canActivate(context(request))).resolves.toBe(true);
+      expect(request.user?.userId).toBe(USER_ID);
+    },
+  );
+
+  it.each([
+    ['SUSPENDED', UserStatus.SUSPENDED],
+    ['DEACTIVATED', UserStatus.DEACTIVATED],
+  ])(
+    'checks the flag only after the status: a %s user with the flag still gets the 401',
+    async (_label, status) => {
+      const { guard } = setup({
+        stored: profile({ status, mustChangePassword: true }),
+      });
+      const error = await rejection(
+        guard.canActivate(protectedRoute(goodCookie())),
+      );
+      expect(error.getStatus()).toBe(401);
+      expect(error.getResponse()).toEqual(UNAUTHENTICATED);
+    },
+  );
+
+  it('checks the flag only after the session: an ended session still gets the 401', async () => {
+    const { guard } = setup({ stored: MUST_CHANGE, sessionLive: false });
+    const error = await rejection(
+      guard.canActivate(protectedRoute(goodCookie())),
+    );
+    expect(error.getStatus()).toBe(401);
+  });
+
+  it('reads the flag from the user loaded on each request', async () => {
+    const { guard, users } = setup({ stored: MUST_CHANGE });
+    await rejection(guard.canActivate(protectedRoute(goodCookie())));
+
+    // The flag is cleared in the database: the very next request passes.
+    users.findById.mockResolvedValueOnce(
+      profile({ mustChangePassword: false }),
+    );
+    await expect(guard.canActivate(protectedRoute(goodCookie()))).resolves.toBe(
+      true,
+    );
+    expect(users.findById).toHaveBeenCalledTimes(2);
   });
 });

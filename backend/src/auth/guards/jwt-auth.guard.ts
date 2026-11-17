@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { UserStatus } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY } from '../../common/auth/password-change.decorator';
 import { IS_PUBLIC_KEY } from '../../common/auth/public.decorator';
 import { ACCESS_TOKEN_COOKIE } from '../auth.constants';
 import { SessionsService } from '../sessions/sessions.service';
@@ -18,6 +20,14 @@ export function unauthenticated(): UnauthorizedException {
   return new UnauthorizedException({
     code: 'UNAUTHENTICATED',
     message: 'Authentication required',
+  });
+}
+
+// 403, not 401: the user is logged in, but must change the password first (ACC-07a, ACC-13).
+export function passwordChangeRequired(): ForbiddenException {
+  return new ForbiddenException({
+    code: 'PASSWORD_CHANGE_REQUIRED',
+    message: 'password change required',
   });
 }
 
@@ -47,6 +57,11 @@ function accessTokenCookie(request: Request): string | undefined {
  * On a protected route every failure (no cookie, bad or expired token, a session that is
  * revoked, idle or past its end (ACC-06), unknown user, a status other than ACTIVE) gives the
  * same 401, so the response does not reveal which.
+ *
+ * After all of those checks pass, a user whose mustChangePassword flag is set gets 403
+ * PASSWORD_CHANGE_REQUIRED on a protected route, unless the route or its class is marked
+ * @AllowWhenPasswordChangeRequired(). The flag is read from the user loaded on this
+ * request, so clearing it takes effect on the next request. Public routes are not affected.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -64,9 +79,16 @@ export class JwtAuthGuard implements CanActivate {
     );
     const request = context.switchToHttp().getRequest<Request>();
 
-    const user = await this.authenticate(request);
-    if (user) {
-      request.user = user;
+    const authenticated = await this.authenticate(request);
+    if (authenticated) {
+      if (
+        !isPublic &&
+        authenticated.mustChangePassword &&
+        !this.allowsPendingPasswordChange(context)
+      ) {
+        throw passwordChangeRequired();
+      }
+      request.user = authenticated.user;
       return true;
     }
     if (isPublic) {
@@ -75,10 +97,22 @@ export class JwtAuthGuard implements CanActivate {
     throw unauthenticated();
   }
 
-  // The user behind the request's cookie, or undefined for any failure.
+  private allowsPendingPasswordChange(context: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean | undefined>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        [context.getHandler(), context.getClass()],
+      ) === true
+    );
+  }
+
+  // The user behind the request's cookie, with the user's mustChangePassword flag as
+  // loaded on this request, or undefined for any failure.
   private async authenticate(
     request: Request,
-  ): Promise<AuthenticatedUser | undefined> {
+  ): Promise<
+    { user: AuthenticatedUser; mustChangePassword: boolean } | undefined
+  > {
     const token = accessTokenCookie(request);
     if (!token) {
       return undefined;
@@ -102,9 +136,12 @@ export class JwtAuthGuard implements CanActivate {
     }
     // sessionId comes only from the verified token.
     return {
-      userId: profile.id,
-      role: profile.role,
-      sessionId: verified.sessionId,
+      user: {
+        userId: profile.id,
+        role: profile.role,
+        sessionId: verified.sessionId,
+      },
+      mustChangePassword: profile.mustChangePassword,
     };
   }
 }

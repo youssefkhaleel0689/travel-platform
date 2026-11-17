@@ -6,6 +6,10 @@ import {
   currentUserFactory,
   optionalUserFactory,
 } from './current-user.decorator';
+import {
+  ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+  AllowWhenPasswordChangeRequired,
+} from './password-change.decorator';
 import { IS_PUBLIC_KEY, Public } from './public.decorator';
 import { Roles, ROLES_KEY } from './roles.decorator';
 
@@ -17,8 +21,14 @@ class ProbeController {
   @Roles(Role.ADMIN, Role.AIRLINE_MODERATOR)
   managed(this: void): void {}
 
+  @AllowWhenPasswordChangeRequired()
+  whileChangeRequired(this: void): void {}
+
   plain(this: void): void {}
 }
+
+@AllowWhenPasswordChangeRequired()
+class AllowedProbeController {}
 
 const reflector = new Reflector();
 const proto = ProbeController.prototype;
@@ -53,6 +63,35 @@ describe('@Public()', () => {
 
   it('leaves other routes unmarked', () => {
     expect(reflector.get<boolean>(IS_PUBLIC_KEY, proto.plain)).toBeUndefined();
+  });
+});
+
+describe('@AllowWhenPasswordChangeRequired()', () => {
+  it('marks a method', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        proto.whileChangeRequired,
+      ),
+    ).toBe(true);
+  });
+
+  it('marks a class', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        AllowedProbeController,
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves other routes unmarked', () => {
+    expect(
+      reflector.get<boolean>(
+        ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY,
+        proto.plain,
+      ),
+    ).toBeUndefined();
   });
 });
 
