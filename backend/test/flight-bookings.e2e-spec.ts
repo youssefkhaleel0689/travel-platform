@@ -33,6 +33,7 @@ import {
   Flight,
   FlightStatus,
 } from './../src/flights/schemas/flight.schema';
+import { FlightHoldExpiryService } from './../src/flights/flight-bookings/flight-hold-expiry.service';
 import { SeatInventoryService } from './../src/flights/seat-inventory/seat-inventory.service';
 import {
   createSignedInUser,
@@ -566,6 +567,39 @@ describe('Flight bookings (e2e, shared database)', () => {
         expect(error.getStatus()).toBe(409);
         expect(error.getResponse()).toMatchObject({
           code: 'INVALID_BOOKING_STATE',
+        });
+      },
+      SLOW_MS,
+    );
+  });
+
+  describe('the hold expiry job (FLT-22)', () => {
+    it(
+      'expires a hold that ran out and gives its seats back',
+      async () => {
+        const res = await post(
+          HOLD,
+          oneWay([passenger()], portFlightId),
+        ).expect(201);
+        const id = (res.body as { id: string }).id;
+        // As if the 10 minutes had passed.
+        await bookingModel
+          .updateOne(
+            { _id: id },
+            { $set: { holdExpiresAt: new Date(Date.now() - 1_000) } },
+          )
+          .exec();
+        const before = await seatCounts(portFlightId);
+
+        // What the schedule runs every minute. It may also release other expired
+        // holds in the shared database, which is exactly its job.
+        const handled = await app.get(FlightHoldExpiryService).releaseExpired();
+
+        expect(handled).toBeGreaterThanOrEqual(1);
+        expect((await storedBooking(id))?.status).toBe(BookingStatus.EXPIRED);
+        expect(await seatCounts(portFlightId)).toEqual({
+          held: before.held - 1,
+          booked: before.booked,
         });
       },
       SLOW_MS,
