@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { Hotel } from './hotel.schema';
 
 export type HotelModeratorAssignmentDocument =
@@ -16,10 +16,10 @@ export type HotelModeratorAssignmentDocument =
 })
 export class HotelModeratorAssignment {
   // users._id of an account with role HOTEL_MODERATOR.
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   moderatorId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: Hotel.name, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: Hotel.name, required: true })
   hotelId: Types.ObjectId;
 
   @Prop({ type: Date, required: true, default: () => new Date() })
