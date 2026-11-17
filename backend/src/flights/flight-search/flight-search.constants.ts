@@ -8,11 +8,8 @@ export const MAX_SEATED_PASSENGERS = 9;
 // A price in the platform currency as a query value: up to 10 digits and 2 decimals.
 export const MONEY_AMOUNT = /^\d{1,10}(?:\.\d{1,2})?$/;
 
-// TODO(FLT-22): import TripType from schemas/flight-booking.schema once PR #20 is merged.
-export enum TripType {
-  ONE_WAY = 'ONE_WAY',
-  ROUND_TRIP = 'ROUND_TRIP',
-}
+// One definition for search and bookings, so a searched trip type can be stored as is.
+export { TripType } from '../schemas/flight-booking.schema';
 
 export enum FlightSortBy {
   PRICE = 'price',
