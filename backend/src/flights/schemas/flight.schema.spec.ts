@@ -60,6 +60,13 @@ describe('Flight schema (FLT-03, FLT-04)', () => {
       ]);
     });
 
+    it('has a status + departureAtUtc index for the DEPARTED job (FLT-30)', () => {
+      expect(FlightSchema.indexes()).toContainEqual([
+        { status: 1, departureAtUtc: 1 },
+        expect.any(Object),
+      ]);
+    });
+
     it('has a unique airlineId + flightNumber + departureDateKey index', () => {
       expect(FlightSchema.indexes()).toContainEqual([
         { airlineId: 1, flightNumber: 1, departureDateKey: 1 },

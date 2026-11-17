@@ -531,7 +531,13 @@ export class HotelsService {
     moderatorId: string,
     hotelId: string,
   ): Promise<boolean> {
-    if (!Types.ObjectId.isValid(moderatorId)) return false;
+    if (
+      !Types.ObjectId.isValid(moderatorId) ||
+      !Types.ObjectId.isValid(hotelId)
+    ) {
+      return false;
+    }
+    // moderatorId and hotelId are SchemaTypes.ObjectId paths, so the string ids cast.
     const found = await this.assignmentModel.exists({ moderatorId, hotelId });
     return found !== null;
   }

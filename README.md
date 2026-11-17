@@ -26,7 +26,7 @@ The official Excel requirements sheet is the authoritative source for business r
 
 ## Run the backend locally
 
-Prerequisites: Git, Node.js (the team develops with v24.21.0; use the same major version, 24), and npm. You also need the MongoDB connection string from the team leader (shared privately, never through Git or chat tools).
+Prerequisites: Git, Node.js **24.9 or newer** (the team develops with v24.21.0), and npm. The version is not a preference: Jest loads this project's ESM dependencies through `require(esm)`, which Node gained in 24.9, so on Node 22 every test suite fails to load with `Must use import to load ES Module` while the app itself still starts. `backend/package.json` declares it in `engines`, so `npm install` warns you. You also need the MongoDB connection string from the team leader (shared privately, never through Git or chat tools).
 
 ~~~
 git clone https://github.com/youssefkhaleel0689/travel-platform.git
@@ -62,7 +62,7 @@ Check that it works:
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `MONGODB_URI` | Yes | Shared MongoDB Atlas connection string, including the database name (`/travel-platform`) |
+| `MONGODB_URI` | Yes | Shared MongoDB Atlas connection string, including the database name |
 | `PORT` | No | Server port, defaults to 3000 |
 | `BCRYPT_COST` | No | bcrypt cost for password hashes, defaults to 12. Must be a whole number from 4 to 15; any other value (including an empty `BCRYPT_COST=`) stops the app at startup |
 | `JWT_SECRET` | Yes | Secret that signs the access tokens (HS256). At least 32 characters; the app refuses to start when it is missing, empty or shorter. Every developer generates their own and keeps it only in `backend/.env` |
@@ -79,6 +79,9 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 **Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it makes every access token signed with the old secret invalid at once (401). A session that is still live can get a new access token through `POST /api/auth/refresh`; otherwise log in again.
 
 **Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
+
+| `STRIPE_SECRET_KEY` | No | Stripe **test mode** secret key (`sk_test_...`). Without it the payment endpoints answer 503 and everything else works, so only the people demonstrating payments need one |
+| `STRIPE_WEBHOOK_SECRET` | No | The `whsec_...` printed by `stripe listen`. Without it every webhook delivery is rejected, because an unverified event is never trusted |
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -104,9 +107,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `ADMIN_PASSWORD is required` | `ADMIN_PASSWORD` is missing from `backend/.env` or empty |
 | `ADMIN_PASSWORD: password must ...` (for example `ADMIN_PASSWORD: password must contain at least one digit`) | The password breaks the rule named after the colon (see the password rules in "Accounts and authentication"); the value itself is never printed |
 | `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
+| `501 BOOKING_TYPE_UNAVAILABLE` | No booking module provides a `BookingsPort` yet; expected until A1 or B2 lands |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a hotel moderator; expected until the hotels module (HTL-01) lands |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
+| `querySrv ECONNREFUSED` | Your machine's DNS resolver will not answer the SRV lookup `mongodb+srv://` needs. Use the non-SRV form of the string (`mongodb://host1,host2,host3/db?replicaSet=...&authSource=admin&ssl=true`) in your own `.env` |
 | `Cannot GET /` | Expected: all routes start with `/api` |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
 
 ## API error format
 
@@ -327,7 +335,9 @@ Feature modules:
 
 Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+
+Notifications were planned for `src/common/notifications/` but live in the feature module `src/notifications/` instead: GEN-01 has four endpoints, and a controller needs the guards and DTO wiring that a feature module provides. Other modules use it the normal way, through its exported `NotificationsService`.
 
 Layout of one module:
 
@@ -348,6 +358,7 @@ Rules:
 - Controllers validate and delegate, services hold the business rules, schemas define the data shape.
 - A module uses another module through its exported service, never through its Mongoose model.
 - IDs: reference data keeps the given string ids (`cairo`, `EG`, `CAI`, `att-1`); all other documents use ObjectId, returned to clients as a string `id`.
+- **Declare an ObjectId reference as `@Prop({ type: SchemaTypes.ObjectId })`, never `Types.ObjectId`.** They look interchangeable and are not: through Nest's `@Prop` the second compiles to a **Mixed** path, which casts nothing, so whatever you pass is stored as-is - a string id stays a string, and a later query with an `ObjectId` (or with a string, against rows written the other way) matches nothing and reports it as an empty result rather than an error. `SchemaTypes.ObjectId` casts a 24-character string to an ObjectId on both writes and queries, which is what every id field in this project wants. It matters most for ACC-11: `ownerFilter` and `findOwnedOrThrow` pass the plain string from the token and rely on that cast, so on a Mixed path they would 404 everything. Check a schema with `SomeSchema.path('userId').instance` - it must print `ObjectId`.
 - Time: store dates in UTC and return ISO 8601; flight times are returned in the airport's local time with its offset (see "Airport time zones (GEN-06)"); each airport has an IANA `timeZone` (`CAI` is `Africa/Cairo`).
 - Money: store as Decimal128 and return as a string (`"199.99"`). Convert it to a string in the response DTO mapping, not in a schema transform, because lean queries (`paginateQuery`) skip document transforms. Do arithmetic with a decimal library (decimal.js, not installed yet; the first module that needs money arithmetic adds it), never `Number()`. Convert to integer minor units only when calling Stripe.
 - Currency: PAY-04 requires one platform currency; the team chose USD. Flight and hotel prices, payments and refunds are always USD and are never converted. Itinerary budgets may use any seeded currency (EGP, AED, GBP, USD, EUR, JPY, SAR); conversion applies to budgets only.
@@ -729,7 +740,7 @@ The `mustChangePassword` flag is set when an admin resets a password (ACC-07a) o
 - `@Public` routes (login, refresh, logout, guest search) are not affected.
 - The guard checks the flag after the token, session, user and status checks, on the user it loads for each request, so clearing the flag applies on the next request.
 
-For C2: put `@AllowWhenPasswordChangeRequired()` on the change-password endpoint (ACC-08) and clear the flag there.
+`PATCH /api/auth/change-password` (ACC-08) carries `@AllowWhenPasswordChangeRequired()` too, and clears the flag, so it is the one route that gets an account out of this state. `04` and `06` in `docs/api/evidence/` are the same account one request apart: the reset, then the 403 on a route it can no longer reach.
 
 ### Account lockout (ACC-05)
 
@@ -930,6 +941,399 @@ Why two parallel holds cannot take the last room: `InventoryService.lockRooms()`
 Run `npm run seed:hotels` after `npm run seed` and `npm run seed:admin` to load demo hotels and rooms in the seeded reference cities, so every hotel endpoint has data in Swagger. The seed is idempotent and needs `ADMIN_EMAIL` in `backend/.env` for `createdBy`.
 
 C2 integration: hotel reservations are exposed to the Payments module through the `HOTEL_BOOKINGS_PORT` provider in `src/hotel-bookings/hotel-bookings.port.ts`. Its `confirmAfterPayment(bookingId, paymentId)` mirrors C2's shared `BookingsPort` contract and returns `{ bookingId, status, bookingReference }`; a repeated webhook returns the same reference and does not confirm twice. PAY-02 policy acceptance is checked when C2 creates the Payment, so confirmation does not read an acceptance id from the hotel booking.
+## Flight search (FLT-11, FLT-12, FLT-15)
+
+`GET /api/flights/search` is public, so guests and logged-in users can both use it. It lists the SCHEDULED flights of ACTIVE airlines that have not departed yet, on the departure date at the departure airport, that have a cabin with a free seat for every adult and child. Each result shows only the cabins that match the search. The code is in `src/flights/flight-search/`.
+
+| Parameter | Default | Rules |
+| --- | --- | --- |
+| `departureAirportId`, `arrivalAirportId` | required | Seeded airport codes (`GET /api/airports`), not the same airport |
+| `departureDate` | required | `YYYY-MM-DD` on the departure airport's calendar, not before today there |
+| `tripType` | `ONE_WAY` | `ONE_WAY` or `ROUND_TRIP` |
+| `returnDate` | | Required for `ROUND_TRIP`, not allowed for `ONE_WAY`. Date at the return flight's airport, not before `departureDate` |
+| `adults`, `children`, `infants` | 1, 0, 0 | At least 1 adult, `adults + children` at most 9, at most one infant per adult. Infants take no seat |
+| `cabin` | any | `ECONOMY`, `PREMIUM_ECONOMY`, `BUSINESS` or `FIRST` |
+| `minPrice`, `maxPrice` | none | Price per seat in USD, at most 2 decimals, both inclusive, `maxPrice` not below `minPrice` |
+| `sortBy`, `sortOrder` | `price`, `asc` | `price` (`lowestPrice`), `duration` or `departureTime`; `asc` or `desc` |
+| `page`, `returnPage` | 1 | Page of the outbound and of the return flights |
+
+~~~
+GET /api/flights/search?departureAirportId=CAI&arrivalAirportId=DXB&departureDate=2026-12-20&adults=2&infants=1
+
+{
+  "outbound": {
+    "items": [
+      {
+        "id": "6720f1c2a1b2c3d4e5f60719",
+        "airline": { "id": "6720f1c2a1b2c3d4e5f60718", "name": "EgyptAir", "iataCode": "MS" },
+        "flightNumber": "MS910",
+        "departureAirportId": "CAI",
+        "arrivalAirportId": "DXB",
+        "departureLocalTime": "2026-12-20T08:30:00+02:00",
+        "arrivalLocalTime": "2026-12-20T14:30:00+04:00",
+        "departureAtUtc": "2026-12-20T06:30:00.000Z",
+        "arrivalAtUtc": "2026-12-20T10:30:00.000Z",
+        "durationMinutes": 240,
+        "lowestPrice": "199.99",
+        "cabins": [
+          { "category": "ECONOMY", "pricePerSeat": "199.99", "seatsAvailable": 42, "freeBaggageCount": 1, "maxBagWeightKg": 23 }
+        ]
+      }
+    ],
+    "meta": { "page": 1, "pageSize": 10, "totalItems": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false }
+  },
+  "inbound": null
+}
+~~~
+
+A `ROUND_TRIP` fills `inbound` with the flights back from `arrivalAirportId` to `departureAirportId` on `returnDate`, with the same passengers, cabin, price range and sort. Each leg has its own page.
+
+| Case | Result |
+| --- | --- |
+| A missing or invalid parameter, or a rule between two of them | 400 `VALIDATION_FAILED` with one field error per mistake |
+| An airport that is not seeded | 400 `UNKNOWN_AIRPORT` |
+| A date before today at the airport the flight leaves from | 400 `DEPARTURE_DATE_IN_PAST` on `departureDate` or `returnDate` |
+| No flight matches | 200 with `items: []` ("no flights found") |
+
+Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. ITN-26 passes every airport of the itinerary's first city:
+
+~~~
+const flights = await this.flightSearch.searchLeg({
+  departureAirportId: dto.originAirportId,
+  arrivalAirportIds: cityAirports.map((airport) => airport.id),
+  departureDate: itinerary.startDate,
+  dateField: 'departureDate',
+  seats: dto.adults + dto.children,
+  sortBy: FlightSortBy.PRICE,
+  sortOrder: SortOrder.ASC,
+});
+return paginateArray(flights, dto.page);
+~~~
+
+Rules:
+
+- `minPrice` and `maxPrice` apply to each cabin's price per seat, so a flight lists only the cabins in range and `lowestPrice` is the cheapest of those. Prices are filtered and sorted as Decimal128 inside MongoDB; never convert them with `Number()`.
+- Search shows prices per seat only. Totals, with infants at 10% of the fare, belong to the booking summary (FLT-21).
+- Search never returns the seat counters, and its results are not a reservation: the hold (FLT-22) checks the seats again. For a round trip, the hold must also check that the return flight leaves after the outbound flight lands.
+
+The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
+## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
+
+Login, the cookie and the guards are described under "Accounts and
+authentication" above. This section covers the account endpoints built on top
+of them.
+
+| Endpoint | Requirement | Notes |
+| --- | --- | --- |
+| `PATCH /api/auth/change-password` | ACC-08 | Needs the current password; the new one goes through the shared password rules |
+| `PATCH /api/users/me` | ACC-09 | Name, phone, preferred currency; `null` clears the last two |
+| `DELETE /api/users/me` | ACC-12 | Needs `confirm: true`; blocked while an upcoming confirmed booking exists |
+| `GET /api/admin/accounts` | ACC-14 | Admin only; search by name or email, filter by role and status |
+| `PATCH /api/admin/accounts/:id/suspend` | ACC-16, ACC-15 | Keeps the account's bookings valid and notifies the owner |
+| `PATCH /api/admin/accounts/:id/reactivate` | ACC-16, ACC-15 | Also clears a login lockout |
+| `POST /api/admin/users/:id/reset-password` | ACC-07a | Returns a temporary password once; stored only as a hash |
+| `POST /api/admin/moderators` | ACC-13 | Admin only; creates an airline or hotel moderator linked to exactly one provider |
+
+Rules worth knowing before you touch these:
+
+- `PATCH /api/users/me` rejects `email`, `role` and `status` with a 400 rather
+  than ignoring them, because the global pipe runs `forbidNonWhitelisted`.
+- The preferred currency must be one of the seeded currencies, checked through
+  `ReferenceDataService` (GEN-12), not just a well-formed three-letter code.
+- An admin can neither act on their own account nor on another admin account.
+  Both are ways to lock the platform out of its own administration, and admin
+  accounts are seeded (ACC-18), so there is no way back through the API.
+- An account its owner deactivated is not reactivated by an admin either,
+  because that was the owner's decision.
+- The search term in `GET /api/admin/accounts` is escaped before it becomes a
+  regular expression, so `(.*)+$` is matched as text instead of being compiled
+  as a pattern that could stall the server.
+- Deactivation deletes nothing. The status alone hides the account's posts and
+  public itineraries and makes its comments and reviews read as "Deleted user",
+  so the blog and itinerary modules derive that from one field, and past
+  bookings, payments and refunds keep pointing at a real account.
+- Suspension and deactivation take effect on the next request without any token
+  being revoked, because `JwtAuthGuard` reloads the user from the database every
+  time.
+- An admin password reset (ACC-07a), a password change (ACC-08) and
+  reactivation (ACC-16) all clear an ACC-05 lockout: they set
+  `failedLoginAttempts` to 0 and `lockedUntil` to null. Agreed with the Leader
+  when ACC-05 landed, because the admin has just replaced the password, so a
+  lock earned by the old one is meaningless, and there is otherwise no way to
+  clear a lock through the API. `test/admin-accounts.e2e-spec.ts` drives the
+  whole flow: five wrong passwords, the 423, the reset, and the temporary
+  password logging in straight away.
+
+**Sessions end with the account's password or its status (ACC-06).** Sessions
+landed with the Leader's PR 31, so the four places that used to be an open gap
+now call `SessionsService.revokeAllSessions(userId, { exceptSessionId })` and
+nothing here writes to the `sessions` collection itself:
+
+| Action | Requirement | Sessions ended |
+| --- | --- | --- |
+| Change your own password | ACC-08 | every one but the caller's, so you stay signed in on the device you changed it on |
+| Admin resets a password | ACC-07a | all of them: the old password is gone, so the temporary one is the only way back in |
+| Admin suspends an account | ACC-16 | all of them |
+| Owner deactivates the account | ACC-12 | all of them, the caller's included |
+
+Two details worth knowing:
+
+- The revoke happens **after** the write it belongs to, so a failed change -
+  the wrong current password, or a new password equal to the old one - signs
+  nothing out. Otherwise a wrong guess would be a way to disrupt the owner.
+- `UsersService` still only writes the users collection. The session half lives
+  in `AuthService.changeOwnPassword`, `AdminAccountsService` and
+  `AccountsService`, for the same reason `AccountsService` exists at all: the
+  service that owns a collection does not reach into another one.
+
+Suspension and deactivation already took effect on the next request, because
+the guard reloads the user every time. Revoking matters for what the guard does
+not see: a refresh token would otherwise keep rotating, and a session would
+come back with the account if an admin reactivated it.
+
+### Creating a moderator (ACC-13)
+
+`POST /api/admin/moderators` is the only route that creates an account rather
+than acting on one that exists, and the only one that reaches into a provider
+module. Body: `name`, `email`, `role` (`AIRLINE_MODERATOR` or
+`HOTEL_MODERATOR`), the provider id that matches the role - `airlineId` or
+`hotelId` - and an optional `password`.
+
+- `role` is restricted to the two moderator roles by `@IsIn`, so this route can
+  never mint an `ADMIN`. Admins are seeded (ACC-18) and users register
+  (ACC-01).
+- The provider is named by `airlineId` or `hotelId` rather than one generic
+  `providerId`, so the body says which collection the id has to come from. One
+  validator in `CreateModeratorDto` holds both halves of the rule: the id that
+  matches the role is required, and the one that does not is rejected by name,
+  so a body meant for a hotel cannot quietly create an airline moderator. Both
+  properties appear in the Swagger schema because Swagger UI cannot hide one
+  body property based on another's value; send only the matching one. The
+  response still carries `providerId`, because `account.role` already says
+  which kind of id it is and a pair with one half always null says less. The
+  ports underneath stay generic for the same reason.
+- `password` is the temporary password the admin sets. Leave it out and the
+  server generates one the same way ACC-07a does. Either way it is in the
+  response once and nowhere else; the database holds only a bcrypt hash.
+- The account is created with `mustChangePassword: true`, which is what makes
+  "must change the password on first login" real: `JwtAuthGuard` answers 403
+  `PASSWORD_CHANGE_REQUIRED` to every route but
+  `PATCH /api/auth/change-password` while the flag is set.
+- The link to the one airline or hotel lives **only** in the provider module's
+  assignment collection (schema section 2.2). It is never copied onto the user,
+  so there is one place that says which provider a moderator manages.
+
+Two collections in two modules are written, with no transaction across them, so
+the order makes a half-done creation either impossible or repairable:
+
+1. the provider is checked first, so a provider id that does not exist (404) or
+   is deactivated (400 `PROVIDER_DEACTIVATED`) costs nothing;
+2. the account is created, which is where a duplicate email becomes 409;
+3. the link is written. If that fails, the account is deleted again before the
+   error is rethrown, so the admin can retry with the same email.
+   `UsersService.deleteById` exists for this one caller and nothing else:
+   accounts are closed by changing their status, never by deleting the row.
+
+**The `ModeratorAssignmentPort`.** Administration does not touch either
+assignment collection. `src/common/providers/moderator-assignment.port.ts`
+declares the two methods (`assertAssignable`, `assign`) and
+`ModeratorAssignmentsGateway` routes a role to the module that owns it, the same
+shape as `BookingsPort`. The airline side is wired today by
+`AirlineModeratorAssignmentAdapter`, on top of the `AirlinesService` that
+`FlightsModule` exports. `HOTEL_MODERATOR_ASSIGNMENT_PORT` is deliberately
+unprovided until the hotels module exists (B1, HTL-01), so asking for a hotel
+moderator answers **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of the app
+refusing to start. Providing that token in `HotelsModule` is all it takes to
+finish the hotel half; nothing in administration changes.
+
+## Notifications (GEN-01)
+
+`GET /api/notifications` (paginated, `?unreadOnly=true`), `GET /api/notifications/unread-count`, `PATCH /api/notifications/:id/read` and `PATCH /api/notifications/read-all`. Every route works on the account in the cookie.
+
+Creating one from your module:
+
+~~~
+// your.module.ts
+@Module({ imports: [NotificationsModule], providers: [YourService] })
+
+// your.service.ts
+await this.notifications.notify({
+  userId: booking.userId,
+  type: NotificationType.FLIGHT_CANCELLED,
+  title: 'Flight cancelled',
+  message: 'MS123 on 3 December was cancelled.',
+  resourceType: NotificationResourceType.FLIGHT_BOOKING,
+  resourceId: booking.id,
+});
+
+// One round trip for many users, e.g. every passenger on a cancelled flight:
+await this.notifications.notifyMany(passengers.map(toNotification));
+~~~
+
+Rules:
+
+- `notify` and `notifyMany` never throw. A missed notice must not be the reason a confirmed payment or a completed refund reports an error, so a failure is logged and the caller carries on. Do not wrap them in `try`/`catch`.
+- The `type` values are a closed list (`NotificationType`), so the frontend always knows how to render one. Add a value there rather than inventing a string.
+- Marking an already-read notification succeeds and keeps the first read time.
+- The list sorts by `createdAt` and then `_id`, both descending, so a batch written in the same millisecond still reads newest first.
+- Owner-only access (ACC-11) is in the filter, never a comparison after loading: another account's notification answers the same 404 as one that does not exist. `PATCH /api/notifications/:id/read` does it in **one** conditional update rather than `findOwnedOrThrow` followed by a write - the owner is part of that update's filter, so there is nothing to gain from a second query, and the single update also keeps the first read time when it runs twice. The payment and refund reads use the same filter-based rule; a refund is the one exception, because its owner lives on its payment, so it is checked after the load with the identical 404 either way.
+
+## Booking lifecycle and the BookingsPort (GEN-11)
+
+The five booking states and the only four transitions between them live in `src/common/bookings/booking-status.ts` and are shared by flight bookings and hotel reservations:
+
+~~~
+PENDING_PAYMENT -> CONFIRMED -> COMPLETED
+PENDING_PAYMENT -> EXPIRED
+CONFIRMED       -> CANCELLED
+~~~
+
+Anything else, **including a state to itself**, is refused by `assertBookingTransition` with a 409 `INVALID_BOOKING_STATE`. A state to itself is refused on purpose: a caller that can run twice, such as a webhook Stripe retried or the hold-expiry sweep racing a payment, has to notice the work is already done rather than repeat its side effects. A status never comes from request input.
+
+### What flights and hotels have to provide
+
+Payments and account deactivation never read or write a booking collection. They ask the module that owns it through one interface, which is what lets them be built and tested before those collections exist, and keeps the seat and room rules inside the module that owns them.
+
+~~~
+// flights.module.ts (A1). hotels.module.ts (B2) is the same with HOTEL_BOOKINGS_PORT.
+@Module({
+  providers: [
+    FlightBookingsPortAdapter,
+    { provide: FLIGHT_BOOKINGS_PORT, useExisting: FlightBookingsPortAdapter },
+  ],
+  exports: [FLIGHT_BOOKINGS_PORT],
+})
+export class FlightsModule {}
+~~~
+
+`BookingsPort` has five methods:
+
+| Method | Used by | Must |
+| --- | --- | --- |
+| `findPayable(bookingId)` | PAY-01, PAY-02 | Return the booking's owner, status, total, currency and hold expiry, or null. Do not filter by user: the caller checks ownership |
+| `findPolicies(bookingId)` | PAY-02 | Return the terms **this booking carries** (its snapshot), not the provider's latest |
+| `confirmAfterPayment(bookingId, paymentId)` | PAY-01 | Be idempotent, refuse once the hold has expired, and convert the hold in one atomic step |
+| `releaseHold(bookingId, reason)` | PAY-01 | Release once only, however often it is called |
+| `hasUpcomingConfirmedBookings(userId)` | ACC-12 | Say whether the account has a confirmed booking that has not happened yet |
+
+Both ports are optional, so the app runs with neither, one or both wired in. A booking type whose module is not connected answers **501 `BOOKING_TYPE_UNAVAILABLE`** with a clear message, rather than the app refusing to start or a 500 that looks like a bug in payments.
+
+Returning the booking's own policy snapshot rather than the provider's current policy is what makes acceptance stable: a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user has already given, and a later edit never changes what an existing booking agreed to.
+
+## Money (PAY-04)
+
+`src/common/money/money.ts` holds the platform currency and the arithmetic.
+
+- `PLATFORM_CURRENCY` is `USD`. Flight and hotel prices, payments and refunds are always USD and are never converted. A user's preferred currency (ACC-09) applies to itinerary budgets only.
+- Amounts are `Decimal128` in the database and **strings** in every response (`"199.99"`). Convert with `decimal128ToString` in the response DTO mapping, not in a schema transform, because lean queries skip document transforms.
+- Never use `Number()` on money. `19.99 * 100` as a double is `1998.9999999999998`, so `toMinorUnits` goes through decimal.js and refuses anything that is not a whole number of cents. That is the only place an amount becomes a native number, and only for Stripe.
+- `percentageOf(amount, percentage)` is the refund share: rounded half up to the cent and never more than what was captured.
+- `HOLD_MINUTES` is 10 (FLT-22, HTL-18).
+
+## Payments, policies and refunds (PAY-01 to PAY-04)
+
+The `payments` module owns `payments`, `refunds`, `policyAcceptances` and `stripeWebhookEvents`. Everything runs in **Stripe test mode**.
+
+| Endpoint | Requirement |
+| --- | --- |
+| `GET /api/bookings/:type/:id/policies` | PAY-02 |
+| `POST /api/bookings/:type/:id/accept-policies` | PAY-02 |
+| `POST /api/payments` | PAY-01 |
+| `POST /api/payments/:id/retry` | PAY-01 |
+| `GET /api/payments/:id` | PAY-01 |
+| `POST /api/payments/webhook` | PAY-01 (Stripe calls it; not in Swagger) |
+| `GET /api/refunds/:id` | PAY-03 |
+
+`:type` is `flight` or `hotel`, matched case-insensitively.
+
+### Card details never reach this backend
+
+`POST /api/payments` opens a Stripe PaymentIntent and returns its `clientSecret`. The browser sends the card straight to Stripe with Stripe Elements, so no card number, CVC or expiry ever arrives here and none is stored: only the PaymentIntent id, the amount, the currency and the status. The `clientSecret` is not a credential for this API; it only ever lets its holder complete that one PaymentIntent.
+
+The amount comes from the booking, never from the request, so a client cannot choose what to pay.
+
+### Only a verified webhook confirms a booking
+
+A booking becomes `CONFIRMED` in one place: the handler for a Stripe webhook whose signature verified. The browser is never believed, because it can lie, it can be closed before it reports, and it cannot be trusted about money.
+
+The signature is checked against the **raw request bytes**, which is why `main.ts` creates the app with `rawBody: true` and the route binds no body DTO: parsing and re-serialising the JSON would change the bytes and break the signature. An e2e test that drives the webhook must create the app the same way (`moduleFixture.createNestApplication({ rawBody: true })`).
+
+Handling is **exactly once**, not at least once, because Stripe retries until it gets a 2xx and can deliver the same event twice anyway. There are two guards, either of which is enough on its own:
+
+1. inserting a row in `stripeWebhookEvents` keyed by the Stripe event id is how a delivery claims the event, and the unique index turns a second delivery into a no-op;
+2. the payment's status is moved with a conditional update, so only one delivery gets past it even if an event row were ever lost.
+
+A handler that throws records the failure and rethrows, so Stripe sees a 5xx and retries, and the stored event is `FAILED` rather than `PROCESSED` so the retry is allowed to claim it again.
+
+### Retrying, and when the hold runs out
+
+A declined card does not finish a PaymentIntent: Stripe puts it back to `requires_payment_method`, so `POST /api/payments/:id/retry` reuses the same intent and client secret with another card, and only opens a new attempt when the old one was really cancelled. A failed attempt deliberately keeps the hold, because PAY-01 lets the user retry until it expires.
+
+The hold is re-checked before any client secret is handed back, including on a retry: once the hold has gone the seats or rooms have been released, so letting the user pay would sell inventory the platform no longer has.
+
+A sweep runs every minute (`PaymentExpiryService`) over the open payments. For each one whose booking is no longer payable it cancels the PaymentIntent at Stripe and then releases the hold. A TTL index cannot do this: two things have to happen together and neither is a deletion, and cancelling at Stripe is what makes a late payment impossible rather than merely ignored. Stripe is called before the status is written, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction.
+
+### Policies before payment (PAY-02)
+
+Payment is refused with 403 `POLICIES_NOT_ACCEPTED` until the provider's terms have been accepted. `POST .../accept-policies` requires the `policyVersion` the user was shown, so acceptance can only be given for terms that were really displayed; a stale value is 409 `POLICY_VERSION_MISMATCH`. One acceptance per booking per version is enforced by a unique index, which makes a double click idempotent, keeps the first timestamp and turns a race into the same answer for both requests.
+
+### Refunds (PAY-03)
+
+There is no endpoint to create a refund: one only ever follows a cancellation, so letting a client ask for one directly would be a way to get money back without cancelling anything. The flights and hotels modules call the service when they cancel (FLT-06, FLT-26, HTL-21):
+
+~~~
+// your.module.ts
+@Module({ imports: [PaymentsModule], providers: [YourCancellationService] })
+
+// when the booking is cancelled
+await this.refunds.issueForCancellation({
+  bookingType: BookingType.HOTEL,
+  bookingId,
+  cancelledBy: CancelledBy.USER,            // PROVIDER is always refunded in full
+  refundPercentage: tier.refundPercentage,  // from your own policy tiers
+  reason: 'Cancelled by the traveller 3 days before check-in',
+  policySnapshot: policy,                   // the terms the percentage came from
+});
+~~~
+
+- You work out the tier, because the tiers belong to the provider (FLT-09, HTL-10). A `PROVIDER` cancellation is refunded in full whatever tier you pass.
+- A 0% tier and a booking that was never paid both return `null` and issue nothing: PAY-03 covers a cancellation with a positive refund amount.
+- A Stripe failure does **not** throw. The cancellation has already happened, so the refund is recorded as `FAILED` with Stripe's message and shows on the booking details, where it can be retried. Do not undo your cancellation because a refund failed.
+- The same booking refuses a second refund (409 `REFUND_ALREADY_ISSUED`).
+
+### Environment and running it locally
+
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **optional**: without them every other module works normally and only the payment endpoints answer 503 `PAYMENTS_UNAVAILABLE`, so a teammate who is not working on payments does not need a Stripe account. Use test-mode keys only, never a live key.
+
+To demonstrate a payment end to end, forward Stripe's webhooks to the local server and copy the `whsec_` it prints into `.env`:
+
+~~~
+stripe listen --forward-to localhost:3000/api/payments/webhook
+~~~
+
+Then confirm the PaymentIntent with a test card, using the `clientSecret` from `POST /api/payments`:
+
+~~~
+stripe payment_intents confirm pi_xxx --payment-method pm_card_visa
+~~~
+
+The booking is confirmed when the webhook arrives, not when the command returns. `POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
+
+### Tests
+
+| File | Covers |
+| --- | --- |
+| `test/auth.e2e-spec.ts` | The guard's four checks and ACC-08 |
+| `test/users-profile.e2e-spec.ts` | ACC-09, ACC-11 |
+| `test/account-deactivation.e2e-spec.ts` | ACC-12 |
+| `test/admin-accounts.e2e-spec.ts` | ACC-07a, ACC-14, ACC-16 |
+| `test/admin-moderators.e2e-spec.ts` | ACC-13 |
+| `test/notifications.e2e-spec.ts` | GEN-01 |
+| `test/booking-policies.e2e-spec.ts` | PAY-02 |
+| `test/payments.e2e-spec.ts` | PAY-01, GEN-11 |
+| `test/refunds.e2e-spec.ts` | PAY-03 |
+
+The webhook signature verification is tested for real, because it is local crypto: a delivery signed with the right secret confirms the booking, while an unsigned one, one signed with another secret and one whose body was changed after signing are all refused. Stripe's HTTP API and the `BookingsPort` are stood in for, so these suites need no Stripe account and no booking module.
 
 ## Team workflow
 

@@ -132,6 +132,38 @@ export class AuthService {
   }
 
   /**
+   * ACC-08: the account changes its own password, then every other device is signed out.
+   *
+   * UsersService checks the current password and writes the new hash (and clears the
+   * temporary-password state from ACC-07a). The session part belongs here, because
+   * UsersService owns the users collection and nothing else: so this is the one place that
+   * knows a password change ends the account's other sessions.
+   *
+   * The caller's own session is kept (exceptSessionId), so changing a password does not
+   * sign you out of the device you changed it on; every other session is revoked, which is
+   * the point - a password that may have leaked must not keep a session alive anywhere
+   * else. Revoking after the write means a failed change (wrong current password, a new
+   * password equal to the old one) revokes nothing.
+   *
+   * Returns how many other sessions were ended, which the route does not expose; it is
+   * there for the e2e tests and for a future "signed out of N other devices" message.
+   */
+  async changeOwnPassword(
+    user: AuthenticatedUser,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<number> {
+    await this.users.changeOwnPassword(
+      user.userId,
+      currentPassword,
+      newPassword,
+    );
+    return this.sessions.revokeAllSessions(user.userId, {
+      exceptSessionId: user.sessionId,
+    });
+  }
+
+  /**
    * ACC-06: exchanges the refresh_token cookie for a new access token and a new refresh
    * token, in the same session. Reads nothing but that cookie.
    *
