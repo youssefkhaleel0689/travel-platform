@@ -14,6 +14,7 @@ import {
 } from '../schemas/flight-booking.schema';
 import { CabinCategory, Flight, FlightStatus } from '../schemas/flight.schema';
 import type { FlightBookingRequestDto } from './dto/flight-booking-request.dto';
+import type { AirlinePoliciesService } from '../policies/airline-policies.service';
 import type { SeatInventoryService } from '../seat-inventory/seat-inventory.service';
 import { FlightBookingPolicyReader } from './flight-booking-policy.reader';
 import { FlightBookingsService } from './flight-bookings.service';
@@ -174,7 +175,10 @@ function setup(
       Promise.resolve({ id, timeZone: ZONES[id] }),
     ),
   };
-  const policies = new FlightBookingPolicyReader();
+  // No airline policy by default: tests that need one override snapshotFor below.
+  const policies = new FlightBookingPolicyReader({
+    getForAirline: () => Promise.resolve(null),
+  } as unknown as AirlinePoliciesService);
   if (options.policy) {
     const policy = options.policy;
     jest.spyOn(policies, 'snapshotFor').mockImplementation((airlineId) =>

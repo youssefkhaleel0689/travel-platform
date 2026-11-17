@@ -20,6 +20,7 @@ import { Role } from './../src/common/auth/auth.enums';
 import { BookingType } from './../src/common/bookings/booking-status';
 import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
 import { HoldReleaseReason } from './../src/common/bookings/bookings.port';
+import { AirlinePolicy } from './../src/flights/schemas/airline-policy.schema';
 import {
   Airline,
   AirlineStatus,
@@ -54,6 +55,7 @@ const REFERENCE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 describe('Flight bookings (e2e, shared database)', () => {
   let app: INestApplication<App>;
   let airlineModel: Model<Airline>;
+  let policyModel: Model<AirlinePolicy>;
   let flightModel: Model<Flight>;
   let bookingModel: Model<FlightBooking>;
   const userIds: string[] = [];
@@ -194,6 +196,9 @@ describe('Flight bookings (e2e, shared database)', () => {
     configureApp(app);
     await app.init();
     airlineModel = app.get<Model<Airline>>(getModelToken(Airline.name));
+    policyModel = app.get<Model<AirlinePolicy>>(
+      getModelToken(AirlinePolicy.name),
+    );
     flightModel = app.get<Model<Flight>>(getModelToken(Flight.name));
     bookingModel = app.get<Model<FlightBooking>>(
       getModelToken(FlightBooking.name),
@@ -235,6 +240,7 @@ describe('Flight bookings (e2e, shared database)', () => {
       })
       .exec();
     await flightModel.deleteMany({ _id: { $in: flightIds } }).exec();
+    await policyModel.deleteMany({ airlineId }).exec();
     await airlineModel.deleteMany({ _id: airlineId }).exec();
     await deleteTestUsers(app, userIds);
     await app.close();
@@ -445,7 +451,7 @@ describe('Flight bookings (e2e, shared database)', () => {
         200,
       );
 
-      // Version 0: no airline policy is read yet (FLT-08 is not merged).
+      // Version 0: the test airline has no policy yet (it gets one at the end).
       expect(res.body).toMatchObject({
         bookingId: held.id,
         bookingType: BookingType.FLIGHT,
@@ -601,6 +607,102 @@ describe('Flight bookings (e2e, shared database)', () => {
           held: before.held - 1,
           booked: before.booked,
         });
+      },
+      SLOW_MS,
+    );
+  });
+
+  // Last on purpose: until here the test airline has no policy (version 0).
+  describe("with the airline's policy (FLT-08, FLT-09)", () => {
+    beforeAll(async () => {
+      await policyModel.create({
+        airlineId,
+        extraBagPrice: Types.Decimal128.fromString('15.00'),
+        maxExtraBagsPerPassenger: 2,
+        cancellationTiers: [
+          { daysBeforeDeparture: 7, refundPercentage: 80 },
+          { daysBeforeDeparture: 0, refundPercentage: 0 },
+        ],
+        version: 3,
+        updatedBy: new Types.ObjectId(),
+      });
+    }, SLOW_MS);
+
+    it('charges extra bags at the airline price', async () => {
+      const res = await post(
+        SUMMARY,
+        oneWay(
+          [passenger({ extraBags: { count: 2, weightKg: 20 } })],
+          portFlightId,
+        ),
+      ).expect(200);
+
+      expect(res.body.passengers[0].extraBags).toEqual({
+        count: 2,
+        weightKg: 20,
+        fee: '30.00',
+      });
+      expect(res.body.price).toEqual({
+        subtotal: '200.00',
+        baggageTotal: '30.00',
+        total: '230.00',
+        currency: 'USD',
+      });
+      expect(res.body.policy).toMatchObject({
+        version: 3,
+        extraBagPrice: '15.00',
+        maxExtraBagsPerPassenger: 2,
+      });
+    });
+
+    it("refuses more extra bags than the airline's limit", async () => {
+      const res = await post(
+        SUMMARY,
+        oneWay(
+          [passenger({ extraBags: { count: 3, weightKg: 20 } })],
+          portFlightId,
+        ),
+      ).expect(400);
+
+      expect(res.body).toMatchObject({
+        code: 'EXTRA_BAGS_NOT_ALLOWED',
+        errors: [{ field: 'passengers.0.extraBags.count' }],
+      });
+    });
+
+    it(
+      'stores the policy on the hold, and older bookings keep the terms they had',
+      async () => {
+        const res = await post(
+          HOLD,
+          oneWay([passenger()], portFlightId),
+        ).expect(201);
+        const id = (res.body as { id: string }).id;
+
+        const policies = await get(
+          `/api/bookings/flight/${id}/policies`,
+        ).expect(200);
+        expect(policies.body).toMatchObject({
+          policyVersion: 3,
+          policySnapshot: {
+            version: 3,
+            extraBagPrice: '15.00',
+            cancellationTiers: [
+              { daysBeforeDeparture: 7, refundPercentage: 80 },
+              { daysBeforeDeparture: 0, refundPercentage: 0 },
+            ],
+          },
+        });
+
+        // A booking made before the airline had a policy still has version 0 (PAY-02).
+        const older = await bookingModel
+          .findOne({
+            userId: traveller.userId,
+            'policySnapshot.version': 0,
+          })
+          .lean<FlightBooking>()
+          .exec();
+        expect(older).not.toBeNull();
       },
       SLOW_MS,
     );
