@@ -52,7 +52,7 @@ const hasUniqueThresholds = (tiers: CancellationTier[]): boolean =>
 export class AirlinePolicy {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   airlineId: Types.ObjectId;
 
   // Price per extra bag in the platform currency. Decimal128, > 0 once defined.
@@ -94,7 +94,7 @@ export class AirlinePolicy {
   version: number;
 
   // The moderator who made the last change.
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   updatedBy: Types.ObjectId;
 
   // Added by `timestamps: true`.
