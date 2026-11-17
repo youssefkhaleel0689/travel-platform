@@ -928,6 +928,83 @@ Rules:
 
 `test/seat-inventory.e2e-spec.ts` proves the concurrency rules on the shared database: 20 simultaneous holds for the last seat give exactly one winner, and a round trip whose return flight is full leaves both flights unchanged. It creates its own flights (random `airlineId`, flight numbers starting with `KE`, dates in 2099) and deletes only those. Run it with `npm run test:e2e -- seat-inventory`.
 
+## Flight search (FLT-11, FLT-12, FLT-15)
+
+`GET /api/flights/search` is public, so guests and logged-in users can both use it. It lists the SCHEDULED flights of ACTIVE airlines that have not departed yet, on the departure date at the departure airport, that have a cabin with a free seat for every adult and child. Each result shows only the cabins that match the search. The code is in `src/flights/flight-search/`.
+
+| Parameter | Default | Rules |
+| --- | --- | --- |
+| `departureAirportId`, `arrivalAirportId` | required | Seeded airport codes (`GET /api/airports`), not the same airport |
+| `departureDate` | required | `YYYY-MM-DD` on the departure airport's calendar, not before today there |
+| `tripType` | `ONE_WAY` | `ONE_WAY` or `ROUND_TRIP` |
+| `returnDate` | | Required for `ROUND_TRIP`, not allowed for `ONE_WAY`. Date at the return flight's airport, not before `departureDate` |
+| `adults`, `children`, `infants` | 1, 0, 0 | At least 1 adult, `adults + children` at most 9, at most one infant per adult. Infants take no seat |
+| `cabin` | any | `ECONOMY`, `PREMIUM_ECONOMY`, `BUSINESS` or `FIRST` |
+| `minPrice`, `maxPrice` | none | Price per seat in USD, at most 2 decimals, both inclusive, `maxPrice` not below `minPrice` |
+| `sortBy`, `sortOrder` | `price`, `asc` | `price` (`lowestPrice`), `duration` or `departureTime`; `asc` or `desc` |
+| `page`, `returnPage` | 1 | Page of the outbound and of the return flights |
+
+~~~
+GET /api/flights/search?departureAirportId=CAI&arrivalAirportId=DXB&departureDate=2026-12-20&adults=2&infants=1
+
+{
+  "outbound": {
+    "items": [
+      {
+        "id": "6720f1c2a1b2c3d4e5f60719",
+        "airline": { "id": "6720f1c2a1b2c3d4e5f60718", "name": "EgyptAir", "iataCode": "MS" },
+        "flightNumber": "MS910",
+        "departureAirportId": "CAI",
+        "arrivalAirportId": "DXB",
+        "departureLocalTime": "2026-12-20T08:30:00+02:00",
+        "arrivalLocalTime": "2026-12-20T14:30:00+04:00",
+        "departureAtUtc": "2026-12-20T06:30:00.000Z",
+        "arrivalAtUtc": "2026-12-20T10:30:00.000Z",
+        "durationMinutes": 240,
+        "lowestPrice": "199.99",
+        "cabins": [
+          { "category": "ECONOMY", "pricePerSeat": "199.99", "seatsAvailable": 42, "freeBaggageCount": 1, "maxBagWeightKg": 23 }
+        ]
+      }
+    ],
+    "meta": { "page": 1, "pageSize": 10, "totalItems": 1, "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false }
+  },
+  "inbound": null
+}
+~~~
+
+A `ROUND_TRIP` fills `inbound` with the flights back from `arrivalAirportId` to `departureAirportId` on `returnDate`, with the same passengers, cabin, price range and sort. Each leg has its own page.
+
+| Case | Result |
+| --- | --- |
+| A missing or invalid parameter, or a rule between two of them | 400 `VALIDATION_FAILED` with one field error per mistake |
+| An airport that is not seeded | 400 `UNKNOWN_AIRPORT` |
+| A date before today at the airport the flight leaves from | 400 `DEPARTURE_DATE_IN_PAST` on `departureDate` or `returnDate` |
+| No flight matches | 200 with `items: []` ("no flights found") |
+
+Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. ITN-26 passes every airport of the itinerary's first city:
+
+~~~
+const flights = await this.flightSearch.searchLeg({
+  departureAirportId: dto.originAirportId,
+  arrivalAirportIds: cityAirports.map((airport) => airport.id),
+  departureDate: itinerary.startDate,
+  dateField: 'departureDate',
+  seats: dto.adults + dto.children,
+  sortBy: FlightSortBy.PRICE,
+  sortOrder: SortOrder.ASC,
+});
+return paginateArray(flights, dto.page);
+~~~
+
+Rules:
+
+- `minPrice` and `maxPrice` apply to each cabin's price per seat, so a flight lists only the cabins in range and `lowestPrice` is the cheapest of those. Prices are filtered and sorted as Decimal128 inside MongoDB; never convert them with `Number()`.
+- Search shows prices per seat only. Totals, with infants at 10% of the fare, belong to the booking summary (FLT-21).
+- Search never returns the seat counters, and its results are not a reservation: the hold (FLT-22) checks the seats again. For a round trip, the hold must also check that the return flight leaves after the outbound flight lands.
+
+The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
+
 ## Flight bookings (FLT-19, FLT-21, FLT-22)
 
 The code is in `src/flights/flight-bookings/`. Every route is for a signed-in traveller (`@Roles(Role.USER)`): a moderator or an admin gets 403.

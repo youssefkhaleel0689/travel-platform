@@ -262,6 +262,8 @@ FlightSchema.index({
   departureDateKey: 1,
   status: 1,
 });
+// The status job (FLT-30) finds SCHEDULED flights whose departure time has passed.
+FlightSchema.index({ status: 1, departureAtUtc: 1 });
 // One airline cannot reuse a flight number on the same departure date (FLT-03).
 FlightSchema.index(
   { airlineId: 1, flightNumber: 1, departureDateKey: 1 },
