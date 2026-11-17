@@ -24,6 +24,9 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
     status: UserStatus.ACTIVE,
     mustChangePassword: false,
     createdAt: new Date('2026-11-12T10:00:00.000Z'),
+    // ACC-12, ACC-16 added these to UserProfile; null is "never been in that state".
+    suspendedAt: null,
+    deactivatedAt: null,
     ...overrides,
   };
 }
