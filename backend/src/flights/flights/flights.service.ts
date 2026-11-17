@@ -1,17 +1,17 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import {
   toAirportLocalDateKey,
   toUtcFromAirportLocal,
 } from '../../common/time/airport-time';
+import { assignedAirlineId } from '../airline-assignment';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
 import { Flight, FlightStatus } from '../schemas/flight.schema';
 import { CreateFlightDto } from './dto/create-flight.dto';
@@ -149,21 +149,10 @@ export class FlightsService {
     }
   }
 
-  // The airline the moderator is assigned to. No assignment document means 403: a
-  // moderator without an airline manages nothing.
-  private async assignedAirlineId(
+  // The airline the moderator is assigned to (shared with the cabin service).
+  private assignedAirlineId(
     actor: AuthenticatedUser,
   ): Promise<Flight['airlineId']> {
-    const assignment = await this.assignmentModel
-      .findOne({ moderatorId: new Types.ObjectId(actor.userId) })
-      .lean<AirlineModeratorAssignment>()
-      .exec();
-    if (!assignment) {
-      throw new ForbiddenException({
-        code: 'NO_AIRLINE_ASSIGNED',
-        message: 'You are not assigned to an airline',
-      });
-    }
-    return assignment.airlineId;
+    return assignedAirlineId(this.assignmentModel, actor);
   }
 }

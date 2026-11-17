@@ -372,3 +372,13 @@ Build POST /api/flights on feature/FLT-03-create-flight for an airline moderator
 How the output was used:
 I chose to make the endpoint moderator-only and to take the airline from the assignment so a moderator cannot create a flight for another airline. I read the generated files against FLT-03 and the schema, checked the UTC conversion and the local departureDateKey with my own examples (Cairo and Dubai in December, a flight after midnight in Cairo, a time skipped by the Egypt clock change), and ran prettier, the build, the linter and the unit tests (results in the PR). I tested nothing against Atlas yet because no moderator account or assignment exists in develop (ACC-13 and ACC-18 are missing). Cabins (FLT-04), editing (FLT-05) and cancelling (FLT-06) are left for later PRs.
 ================================================
+================================================
+Date: 2026-11-17
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-04 (cabins), FLT-05 (price edit part)
+Prompt:
+Build POST /api/flights/:id/cabins and PATCH /api/flights/:id/cabins/:cabinId on feature/FLT-04-cabins for an airline moderator, from the endpoint list in the project description. A cabin has a category from the fixed set (each once per flight), whole totalSeats > 0, price > 0 as Decimal128, freeBaggageCount and maxBagWeightKg. The airline comes from airlineModeratorAssignment, only a SCHEDULED flight that has not departed can be changed, bookedSeats and heldSeats are never written from this code, and the PATCH may change price and baggage but not the seat count (that is FLT-05). Use one conditional update per change so parallel requests cannot break a rule, ApiErrorResponse for every error, and add unit tests and a fake-service e2e test.
+How the output was used:
+I decided that the cabin in the path is its category, because the schema gives embedded cabins no _id, and that the seat count stays out of this PR so FLT-05 can add it with the conditional update. I read the generated service against FLT-04 and the schema and checked that every rule sits in the update filter and that the counters start at 0 and are never written. I ran the build, the linter, all unit tests and the fake-service e2e tests on my machine (results in the PR). I tested nothing against Atlas yet because creating a moderator (ACC-13) is not merged. Editing times and seats (FLT-05), the DEPARTED job (FLT-30) and the airline policies (FLT-08, FLT-09) are left for later PRs.
+================================================
