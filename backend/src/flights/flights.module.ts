@@ -7,10 +7,16 @@ import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
 import { FlightsController } from './flights/flights.controller';
 import { FlightsService } from './flights/flights.service';
+import { AirlinePoliciesController } from './policies/airline-policies.controller';
+import { AirlinePoliciesService } from './policies/airline-policies.service';
 import {
   AirlineModeratorAssignment,
   AirlineModeratorAssignmentSchema,
 } from './schemas/airline-moderator-assignment.schema';
+import {
+  AirlinePolicy,
+  AirlinePolicySchema,
+} from './schemas/airline-policy.schema';
 import { Airline, AirlineSchema } from './schemas/airline.schema';
 import {
   FlightBooking,
@@ -20,13 +26,14 @@ import { Flight, FlightSchema } from './schemas/flight.schema';
 import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
 // Flights feature module. FLT-01 adds airlines, FLT-03 the flight model and POST /flights,
-// FLT-04 the cabins, FLT-22 the seat inventory (Khaled); later PRs add the edit, cancel and
-// policy endpoints here.
+// FLT-04 the cabins, FLT-08/09 the airline policy, FLT-22 the seat inventory (Khaled);
+// later PRs add the edit and cancel endpoints here.
 @Module({
   imports: [
     ReferenceDataModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
+      { name: AirlinePolicy.name, schema: AirlinePolicySchema },
       { name: Flight.name, schema: FlightSchema },
       { name: FlightBooking.name, schema: FlightBookingSchema },
       {
@@ -35,13 +42,19 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
       },
     ]),
   ],
-  controllers: [AirlinesController, FlightsController, CabinsController],
+  controllers: [
+    AirlinesController,
+    AirlinePoliciesController,
+    FlightsController,
+    CabinsController,
+  ],
   providers: [
     AirlinesService,
+    AirlinePoliciesService,
     FlightsService,
     CabinsService,
     SeatInventoryService,
   ],
-  exports: [AirlinesService, SeatInventoryService],
+  exports: [AirlinesService, AirlinePoliciesService, SeatInventoryService],
 })
 export class FlightsModule {}
