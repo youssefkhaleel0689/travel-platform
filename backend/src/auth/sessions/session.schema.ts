@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { User } from '../schemas/user.schema';
 
 export type SessionDocument = HydratedDocument<Session>;
@@ -14,7 +14,12 @@ export type SessionDocument = HydratedDocument<Session>;
 export class Session {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+  // SchemaTypes.ObjectId, not Types.ObjectId. Through Nest's @Prop the second one
+  // compiles to a Mixed path, which casts nothing: SessionsService passes the string
+  // user id from the token, so it was stored as a string, and a query with an ObjectId
+  // (or ownerFilter on a casting path elsewhere) never matched it. This path casts the
+  // string to an ObjectId on every write and query.
+  @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true })
   userId: Types.ObjectId;
 
   // SHA-256 hex of the current refresh token; the plain token is never stored. Never
