@@ -3,6 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { ReferenceDataModule } from './common/reference-data/reference-data.module';
+import { FlightsModule } from './flights/flights.module';
 
 // B2 (Hotel side)
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
@@ -30,6 +33,9 @@ import { ReviewsModule } from './reviews/reviews.module';
     HotelPoliciesModule,
     HotelBookingsModule,
     ReviewsModule,
+    ReferenceDataModule,
+    FlightsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
