@@ -66,6 +66,9 @@ Check that it works:
 | `PORT` | No | Server port, defaults to 3000 |
 | `BCRYPT_COST` | No | bcrypt cost for password hashes, defaults to 12. Must be a whole number from 4 to 15; any other value (including an empty `BCRYPT_COST=`) stops the app at startup |
 | `JWT_SECRET` | Yes | Secret that signs the access tokens (HS256). At least 32 characters; the app refuses to start when it is missing, empty or shorter. Every developer generates their own and keeps it only in `backend/.env` |
+| `ADMIN_EMAIL` | Only for `npm run seed:admin` | Email of the admin account the seed creates (see "Admin account (ACC-18)"). Not needed to start the app |
+| `ADMIN_PASSWORD` | Only for `npm run seed:admin` | Password of that admin; it must pass the password rules. Not needed to start the app |
+| `ADMIN_NAME` | No | Name of that admin; empty or unset means `Platform Admin`; at most 100 characters |
 
 Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
 
@@ -73,7 +76,9 @@ Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the outpu
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ~~~
 
-**Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it ends every existing session on your machine (requests get 401 until you log in again).
+**Never commit `JWT_SECRET` or paste it into any tool or chat**: whoever knows it can sign a token for any user. Changing it makes every access token signed with the old secret invalid at once (401). A session that is still live can get a new access token through `POST /api/auth/refresh`; otherwise log in again.
+
+**Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -84,6 +89,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run start:dev` | Run in watch mode (needs `.env`) |
 | `npm run build` | Compile and catch TypeScript errors |
 | `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
+| `npm run seed:admin` | Build, then create the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (it boots the app, so it also needs `MONGODB_URI` and `JWT_SECRET`). Safe to run again: an existing admin is left unchanged |
+| `npm run test:e2e -- <name>` | Run the e2e test files whose name contains `<name>` (needs `.env` when the test uses the database) |
 
 ### Troubleshooting
 
@@ -92,6 +99,11 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `Configuration key "MONGODB_URI" does not exist` | `.env` is missing, empty (check its size), not saved, or the key name is misspelled |
 | `JWT_SECRET is required` | `JWT_SECRET` is missing from `backend/.env` or empty: generate one with the command in "Environment variables" and add it to `backend/.env` |
 | `JWT_SECRET must be at least 32 characters` | The value is too short: generate one with the command in "Environment variables" and put it in `backend/.env` instead |
+| `ADMIN_EMAIL is required` (from `npm run seed:admin`) | `ADMIN_EMAIL` is missing from `backend/.env` or empty |
+| `ADMIN_EMAIL: must be a valid email` or `ADMIN_EMAIL: must be at most 254 characters` | Fix the value of `ADMIN_EMAIL` |
+| `ADMIN_PASSWORD is required` | `ADMIN_PASSWORD` is missing from `backend/.env` or empty |
+| `ADMIN_PASSWORD: password must ...` (for example `ADMIN_PASSWORD: password must contain at least one digit`) | The password breaks the rule named after the colon (see the password rules in "Accounts and authentication"); the value itself is never printed |
+| `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `Cannot GET /` | Expected: all routes start with `/api` |
@@ -125,6 +137,23 @@ All other errors have the same shape without `errors`:
 }
 ~~~
 
+Some 4xx errors also carry an optional `details` object with structured data the client needs, placed between `errors` and `path`. Today only `ACCOUNT_LOCKED` uses it; it also sends a `Retry-After` header (seconds until the lock ends):
+
+~~~
+HTTP/1.1 423 Locked
+Retry-After: 900
+
+{
+  "statusCode": 423,
+  "code": "ACCOUNT_LOCKED",
+  "error": "Locked",
+  "message": "account locked, try again later",
+  "details": { "lockedUntil": "2026-11-13T10:15:00.000Z" },
+  "path": "/api/auth/login",
+  "timestamp": "2026-11-13T10:00:00.000Z"
+}
+~~~
+
 Default `code` per status (used when you do not set your own):
 
 | Status | `code` |
@@ -145,6 +174,30 @@ throw new NotFoundException('Flight not found');
 throw new ConflictException({ code: 'SEAT_UNAVAILABLE', message: 'Only 1 seat left' });
 ~~~
 
+The filter reads only these fields from the object you pass; anything else is dropped:
+
+| Field | Rules |
+| --- | --- |
+| `code` | String; the default for the status when missing |
+| `message` | String (or an array of strings, joined with `; `); the status's reason phrase when missing |
+| `errors` | Array of `{ field, messages }` field errors |
+| `details` | Optional. A plain object (not an array, a `Date` or a class instance), kept only for a 4xx; a 5xx never carries `details`, so nothing internal can leak through them |
+| `retryAfterSeconds` | Optional. A positive whole number, sent as the `Retry-After` header and never in the body; any other value is ignored |
+
+For a status without a built-in exception class, such as 423, use `HttpException` with the status (see `accountLocked()` in `src/auth/auth.service.ts`):
+
+~~~
+throw new HttpException(
+  {
+    code: 'ACCOUNT_LOCKED',
+    message: 'account locked, try again later',
+    details: { lockedUntil: lockedUntil.toISOString() },
+    retryAfterSeconds: 900,
+  },
+  HttpStatus.LOCKED,
+);
+~~~
+
 Document error responses in Swagger with `@ApiErrorResponse` (see "Documenting errors in Swagger" below). The setup lives in `src/app.setup.ts` (`configureApp`), which `main.ts` and the e2e tests share; see `test/error-format.e2e-spec.ts` for examples of every case.
 
 ### Documenting errors in Swagger
@@ -162,6 +215,29 @@ Why: the examples on `ErrorResponseDto` are shared by every response that uses i
       code: 'AIRLINE_NOT_FOUND',
       message: 'Airline not found',
       path: '/api/airlines/6720f1c2a1b2c3d4e5f60718',
+    },
+  ],
+})
+~~~
+
+An example can also include `details`, and `@ApiErrorResponse` accepts `headers` to document response headers. The login 423 (`src/auth/auth.controller.ts`):
+
+~~~
+@ApiErrorResponse({
+  status: 423,
+  description: 'Too many failed attempts: the account is locked for 15 minutes',
+  headers: {
+    'Retry-After': {
+      description: 'Whole seconds until the lock ends (the same moment as details.lockedUntil)',
+      schema: { type: 'integer', minimum: 1 },
+    },
+  },
+  examples: [
+    {
+      code: 'ACCOUNT_LOCKED',
+      message: 'account locked, try again later',
+      path: '/api/auth/login',
+      details: { lockedUntil: '2026-11-13T10:15:00.000Z' },
     },
   ],
 })
@@ -242,14 +318,14 @@ Feature modules:
 | Module | Contains |
 | --- | --- |
 | `auth` | Registration, login, sessions, users |
-| `flights` | Airlines, flights, cabins, prices, seat holds |
+| `flights` | Airlines, flights, cabins, prices, seat holds, flight bookings |
 | `hotels` | Hotels, rooms, availability, room holds, reviews |
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
 | `blog` | Posts, comments, likes |
 | `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
 
-Where bookings live is decided at the data-model review.
+Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
 Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `notifications/` and `uploads/` are planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
@@ -406,14 +482,16 @@ Rules:
 
 The helpers and their unit tests are in `src/common/time/`; `airport-time.spec.ts` lists the 2026 DST cases.
 
-## Accounts and authentication (ACC-01, ACC-04, ACC-11, ACC-19, GEN-13)
+## Accounts and authentication (ACC-01, ACC-04, ACC-05, ACC-06, ACC-11, ACC-19, GEN-13)
 
-A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session by setting the `access_token` cookie. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
+A traveller creates an account with `POST /api/auth/register` and logs in with `POST /api/auth/login`; both start a session (ACC-06) and set the `access_token` and `refresh_token` cookies. Passwords are stored only as bcrypt hashes, and the rules for a new password are shared by every endpoint that sets one.
 
 | Endpoint | Requirement | Access |
 | --- | --- | --- |
 | `POST /api/auth/register` | ACC-01, GEN-13 | Public |
-| `POST /api/auth/login` | ACC-04 | Public |
+| `POST /api/auth/login` | ACC-04, ACC-05 | Public |
+| `POST /api/auth/refresh` | ACC-06 | Public (uses the `refresh_token` cookie) |
+| `POST /api/auth/logout` | ACC-06 | Public |
 | `GET /api/auth/me` | ACC-04, ACC-19 | Logged in |
 | `GET /api/users/me` | ACC-11 | Logged in |
 
@@ -430,7 +508,7 @@ Register request body:
 { "name": "Sara Ahmed", "email": "sara@example.com", "password": "Travel2026", "acceptTerms": true }
 ~~~
 
-201 response (`UserResponseDto`, never `passwordHash`). Registration also logs the user in: the response sets the session cookie (see "Session cookie" below).
+201 response (`UserResponseDto`, never `passwordHash`). Registration also logs the user in: the response sets the session cookies (see "Session cookies" below).
 
 ~~~
 {
@@ -452,7 +530,7 @@ Register request body:
 | An unknown field, such as `role` | 400 `VALIDATION_FAILED`: it is rejected, not ignored |
 | The email is already registered (in any case, with or without spaces) | 409 `EMAIL_ALREADY_REGISTERED` with a field error on `email` |
 
-The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (ACC-18; the admin seed is not written yet), and moderators are created by an admin (ACC-13).
+The role is always `USER`; it is set by the server, never read from the request. Admins cannot register: admin accounts are only seeded (see "Admin account (ACC-18)" below), and moderators are created by an admin (ACC-13).
 
 Login request body: `email` (valid email, trimmed and lower-cased, at most 254 characters) and `password` (a non-empty string, used exactly as sent). The login DTO does not apply the password rules: login must not reveal them, and old passwords keep working if the rules change.
 
@@ -462,28 +540,28 @@ Login request body: `email` (valid email, trimmed and lower-cased, at most 254 c
 
 | Case | Result |
 | --- | --- |
-| Right email and password, account `ACTIVE` | 200 with the profile (`UserResponseDto`, same shape as above) and the session cookie |
+| Right email and password, account `ACTIVE` | 200 with the profile (`UserResponseDto`, same shape as above) and the session cookies |
 | Unknown email, or wrong password | 401 `INVALID_CREDENTIALS` (`invalid email or password`). Both give the same body, and an unknown email runs the same bcrypt work, so neither the response nor its timing reveals which emails are registered |
 | Right password, account `SUSPENDED` | 403 `ACCOUNT_SUSPENDED` (`account suspended`) |
 | Right password, account `DEACTIVATED` | 403 `ACCOUNT_DEACTIVATED` (`account deactivated`) |
+| The 5th consecutive failure, or any attempt while the account is locked | 423 `ACCOUNT_LOCKED` (see "Account lockout (ACC-05)" below) |
 | A field breaks a rule, or an unknown field | 400 `VALIDATION_FAILED` |
 
 The status is checked only after the password matches, so a wrong password for a suspended account still gives 401 and does not reveal the status. No error response sets a cookie.
 
 `GET /api/auth/me` and `GET /api/users/me` return the logged-in user's profile (`UserResponseDto`), or 401 `UNAUTHENTICATED`. The frontend calls `/api/auth/me` to learn who is logged in, because page scripts cannot read the httpOnly cookie. `/api/users/me` returns the same profile on the path where PATCH (ACC-09) and DELETE (ACC-12) will be added.
 
-Session cookie (`src/auth/tokens/auth-cookie.ts`), set by register and login:
+Session cookies (`src/auth/tokens/auth-cookie.ts`), set by register, login and refresh:
 
-| Attribute | Value |
-| --- | --- |
-| Name | `access_token` |
-| `HttpOnly` | Yes: page scripts cannot read it |
-| `Secure` | Yes |
-| `SameSite` | `Lax` |
-| `Path` | `/` |
-| `Max-Age` | 1800 (30 minutes) |
+| Attribute | `access_token` | `refresh_token` |
+| --- | --- | --- |
+| `HttpOnly` | Yes: page scripts cannot read it | Yes |
+| `Secure` | Yes | Yes |
+| `SameSite` | `Lax` | `Lax` |
+| `Path` | `/`: sent with every API request | `/api/auth`: sent only to the auth endpoints (refresh, logout) |
+| `Max-Age` | 1800 (30 minutes) | Until the session's absolute end (at most 5 hours) |
 
-The cookie holds a JWT signed with `JWT_SECRET`; only HS256 is accepted, so a token that claims another algorithm or `none` is rejected. The payload is only `{ sub: <user id> }` plus the standard `iat` and `exp`; the role is never in the token. The token expires 30 minutes after it was issued, whether or not the user is active. The token is never in a response body.
+The access cookie holds a JWT signed with `JWT_SECRET`; only HS256 is accepted, so a token that claims another algorithm or `none` is rejected. The payload is only `{ sub: <user id>, sid: <session id> }` plus the standard `iat` and `exp`; the role is never in the token, and a token without a valid `sid` is rejected like any invalid token. The token expires 30 minutes after it was issued, and the guard also refuses it as soon as its session ends (see "Sessions, refresh and logout (ACC-06)" below). Neither token is ever in a response body.
 
 Password rules (`src/common/validation/password.ts`), checked in this order; the field error is the message of the first rule broken:
 
@@ -529,7 +607,7 @@ const profile = await this.users.create({
 | `create(input)` | `UserProfile` | Takes the plain password and hashes it; trims and lower-cases the email; 409 `EMAIL_ALREADY_REGISTERED` on a duplicate email. `termsAcceptedAt` defaults to `null`, `mustChangePassword` to `false` |
 | `findById(id)` | `UserProfile` or `null` | `null` for an id that is not 24 hex characters, without querying |
 | `findByEmail(email)` | `UserProfile` or `null` | Trims and lower-cases the email before the query |
-| `verifyCredentials(email, password)` | `{ profile }` or `null` | For login only. Compares the password with the stored hash and never returns the hash; an unknown email runs a dummy bcrypt compare. Returns the profile whatever its status: the caller decides |
+| `verifyCredentials(email, password)` | `{ kind: 'ok', profile }`, `{ kind: 'invalid' }` or `{ kind: 'locked', lockedUntil }` | For login only. Applies the lockout (ACC-05), compares the password with the stored hash and never returns the hash; an unknown email runs a dummy bcrypt compare. Returns the profile whatever its status: the caller decides |
 
 `UserProfile` has `id`, `name`, `email`, `phone`, `preferredCurrency`, `role`, `status`, `mustChangePassword` and `createdAt`; it never contains `passwordHash` or the lockout fields.
 
@@ -541,8 +619,172 @@ Rules:
 - Email uniqueness is guaranteed by the unique index on `users.email`, not by a lookup before the insert, so two parallel registrations with the same email give one 201 and one 409.
 - `Role` (`USER`, `ADMIN`, `AIRLINE_MODERATOR`, `HOTEL_MODERATOR`) and `UserStatus` (`ACTIVE`, `SUSPENDED`, `DEACTIVATED`) come from `src/common/auth/auth.enums.ts`. Use them instead of string literals; the flights `ActorRole` type in `airline-actor.ts` should switch to `Role` later.
 - `trimText` and `trimLower` for `@Transform` are in `src/common/validation/text-transforms.ts`. Import them from there, not from another module's DTO files.
-- Available now: register and login set the session cookie, the global guards protect every route (see "Protecting your endpoints"), and `/api/auth/me` and `/api/users/me` return the logged-in user. Still to come: account lockout after failed logins (ACC-05, PR 3); refresh tokens, logout and the 30-minute idle expiry (ACC-06, PR 4). Until PR 4 there is no logout endpoint, and a session ends when its cookie expires.
-- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts` and `auth-me.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-` or `e2e-me-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix.
+- Available now: register and login start a session and set both cookies, the global guards protect every route (see "Protecting your endpoints"), `/api/auth/me` and `/api/users/me` return the logged-in user, repeated failed logins lock the account (ACC-05), refresh, logout and the 30-minute idle expiry work (ACC-06), the owner-only access helper is ready for owner-scoped modules (ACC-11), and a user who must change the password is held to the allowed routes (ACC-07a, ACC-13).
+- `test/auth-register.e2e-spec.ts`, `auth-login.e2e-spec.ts`, `auth-guard.e2e-spec.ts`, `auth-me.e2e-spec.ts`, `auth-lockout.e2e-spec.ts`, `auth-sessions.e2e-spec.ts`, `auth-refresh.e2e-spec.ts` and `auth-logout.e2e-spec.ts` register real users in the database from `MONGODB_URI`. Every email starts with a prefix unique to the run (`e2e-register-`, `e2e-login-`, `e2e-guard-`, `e2e-me-`, `e2e-lockout-`, `e2e-sessions-`, `e2e-refresh-` or `e2e-logout-` followed by a timestamp), and each test deletes those users when it finishes; the login and guard tests also delete any airline whose name starts with their prefix. The sessions, refresh and logout tests also delete their users' sessions; sessions left by the older tests are removed by the TTL index within 5 hours. `password-change-required.e2e-spec.ts` works the same way (prefix `e2e-pwchange-`) and deletes its users and their sessions. `ownership.e2e-spec.ts` creates no users: it uses only a temporary collection, `e2e_ownership_probe`, and drops it when it finishes.
+
+### Sessions, refresh and logout (ACC-06)
+
+Every login (and registration) creates one session in the `sessions` collection (`src/auth/sessions/`). A session ends when it is revoked (logout, or all of a user's sessions at once), after 30 minutes without requests (idle timeout), or 5 hours after login (absolute lifetime), whichever comes first. The guard checks the session on every request, so an ended session stops its access token at once, not when the token expires.
+
+- The refresh token is 32 random bytes. Only its SHA-256 hash is stored, never the token itself.
+- Activity (`lastActivityAt`) is recorded at most once a minute, so the idle timeout is exact to within a minute.
+- A TTL index on `expiresAt` deletes expired sessions in the background. It only cleans up: validity is always checked in the query itself, because the deletion can lag.
+
+`POST /api/auth/refresh` (no body; reads only the `refresh_token` cookie):
+
+| Case | Result |
+| --- | --- |
+| A live session and an `ACTIVE` user | 200 with the profile (same as login), a new `access_token` and a new `refresh_token` for the same session. The old refresh token stops working at once (rotation); of two concurrent refreshes with the same token, exactly one succeeds |
+| No cookie, an unknown or already used token, a session that is revoked, idle or past its end, or a user that is missing or not `ACTIVE` | 401 `UNAUTHENTICATED` (`Authentication required`), the same body in every case, and both cookies are cleared. For a user that is not `ACTIVE`, the session is also revoked |
+
+Refresh checks no password, so the login lockout (ACC-05) does not apply to it.
+
+`POST /api/auth/logout` (public, no body) always answers 204 and clears both cookies, whether or not a session existed, so it can be called twice. It ends the session found through the access cookie (the session id from the verified token) or through the refresh cookie; either is enough, so a logout still works after the access token has expired. Other sessions of the same user (other devices) keep working.
+
+For teammates:
+
+- `AuthenticatedUser` (`request.user`) now has a required `sessionId`, set by the guard only from the verified token; never take a session id from the body, query, params or headers. Test fixtures that build an `AuthenticatedUser` must include one, for example `sessionId: '6720f1c2a1b2c3d4e5f60799'`.
+- To sign a user out everywhere, call `SessionsService.revokeAllSessions(userId, { exceptSessionId })` (exported by `AuthModule`). It returns how many sessions it revoked.
+
+  | Requirement | Call |
+  | --- | --- |
+  | ACC-07a (admin password reset), ACC-12 (deactivation), ACC-16 (suspension) | `revokeAllSessions(userId)` |
+  | ACC-08 (password change) | `revokeAllSessions(user.userId, { exceptSessionId: user.sessionId })`, so the device that made the change stays logged in |
+
+- Never write to the `sessions` collection directly or inject the `Session` model outside `src/auth/`; use `SessionsService`.
+- Tokens issued before ACC-06 have no `sid` and now get 401: log in again.
+
+Shared Atlas database: the `expiresAt_1` index on `sessions` must be the TTL index (`expireAfterSeconds: 0`). Do not run e2e tests from a branch whose schema defines a different index on `sessions`: on startup it would try to create a conflicting index on the shared database.
+
+### Owner-only access (ACC-11)
+
+A user reaches only their own data: their bookings, private itineraries, posts and so on. The owner check is part of the database query (`src/common/auth/ownership.ts`), never a comparison after loading, so another user's document is never even loaded.
+
+A missing resource, one owned by someone else and a malformed id all give the same 404 with the module's own not-found code, so the response never reveals which ids exist. 403 is only for the wrong role.
+
+Reading one document (illustration only: the booking endpoints do not exist yet):
+
+~~~
+import { findOwnedOrThrow, ownerFilter } from '../common/auth/ownership';
+
+const booking = await findOwnedOrThrow(this.flightBookingModel, id, user, {
+  notFoundCode: 'FLIGHT_BOOKING_NOT_FOUND',
+  notFoundMessage: 'Flight booking not found',
+});
+
+// Another owner field name, e.g. posts:
+const post = await findOwnedOrThrow(this.postModel, id, user, {
+  notFoundCode: 'POST_NOT_FOUND',
+  notFoundMessage: 'Post not found',
+  ownerField: 'authorId',
+});
+~~~
+
+The owner field defaults to `userId`; `select` limits the loaded fields. A malformed id is refused without querying.
+
+Changing a document: first `findOwnedOrThrow` (404 when missing or not yours), then one conditional update whose filter repeats `ownerFilter(user)` and the status the change expects. If nothing matched, the state changed in between: 409.
+
+~~~
+await findOwnedOrThrow(this.flightBookingModel, id, user, {
+  notFoundCode: 'FLIGHT_BOOKING_NOT_FOUND',
+  notFoundMessage: 'Flight booking not found',
+});
+const result = await this.flightBookingModel
+  .updateOne(
+    { _id: id, ...ownerFilter(user), status: BookingStatus.CONFIRMED },
+    { $set: { status: BookingStatus.CANCELLED } },
+  )
+  .exec();
+if (result.matchedCount === 0) {
+  throw new ConflictException({ code: 'BOOKING_NOT_CANCELLABLE', message: 'Booking cannot be cancelled' });
+}
+~~~
+
+Listing: put the owner condition into the filter you give `paginateQuery`:
+
+~~~
+return paginateQuery(this.flightBookingModel, { ...ownerFilter(user), ...otherFilters }, { page: query.page });
+~~~
+
+Rules:
+
+- Take the owner only from `@CurrentUser()`, never from the body, query or params.
+- Store the owner as an ObjectId reference to `users`.
+- No admin bypass: admin views are separate `@Roles(Role.ADMIN)` endpoints (ACC-17).
+- Moderators are scoped by their provider assignment (FLT-29, HTL-22), not by `ownerFilter`.
+
+| Who uses it | Requirements |
+| --- | --- |
+| Flight and hotel bookings, and their cancellation | FLT-26, HTL-21 |
+| Payments | PAY-01, PAY-02 |
+| Itineraries | D1 |
+| Own posts and comments | BLG |
+
+### Password change required (ACC-07a, ACC-13)
+
+The `mustChangePassword` flag is set when an admin resets a password (ACC-07a) or creates a moderator (ACC-13), and cleared when the user changes the password (ACC-08).
+
+- Login still succeeds and returns `mustChangePassword: true`, so the client can redirect to the change-password screen.
+- While the flag is set, every protected route returns 403 `PASSWORD_CHANGE_REQUIRED` (`password change required`), except routes marked `@AllowWhenPasswordChangeRequired()`. Today that is only `GET /api/auth/me`.
+- `@Public` routes (login, refresh, logout, guest search) are not affected.
+- The guard checks the flag after the token, session, user and status checks, on the user it loads for each request, so clearing the flag applies on the next request.
+
+For C2: put `@AllowWhenPasswordChangeRequired()` on the change-password endpoint (ACC-08) and clear the flag there.
+
+### Account lockout (ACC-05)
+
+5 consecutive failed logins lock the account for 15 minutes. A correct password resets the counter (`src/auth/users/login-lockout.ts` holds both numbers; they are fixed by the requirement, not set through `.env`).
+
+| Case | Result |
+| --- | --- |
+| Account locked | 423 `ACCOUNT_LOCKED` (`account locked, try again later`) with `details.lockedUntil` (ISO date) and a `Retry-After` header (whole seconds until the lock ends); the body is shown in "API error format" |
+| The 5th consecutive wrong password | 423 already, not 401 |
+| Correct password while locked | Still 423, and no cookie is set |
+| Unknown email, or wrong password before the 5th | The generic 401 `INVALID_CREDENTIALS`, unchanged |
+
+The lock only stops new logins: existing sessions (the `access_token` cookie) keep working until they expire. Once the lock ends, the next login starts with a fresh count; there is no scheduled job.
+
+Why the design: checking the lock and counting the failure after bcrypt would let parallel requests all pass the check before any failure is counted. Instead, each attempt first reserves a "ticket" with one atomic database update, before bcrypt, so parallel requests can never test more than 5 passwords per lock period. If a request holding the last ticket dies before writing the lock, the next attempt writes it, so the account unlocks after one lock period instead of staying locked forever.
+
+Testing:
+
+- Use a throwaway account, never the seeded admin: locking the shared admin locks it for the whole team.
+- To unlock early on a dev database, set the user's `lockedUntil` to a past date in Atlas (collection `users`), or wait 15 minutes.
+
+### Admin account (ACC-18)
+
+There is no admin self-registration: `POST /api/auth/register` always creates a `USER`, and an `ADMIN` account comes only from the seed (`src/auth/seed/`).
+
+To seed the admin (inside `backend/`):
+
+1. Put `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (and optionally `ADMIN_NAME`). The password rules apply. To generate a password that passes them (the `7a` suffix guarantees a digit and a letter):
+
+   ~~~
+   node -e "console.log(require('crypto').randomBytes(18).toString('base64url') + '7a')"
+   ~~~
+
+2. Run `npm run seed:admin`.
+3. Expect the log line `Admin account created for <email>`. On failure the script prints `Admin seed failed: <reason>` and exits with code 1 (see "Troubleshooting").
+
+Behaviour:
+
+- Idempotent: when an admin with that email already exists it logs `Admin account <email> already exists` and changes nothing, not even the password.
+- It never promotes an existing account: if the email belongs to a `USER` or a moderator, it stops with an error.
+- All variables are checked before the database is touched.
+- The admin is created `ACTIVE`, with `mustChangePassword` set to `false` and no `termsAcceptedAt`.
+- The password is never logged or included in an error message.
+
+Shared database: the admin is seeded once for the whole team. Teammates get the admin credentials privately from the team leader, never through Git or chat tools.
+
+The curl preview in Swagger UI shows the request body, including the password, after a login. Crop it out of any screenshot.
+
+Rotating the admin password:
+
+1. Delete the `ADMIN` user in Atlas (collection `users`).
+2. Put the new `ADMIN_PASSWORD` in `backend/.env`.
+3. Run `npm run seed:admin` again.
+
+Old admin sessions stop working at once: the guard loads the user by id on every request, and the new admin has a new id.
 
 ### Protecting your endpoints
 
@@ -554,6 +796,7 @@ Every route requires a logged-in user unless it is marked `@Public()`. The two g
 | `@Roles(Role.ADMIN, ...)` | Only these roles may call it; another logged-in user gets 403. Needs at least one role (`@Roles()` alone throws at startup). On a method it replaces the class's `@Roles` |
 | `@CurrentUser()` | Parameter: the logged-in user. Use it on protected routes |
 | `@OptionalUser()` | Parameter: the logged-in user or `undefined`, for public routes that behave differently for a logged-in user |
+| `@AllowWhenPasswordChangeRequired()` | On a method or a class: a user who must change the password may still call it (see "Password change required (ACC-07a, ACC-13)") |
 
 Example (illustration only: the hotels module does not exist yet):
 
@@ -574,12 +817,13 @@ export class HotelsController {
 
 Import `AuthenticatedUser` with `import type`: TypeScript requires it for a type used only in a decorated parameter with this project's settings.
 
-`request.user` is `{ userId, role }` (`AuthenticatedUser`). The guard loads the user from the database on every request, so the role always comes from the database, and a suspension or role change applies to the very next request.
+`request.user` is `{ userId, role, sessionId }` (`AuthenticatedUser`). The guard loads the user from the database on every request, so the role always comes from the database, and a suspension or role change applies to the very next request.
 
 | Status | `code` | When |
 | --- | --- | --- |
-| 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
+| 401 | `UNAUTHENTICATED` (`Authentication required`) | No cookie, a bad or expired token, a token without a session id, a session that is revoked, idle or past its end, a user that no longer exists, or an account that is not `ACTIVE`. The body is the same in every case |
 | 403 | `FORBIDDEN` (`You do not have permission to do this`) | Logged in, but the role is not in `@Roles` |
+| 403 | `PASSWORD_CHANGE_REQUIRED` (`password change required`) | Logged in, but the password must be changed first, and the route is not marked `@AllowWhenPasswordChangeRequired()` |
 
 Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 401, plus a 403 when roles apply:
 
@@ -601,7 +845,8 @@ Document every protected endpoint with `@ApiCookieAuth('access_token')` and a 40
 
 Trying it in Swagger UI:
 
-- Run `POST /api/auth/login` (or register). The browser stores the cookie and sends it with every later request from Swagger UI, so no Authorize step is needed.
+- Run `POST /api/auth/login` (or register). The browser stores both cookies and sends them with every later request from Swagger UI, so protected endpoints work with no Authorize step.
+- Swagger UI does not call refresh by itself. After 30 minutes without requests the session is idle and you must log in again; before then, you can run `POST /api/auth/refresh` yourself to get a new access cookie.
 - The curl preview that Swagger UI shows has no cookie, because page scripts cannot read an httpOnly cookie. A copied curl command therefore gets 401.
 - Safari may refuse `Secure` cookies over `http://localhost`; use Chrome or Firefox for Swagger.
 
@@ -618,7 +863,59 @@ await request(app.getHttpServer())
   .expect(200);
 ~~~
 
-The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, the guards and the `User` schema are in `src/auth/`; the enums and decorators are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+The endpoints, `UsersService`, `PasswordService`, `AccessTokenService`, `SessionsService`, the guards and the `User` and `Session` schemas are in `src/auth/`; the enums, the decorators (including `@AllowWhenPasswordChangeRequired()` in `password-change.decorator.ts`) and the ownership helper (`ownership.ts`) are in `src/common/auth/`, and the password rules and text transforms in `src/common/validation/`.
+
+## Seat inventory and flight bookings (FLT-22)
+
+A flight booking holds seats for 10 minutes while the user pays. The seat counters live in each flight's `cabinInventory[]` (`totalSeats`, `bookedSeats`, `heldSeats`); free seats are always computed as `totalSeats - bookedSeats - heldSeats` and never stored. Only `SeatInventoryService` (`src/flights/seat-inventory/`) writes `bookedSeats` and `heldSeats`, each change in one conditional update, so concurrent requests can never oversell.
+
+| Method | Moves seats | Called by |
+| --- | --- | --- |
+| `hold(change, session?)` | free -> held | FLT-22 hold |
+| `releaseHeld(change, session?)` | held -> free | hold expiry, failed payment, FLT-06 (pending holds) |
+| `convertHeldToBooked(change, session?)` | held -> booked | FLT-23 after a verified payment |
+| `releaseBooked(change, session?)` | booked -> free | FLT-26, FLT-06 (confirmed bookings) |
+
+`change` is `{ flightId, category, seats }`, where `seats` counts adults and children (infants take no seat).
+
+Change the booking status and the counters in one transaction, and change the status only if it still has the expected value, so a release or conversion happens exactly once:
+
+~~~
+await this.connection.transaction(async (session) => {
+  // e.g. PENDING_PAYMENT -> EXPIRED, only if it is still PENDING_PAYMENT
+  for (const segment of booking.segments) {
+    await this.seatInventory.releaseHeld(
+      { flightId: segment.flightId, category: segment.cabinCategory, seats: segment.seatsRequired },
+      session,
+    );
+  }
+});
+~~~
+
+| Case | Result |
+| --- | --- |
+| Not enough free seats | 409 `SEAT_UNAVAILABLE` ("Only 1 seat left in ECONOMY") |
+| Flight not SCHEDULED or already departed | 409 `FLIGHT_NOT_BOOKABLE` |
+| The flight has no such cabin | 400 `CABIN_NOT_OFFERED` |
+| No such flight | 404 `FLIGHT_NOT_FOUND` |
+| A release or conversion finds too few seats | 500: the counters and the bookings disagree, which is a bug; the transaction rolls back |
+
+Booking flow:
+
+1. `POST /api/flight-bookings` (FLT-19, FLT-21) validates passengers and baggage and returns the summary. Nothing is stored.
+2. `POST /api/flight-bookings/hold` (FLT-22) takes the same body, re-validates and re-prices it, and in one transaction holds every segment and creates the `PENDING_PAYMENT` booking with `holdExpiresAt` 10 minutes ahead.
+3. Policies are accepted (PAY-02) and the booking is paid (PAY-01) with the booking id.
+4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released.
+
+The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
+
+Rules:
+
+- Never write `bookedSeats` or `heldSeats` outside `SeatInventoryService`, and never read, check, then save: two requests can both pass the check.
+- Never accept a booking status from the client (GEN-11).
+- `documentNumber` is personal data: never return it in lists or the passenger export.
+
+`test/seat-inventory.e2e-spec.ts` proves the concurrency rules on the shared database: 20 simultaneous holds for the last seat give exactly one winner, and a round trip whose return flight is full leaves both flights unchanged. It creates its own flights (random `airlineId`, flight numbers starting with `KE`, dates in 2099) and deletes only those. Run it with `npm run test:e2e -- seat-inventory`.
 
 ## Team workflow
 

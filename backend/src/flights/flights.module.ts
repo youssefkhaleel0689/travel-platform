@@ -10,16 +10,23 @@ import {
   AirlineModeratorAssignmentSchema,
 } from './schemas/airline-moderator-assignment.schema';
 import { Airline, AirlineSchema } from './schemas/airline.schema';
+import {
+  FlightBooking,
+  FlightBookingSchema,
+} from './schemas/flight-booking.schema';
 import { Flight, FlightSchema } from './schemas/flight.schema';
+import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
-// Flights feature module. FLT-01 adds airlines, FLT-03 the flight model and POST /flights;
-// later PRs add the cabin, edit, cancel and policy endpoints here.
+// Flights feature module. FLT-01 adds airlines, FLT-03 the flight model and POST /flights,
+// FLT-22 the seat inventory (Khaled); later PRs add the cabin, edit, cancel and policy
+// endpoints here.
 @Module({
   imports: [
     ReferenceDataModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
       { name: Flight.name, schema: FlightSchema },
+      { name: FlightBooking.name, schema: FlightBookingSchema },
       {
         name: AirlineModeratorAssignment.name,
         schema: AirlineModeratorAssignmentSchema,
@@ -27,7 +34,7 @@ import { Flight, FlightSchema } from './schemas/flight.schema';
     ]),
   ],
   controllers: [AirlinesController, FlightsController],
-  providers: [AirlinesService, FlightsService],
-  exports: [AirlinesService],
+  providers: [AirlinesService, FlightsService, SeatInventoryService],
+  exports: [AirlinesService, SeatInventoryService],
 })
 export class FlightsModule {}

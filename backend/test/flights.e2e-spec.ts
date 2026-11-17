@@ -16,6 +16,7 @@ import { configureApp } from './../src/app.setup';
 // x-test-user holds a user id, and without it the request is anonymous.
 // The service rules have their own unit tests.
 const MODERATOR_ID = '6720f1c2a1b2c3d4e5f60001';
+const SESSION_ID = '6720f1c2a1b2c3d4e5f60002';
 const FLIGHT: FlightDto = {
   id: '6720f1c2a1b2c3d4e5f60718',
   airlineId: '6af1561d0ee83eb5be8d1f25',
@@ -59,7 +60,11 @@ describe('Flights (e2e, fake service)', () => {
     app.use((req: Request, _res: Response, next: NextFunction) => {
       const userId = req.headers['x-test-user'];
       if (typeof userId === 'string') {
-        req.user = { userId, role: Role.AIRLINE_MODERATOR };
+        req.user = {
+          userId,
+          role: Role.AIRLINE_MODERATOR,
+          sessionId: SESSION_ID,
+        };
       }
       next();
     });
@@ -97,6 +102,7 @@ describe('Flights (e2e, fake service)', () => {
     expect(service.create.mock.calls[0][1]).toEqual({
       userId: MODERATOR_ID,
       role: 'AIRLINE_MODERATOR',
+      sessionId: SESSION_ID,
     });
   });
 

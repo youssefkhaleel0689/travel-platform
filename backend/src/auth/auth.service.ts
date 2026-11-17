@@ -1,22 +1,69 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { REFRESH_TOKEN_COOKIE } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { unauthenticated } from './guards/jwt-auth.guard';
+import { SessionsService } from './sessions/sessions.service';
 import { AccessTokenService } from './tokens/access-token.service';
-import { setAccessTokenCookie } from './tokens/auth-cookie';
+import {
+  clearAccessTokenCookie,
+  clearRefreshTokenCookie,
+  setAccessTokenCookie,
+  setRefreshTokenCookie,
+} from './tokens/auth-cookie';
 import { UserProfile, UsersService } from './users/users.service';
+
+// The refresh_token cookie, or '' when it is missing or not a string. cookie-parser sets
+// request.cookies and types it loosely, so it is narrowed here (as in JwtAuthGuard).
+// SessionsService.rotate refuses '' without querying.
+function refreshTokenCookie(request: Request): string {
+  const cookies: unknown = request.cookies;
+  if (typeof cookies !== 'object' || cookies === null) {
+    return '';
+  }
+  const token: unknown = Reflect.get(cookies, REFRESH_TOKEN_COOKIE);
+  return typeof token === 'string' ? token : '';
+}
+
+/**
+ * ACC-05: 423 for a locked account. details.lockedUntil tells the client when to retry, and
+ * the exception filter turns retryAfterSeconds into the Retry-After header (whole seconds,
+ * rounded up, at least 1); it never appears in the body.
+ */
+export function accountLocked(
+  lockedUntil: Date,
+  now = Date.now(),
+): HttpException {
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((lockedUntil.getTime() - now) / 1000),
+  );
+  return new HttpException(
+    {
+      code: 'ACCOUNT_LOCKED',
+      message: 'account locked, try again later',
+      details: { lockedUntil: lockedUntil.toISOString() },
+      retryAfterSeconds,
+    },
+    HttpStatus.LOCKED,
+  );
+}
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly users: UsersService,
     private readonly accessTokens: AccessTokenService,
+    private readonly sessions: SessionsService,
   ) {}
 
   /**
@@ -35,23 +82,27 @@ export class AuthService {
   }
 
   /**
-   * ACC-04: logs a user in with email and password and sets the access token cookie.
+   * ACC-04: logs a user in with email and password, starts a session (ACC-06) and sets the
+   * access and refresh token cookies.
    *
    * The status is checked only after the password matches, so a wrong password never
    * reveals whether an account exists or is suspended: it is always 401 INVALID_CREDENTIALS.
+   * ACC-05: a locked account gets 423 ACCOUNT_LOCKED, even with the right password. The
+   * failure counter is kept by UsersService.verifyCredentials (reset on any right
+   * password); nothing here writes to it.
    */
   async login(dto: LoginDto, res: Response): Promise<UserProfile> {
-    const verified = await this.users.verifyCredentials(
-      dto.email,
-      dto.password,
-    );
-    if (!verified) {
+    const result = await this.users.verifyCredentials(dto.email, dto.password);
+    if (result.kind === 'invalid') {
       throw new UnauthorizedException({
         code: 'INVALID_CREDENTIALS',
         message: 'invalid email or password',
       });
     }
-    const { profile } = verified;
+    if (result.kind === 'locked') {
+      throw accountLocked(result.lockedUntil);
+    }
+    const { profile } = result;
     if (profile.status === UserStatus.SUSPENDED) {
       throw new ForbiddenException({
         code: 'ACCOUNT_SUSPENDED',
@@ -81,15 +132,85 @@ export class AuthService {
   }
 
   /**
-   * The only place that starts a session (ACC-04, ACC-19): signs the access token for the
-   * user and sets it as the httpOnly cookie. Login (step F) and register use it.
+   * ACC-06: exchanges the refresh_token cookie for a new access token and a new refresh
+   * token, in the same session. Reads nothing but that cookie.
+   *
+   * The refresh token is rotated first, in one atomic update (SessionsService.rotate), so
+   * the old one stops working at once and of two concurrent refreshes exactly one succeeds.
+   * Then the user must still exist and be ACTIVE; otherwise the session is revoked. Every
+   * failure gives the same 401 UNAUTHENTICATED and clears both cookies, so the response
+   * does not reveal why. Neither token ever goes into the body or a log. The login lockout
+   * (ACC-05) is not involved: no password is checked here.
+   */
+  async refresh(request: Request, res: Response): Promise<UserProfile> {
+    const rotated = await this.sessions.rotate(refreshTokenCookie(request));
+    if (!rotated) {
+      throw this.endSessionCookies(res);
+    }
+
+    const profile = await this.users.findById(rotated.userId);
+    if (!profile || profile.status !== UserStatus.ACTIVE) {
+      await this.sessions.revoke(rotated.sessionId);
+      throw this.endSessionCookies(res);
+    }
+
+    const token = await this.accessTokens.sign(profile.id, rotated.sessionId);
+    setAccessTokenCookie(res, token);
+    setRefreshTokenCookie(res, rotated.refreshToken, rotated.expiresAt);
+    return profile;
+  }
+
+  /**
+   * ACC-06: ends the current session and always clears both cookies. Idempotent and never
+   * fails for a missing or ended session, so the response does not reveal whether one
+   * existed.
+   *
+   * - A valid access cookie: `user` is set by JwtAuthGuard (this route is @Public), and its
+   *   sessionId comes only from the verified token; that session is revoked.
+   * - A refresh_token cookie: the session holding it is revoked too, which covers a logout
+   *   after the access token has expired.
+   * Both may run; revoking an already revoked session changes nothing.
+   */
+  async logout(
+    user: AuthenticatedUser | undefined,
+    request: Request,
+    res: Response,
+  ): Promise<void> {
+    // Cleared first, so the browser drops both cookies even if a revoke below fails.
+    clearAccessTokenCookie(res);
+    clearRefreshTokenCookie(res);
+    if (user) {
+      await this.sessions.revoke(user.sessionId);
+    }
+    const refreshToken = refreshTokenCookie(request);
+    if (refreshToken !== '') {
+      await this.sessions.revokeByRefreshToken(refreshToken);
+    }
+  }
+
+  // A failed refresh: clears both cookies (they are useless now) and returns the generic
+  // 401 for the caller to throw.
+  private endSessionCookies(res: Response): UnauthorizedException {
+    clearAccessTokenCookie(res);
+    clearRefreshTokenCookie(res);
+    return unauthenticated();
+  }
+
+  /**
+   * The only place that starts a session (ACC-04, ACC-06, ACC-19): creates the session,
+   * signs the access token for the user and the session, and sets both httpOnly cookies
+   * (access_token, and refresh_token limited to /api/auth). Login and register call it only
+   * after every check has passed. The refresh token goes only into its cookie: never into
+   * the response body or a log.
    */
   async startSession(
     res: Response,
     profile: UserProfile,
   ): Promise<UserProfile> {
-    const token = await this.accessTokens.sign(profile.id);
+    const session = await this.sessions.create(profile.id);
+    const token = await this.accessTokens.sign(profile.id, session.sessionId);
     setAccessTokenCookie(res, token);
+    setRefreshTokenCookie(res, session.refreshToken, session.expiresAt);
     return profile;
   }
 }

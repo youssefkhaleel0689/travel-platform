@@ -12,12 +12,14 @@ import { FlightsService } from './flights.service';
 const AIRLINE_ID = new Types.ObjectId();
 const FLIGHT_ID = new Types.ObjectId();
 const MODERATOR_ID = new Types.ObjectId().toString();
+const SESSION_ID = new Types.ObjectId().toString();
 // The server clock in every test.
 const NOW = new Date('2026-11-12T10:00:00.000Z');
 
 const moderator: AuthenticatedUser = {
   userId: MODERATOR_ID,
   role: Role.AIRLINE_MODERATOR,
+  sessionId: SESSION_ID,
 };
 
 const AIRPORTS: Record<string, AirportDto> = {

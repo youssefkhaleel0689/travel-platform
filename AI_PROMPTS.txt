@@ -218,6 +218,26 @@ How the output was used:
 I used the generated schema as a starting point and checked it against the flights and cabinInventory sections of the schema PDF and the FLT-03, FLT-04 and FLT-30 rows of the requirements sheet. It gave the Flight schema, the module registration and 53 schema tests. I reviewed the diff before committing. Prettier, the compiler, lint (0 warnings), 252 unit tests and the airlines and error-format e2e tests pass. The e2e suites that start the whole app against Atlas were not part of this check. The endpoints come in later PRs, and the booked and held counters are written only by SeatInventoryService (Khaled, FLT-22).
 ================================================
 ================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+Design SeatInventoryService and the flightBookings schema on the merged flight schema (no stored availableSeats): method names and signatures, the conditional update and 409 code for each method, an all-or-nothing round-trip hold, the order of POST /flight-bookings and POST /flight-bookings/hold without a draft status, and a concurrency test on the shared database.
+How the output was used:
+Chose four counter methods with an optional session, and one transaction that holds every segment and inserts the booking, so a full return flight or a crash leaves nothing held. POST /flight-bookings returns the summary without storing anything; the hold creates the PENDING_PAYMENT booking. Claude ran the queries on a local MongoDB 8 replica set: 50 concurrent holds for the last seat gave one winner.
+================================================
+================================================
+Date: 2026-11-10
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-22 (with FLT-19, FLT-21, FLT-23, FLT-06, FLT-26)
+Prompt:
+In steps, following the agreed design: SeatInventoryService with hold (option A filter, then a read that explains a failure as 404, 409 or 400) and releaseHeld (500 when counters are out of sync); convertHeldToBooked and releaseBooked through one guarded update; unit tests on a fake model; an e2e concurrency test on the shared database; the flightBookings schema with validators and indexes; a README section.
+How the output was used:
+Reviewed each step before committing it. Claude ran Prettier, the compiler, lint and the unit suite; I ran lint, all unit tests (294 passed) and the e2e test on Atlas (7 passed). Claude also ran it against a deliberate read-then-write hold, where it failed: 18 of 20 requests got the last seat. The bookingReference index is partial, so unpaid bookings do not collide. The README check also updated the module table and where bookings live.
+================================================
+================================================
 Date: 2026-11-12
 Student: Youssef Khaleel
 Tool: Claude (chat)
@@ -302,7 +322,46 @@ One prompt per step: (B) read JWT_SECRET with a fail-fast check that never print
 How the output was used:
 I chose the packages (@nestjs/jwt and cookie-parser, no Passport), the 30-minute token, SameSite=Lax and the database check on every request, and generated my own JWT_SECRET without sharing it. Claude chat reviewed each step. Before the guard step we read airline-actor.ts and confirmed the placeholder admin is only used when request.user is missing; an e2e test proves a logged-in USER gets 403 on POST /api/airlines. The teardown warning came from background Mongoose index builds and was fixed in the swagger-docs test; I ran the e2e suite three times to confirm. I ran every check myself (unit 413, e2e 10 suites and 91 tests) and tested in Swagger UI: login, /auth/me, /users/me, the 403 on POST /api/airlines and the 401 for a wrong password.
 ================================================
-
+================================================
+Date: 2026-11-12
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-18 (admin accounts created by seeding)
+Prompt:
+Add an AdminSeeder in src/auth/seed/ and a standalone `npm run seed:admin` entry point modelled on the reference data seed. Read ADMIN_EMAIL, ADMIN_PASSWORD and ADMIN_NAME from backend/.env and check them (password rules included) before any database query, never printing the password; create the admin with UsersService.create and role ADMIN; leave an existing ADMIN unchanged; refuse to promote a non-admin account; handle two simultaneous seeds through the unique email index. Add unit tests and an e2e test that logs in as the seeded admin. Follow-up prompt: document the seed in the README.
+How the output was used:
+I took ACC-18 over from B1 and chose to keep the admin credentials only in .env. Claude Code wrote the seeder (19 unit tests), the entry point, the npm script and an e2e test. I ran the unit tests and the e2e suite (11 suites, 95 tests), then seeded the shared Atlas database myself: the first run created the admin and the second reported "already exists". I logged in as the admin in Swagger and /auth/me returned role ADMIN. A screenshot of that login showed the password in Swagger's curl preview, so I rotated it (deleted the admin, new password, seeded again) and confirmed the old password is rejected. I reviewed the README section before committing.
+================================================
+================================================
+Date: 2026-11-13
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-05 (Leader PR 3: account lockout, plus the shared error format change it needed)
+Prompt:
+Decide the lockout response (423 Locked with lockedUntil and a Retry-After header, chosen over 429, 403 and 401) and the rules: 5 consecutive failures lock the account for 15 minutes, the counter resets when the lock starts, the lock is checked before the password, and existing sessions are not affected. Extend the shared error format with an optional details object and retryAfterSeconds (sent as the Retry-After header, never in the body). Implement the lockout with an atomic database update, and write unit and e2e tests. Follow-up prompts: redesign the check after the review below, make a stuck last ticket heal itself, fix an e2e warning, and document the lockout in the README.
+How the output was used:
+Several problems were found and fixed before any commit. The first implementation checked the lock before bcrypt but counted the failure after it; reading the diff showed a time-of-check/time-of-use flaw, because parallel requests could all have their password checked. It was redesigned so each attempt reserves a "ticket" with one atomic update before bcrypt, so at most 5 passwords are checked per lock period. Claude Code then pointed out that a request dying while holding the last ticket would lock the account forever, so a self-healing conditional lock was added. A MaxListenersExceededWarning in the new e2e test (supertest starting the server for every request) was fixed by starting the server once. I reviewed every diff and ran lint, the unit tests (477) and the e2e tests (102) myself, repeating the runs that include a 10-request parallel race. I tested by hand in Swagger UI with a throwaway account: the 401 to 423 sequence, the Retry-After header and the automatic unlock. Commits: c03b0fd, e9f354b, 679bb17; this entry is committed separately.
+================================================
+================================================
+Date: 2026-11-17
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-06 (Leader PR 4: sessions, refresh and logout)
+Prompt:
+Six prompts, one per commit: (1) add a sessions collection and SessionsService (create, validate on every request with a once-a-minute activity write, rotate the refresh token in one atomic update, revoke one session, revoke all of a user's sessions with an optional session to keep); (2) create a session at login and register, sign the access token as { sub, sid }, set an httpOnly refresh_token cookie limited to /api/auth, and make the guard check the session on every request; (3) add POST /api/auth/refresh with rotation and the generic 401; (4) add a public, idempotent POST /api/auth/logout that always answers 204 and clears both cookies; (5) document sessions, refresh and logout in the README; (6) write this entry.
+How the output was used:
+Before any code I decided the design: server-side sessions checked by the guard on every request instead of stateless JWTs; the access token stays 30 minutes; a 30-minute idle timeout and a 5-hour absolute lifetime; the session id carried inside the signed access token in the httpOnly Secure cookie, not in a separate cookie; the refresh token as random bytes stored only as a SHA-256 hash; rotation on every refresh; a public, idempotent logout; old tokens without sid get 401. I reviewed sessions.service.ts against a checklist (the liveness filter, the userId filter, the conditional once-a-minute write, rotation as a single findOneAndUpdate, the plain token never stored). I kept AuthenticatedUser.sessionId required and approved the two test fixture edits it needed, and required tsc --noEmit on top of build, lint and unit tests, because the build and Jest do not type-check the specs. I asked for @ApiNoContentResponse on logout instead of an undocumented 204, and reviewed the README diff against the constants and cookie helpers. The e2e suite first failed: a non-TTL expiresAt_1 index on the shared sessions collection, created by older branches of C2, conflicted with the TTL index. It was traced with git grep across the remote branches, the stale index was dropped in Atlas with my approval, and the README now warns about it. I ran all e2e tests locally (final: 16 suites, 123 tests). The exceptSessionId option of revokeAllSessions was adopted from C2's ACC-08 branch (revokeAllForUser). Commits: caab3bd, 520b82a, e555f68, c817834, 88687c9; this entry is committed separately.
+================================================
+================================================
+Date: 2026-11-17
+Student: Youssef Khaleel
+Tool: Claude Code (design and review with Claude chat)
+Related Requirement: ACC-11 (Leader PR 5: owner-only access; also the mustChangePassword enforcement for ACC-07a and ACC-13)
+Prompt:
+Four prompts, one per commit: (1) add a reusable ownership helper in src/common/auth/ (ownerFilter and findOwnedOrThrow: the owner in the query filter, the same 404 for a missing, someone else's or malformed id), with unit tests and an e2e test on a temporary collection; (2) make JwtAuthGuard return 403 PASSWORD_CHANGE_REQUIRED on protected routes while a user's mustChangePassword flag is set, with an opt-in @AllowWhenPasswordChangeRequired() decorator used on GET /api/auth/me, plus unit and e2e tests; (3) document both in the README; (4) write this entry.
+How the output was used:
+Before any code I decided the design: the owner check lives in the database filter (ownerFilter / findOwnedOrThrow), not a comparison after loading and not a guard or a permissions library; a missing resource, someone else's and a malformed id all give the same 404, so ids cannot be enumerated, and 403 is only for the wrong role; no admin bypass in the helper, because admin views are separate @Roles(ADMIN) endpoints; mustChangePassword is enforced in the same PR, with an opt-in decorator rather than a list of paths, login still succeeds, and other routes get 403 PASSWORD_CHANGE_REQUIRED. In review I accepted that the ownership e2e test calls the helper directly against a temporary collection, because no endpoint uses it yet, and that it stores userId as an ObjectId to prove Mongoose casts the string id from the token. I accepted keeping mustChangePassword inside the guard instead of adding it to AuthenticatedUser, which avoided another breaking change for my teammates' test fixtures. I read the guard diff line by line (status checked before the flag, public routes unaffected, the exemption compared with === true so it fails closed), and reviewed the README diff against the helper's signature, the BookingStatus enum and the guard's code and message. The README also corrects the JWT_SECRET note found in the ACC-06 review. Verified: tsc --noEmit, build and lint clean; unit tests 35 suites, 638 tests; e2e run locally: 18 suites, 132 tests. Commits: fc39081, db2d6a5, 40a48f3; this entry is committed separately.
+================================================
 ================================================
 Date: 2026-11-12
 Student: Marawan Elgendy
