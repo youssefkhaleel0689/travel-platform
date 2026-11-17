@@ -12,9 +12,7 @@ import type { ModeratorAssignmentPort } from '../common/providers/moderator-assi
  * writer of that collection, so this adapter is the thin piece that keeps
  * administration from reading or writing the collection itself.
  *
- * The hotel half of ACC-13 has no adapter yet: the hotels module (B1, HTL-01)
- * does not exist, so HOTEL_MODERATOR_ASSIGNMENT_PORT is left unprovided and
- * the gateway answers 501.
+ * The hotel half of ACC-13 is HotelModeratorAssignmentAdapter.
  */
 @Injectable()
 export class AirlineModeratorAssignmentAdapter
