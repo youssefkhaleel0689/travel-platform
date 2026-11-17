@@ -65,6 +65,20 @@ export class User {
   @Prop({ type: Boolean, required: true, default: false })
   mustChangePassword: boolean;
 
+  // When an admin issued the temporary password (ACC-07a). Cleared when the
+  // account chooses its own.
+  @Prop({ type: Date, default: null })
+  temporaryPasswordIssuedAt: Date | null;
+
+  // When an admin suspended the account (ACC-15, ACC-16). Null while it is not.
+  @Prop({ type: Date, default: null })
+  suspendedAt: Date | null;
+
+  // When the owner deactivated the account (ACC-12). Nothing is ever deleted,
+  // so past bookings, payments and refunds still point at a real account.
+  @Prop({ type: Date, default: null })
+  deactivatedAt: Date | null;
+
   // Added by `timestamps: true`. createdAt is the registration date (ACC-14).
   createdAt: Date;
   updatedAt: Date;
@@ -74,3 +88,7 @@ export const UserSchema = SchemaFactory.createForClass(User);
 
 // The index, not an application check, guarantees uniqueness under concurrent registrations.
 UserSchema.index({ email: 1 }, { unique: true });
+
+// ACC-14: the admin account list filters by role and status and sorts by
+// registration date.
+UserSchema.index({ role: 1, status: 1, createdAt: -1 });

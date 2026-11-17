@@ -3,12 +3,24 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
+import { CabinsController } from './cabins/cabins.controller';
+import { CabinsService } from './cabins/cabins.service';
 import { FlightSearchController } from './flight-search/flight-search.controller';
 import { FlightSearchService } from './flight-search/flight-search.service';
+import { FlightStatusJob } from './flight-status/flight-status.job';
+import { FlightStatusService } from './flight-status/flight-status.service';
+import { FlightsController } from './flights/flights.controller';
+import { FlightsService } from './flights/flights.service';
+import { AirlinePoliciesController } from './policies/airline-policies.controller';
+import { AirlinePoliciesService } from './policies/airline-policies.service';
 import {
   AirlineModeratorAssignment,
   AirlineModeratorAssignmentSchema,
 } from './schemas/airline-moderator-assignment.schema';
+import {
+  AirlinePolicy,
+  AirlinePolicySchema,
+} from './schemas/airline-policy.schema';
 import { Airline, AirlineSchema } from './schemas/airline.schema';
 import {
   FlightBooking,
@@ -17,12 +29,15 @@ import {
 import { Flight, FlightSchema } from './schemas/flight.schema';
 import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 
-// Flights feature module. FLT-01 adds airlines and FLT-03 the flight model; later PRs add
-// the flight, cabin and policy endpoints here.
+// Flights feature module. FLT-01 adds airlines, FLT-03 the flight model and POST /flights,
+// FLT-04 the cabins, FLT-08/09 the airline policy, FLT-22 the seat inventory (Khaled), FLT-30 the
+// job that marks flights DEPARTED; later PRs add the edit and cancel endpoints here.
 @Module({
   imports: [
+    ReferenceDataModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
+      { name: AirlinePolicy.name, schema: AirlinePolicySchema },
       { name: Flight.name, schema: FlightSchema },
       { name: FlightBooking.name, schema: FlightBookingSchema },
       {
@@ -30,13 +45,32 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
         schema: AirlineModeratorAssignmentSchema,
       },
     ]),
-    // Search checks airports and reads their time zones (FLT-11, GEN-06).
-    ReferenceDataModule,
   ],
-  controllers: [AirlinesController, FlightSearchController],
-  providers: [AirlinesService, FlightSearchService, SeatInventoryService],
+  controllers: [
+    AirlinesController,
+    AirlinePoliciesController,
+    FlightsController,
+    CabinsController,
+    FlightSearchController,
+  ],
+  providers: [
+    AirlinesService,
+    AirlinePoliciesService,
+    FlightsService,
+    CabinsService,
+    FlightSearchService,
+    FlightStatusService,
+    FlightStatusJob,
+    SeatInventoryService,
+  ],
   // FlightSearchService is exported for itineraries (ITN-26), SeatInventoryService for
   // payments (FLT-23 and the hold expiry).
-  exports: [AirlinesService, FlightSearchService, SeatInventoryService],
+  exports: [
+    AirlinesService,
+    AirlinePoliciesService,
+    FlightSearchService,
+    FlightStatusService,
+    SeatInventoryService,
+  ],
 })
 export class FlightsModule {}
