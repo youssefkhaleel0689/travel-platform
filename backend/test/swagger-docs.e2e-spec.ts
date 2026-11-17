@@ -21,7 +21,9 @@ import { configureApp } from './../src/app.setup';
 import { ErrorResponseDto } from './../src/common/dto/error-response.dto';
 
 // Connecting to Atlas can take longer than Jest's default 5 seconds.
-const CONNECT_TIMEOUT_MS = 30_000;
+// Registering and logging accounts in over HTTP happens in beforeAll now, on
+// top of connecting to Atlas and building indexes, so this is generous.
+const CONNECT_TIMEOUT_MS = 120_000;
 
 const METHODS = [
   'get',

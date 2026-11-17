@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
-import { PASSWORD_MAX_BYTES } from '../../common/validation/password';
+import {
+  PASSWORD_MAX_BYTES,
+  passwordRuleViolation,
+} from '../../common/validation/password';
 
 export const DEFAULT_BCRYPT_COST = 12;
 const MIN_BCRYPT_COST = 4;
@@ -38,6 +41,22 @@ export class PasswordService {
       return false;
     }
     return bcrypt.compare(plain, passwordHash);
+  }
+
+  /**
+   * ACC-07a, ACC-13: a temporary password for an admin-initiated reset or a new
+   * moderator account. It always satisfies the shared password rules, and it is
+   * shown to the admin once and never stored in readable form.
+   */
+  generateTemporary(): string {
+    // The Tmp prefix and the trailing digit make the letter and digit rules
+    // certain rather than merely likely for a random hex string.
+    const generated = `Tmp${randomBytes(5).toString('hex')}9`;
+    if (passwordRuleViolation(generated) !== null) {
+      // Unreachable, but a silent bad password would be worse than a crash.
+      throw new Error('Generated temporary password breaks the password rules');
+    }
+    return generated;
   }
 
   /**

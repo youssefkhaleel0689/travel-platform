@@ -79,6 +79,16 @@ describe('findOwnedOrThrow (e2e, ACC-11)', () => {
     await app.init();
 
     connection = app.get<Connection>(getConnectionToken());
+    // Compiling each Mongoose model starts Model.init() in the background (create the
+    // collection, then build its indexes), which opens pooled connections to Atlas. This
+    // suite queries only its own probe collection, so without waiting it can close the app
+    // while those connections are still authenticating, and the driver then loads code
+    // after Jest has torn the environment down - which fails the whole run with an exit
+    // code even though every test passed. init() returns the same in-flight promise, so
+    // this costs nothing. Same reason as the wait in swagger-docs.e2e-spec.ts.
+    await Promise.all(
+      Object.values(connection.models).map((model) => model.init()),
+    );
     probeModel = connection.model<Probe>(MODEL_NAME, ProbeSchema);
     const created = await probeModel.create({
       userId: new Types.ObjectId(userA.userId),
