@@ -57,7 +57,8 @@ describe('Hotel room holds (HTL-18, e2e, shared database)', () => {
     }).compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
-    await app.init();
+    // Parallel supertest requests need one already-listening app.
+    await app.listen(0);
 
     connection = app.get<Connection>(getConnectionToken());
     hotelModel = app.get<Model<Hotel>>(getModelToken(Hotel.name));
