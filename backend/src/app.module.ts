@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AdministrationModule } from './administration/administration.module';
 import { AuditModule } from './audit/audit.module';
+import { BlogModule } from './blog/blog.module';
 import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
@@ -58,6 +59,8 @@ import { ReviewsModule } from './reviews/reviews.module';
     PaymentsModule,
     ItinerariesModule,
     AuditModule,
+    // D2: posts, comments, likes, tags and author pages (BLG-01 to BLG-12).
+    BlogModule,
   ],
   controllers: [AppController],
   providers: [AppService],
