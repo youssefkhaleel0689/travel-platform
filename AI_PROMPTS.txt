@@ -855,3 +855,21 @@ Build POST /api/flights/:id/cabins and PATCH /api/flights/:id/cabins/:cabinId on
 How the output was used:
 I decided that the cabin in the path is its category, because the schema gives embedded cabins no _id, and that the seat count stays out of this PR so FLT-05 can add it with the conditional update. I read the generated service against FLT-04 and the schema and checked that every rule sits in the update filter and that the counters start at 0 and are never written. I ran the build, the linter, all unit tests and the fake-service e2e tests on my machine (results in the PR). I tested nothing against Atlas yet because creating a moderator (ACC-13) is not merged. Editing times and seats (FLT-05), the DEPARTED job (FLT-30) and the airline policies (FLT-08, FLT-09) are left for later PRs. The same DEACTIVATED-airline rule as in FLT-03 applies to adding and editing cabins (403 AIRLINE_DEACTIVATED), through one shared helper.
 ================================================
+Date: 2026-11-18
+Student: Youssef Khaleel
+Tool: Claude (chat, with read and push access to the repository)
+Related Requirement: Integration of PRs #25, #29, #30, #33 to #38 (FLT-01, FLT-03, FLT-04, FLT-08, FLT-09, FLT-11, FLT-12, FLT-15, FLT-30, HTL-01, HTL-03 to HTL-24, ACC-13, PAY-01 to PAY-04, GEN-01, GEN-11); ACC-11 test typing
+Prompt:
+As team leader, review the open pull requests before the Milestone 1 deadline and, where a PR needs changes, make them on its branch myself so that every requirement works together. For each PR: merge develop into the branch, resolve conflicts without removing anyone's work, fix what blocks it, run tsc, lint, unit and e2e tests, explain what changed, and push only after I approve. For the hotel side, keep one hotel module and connect reservations to payments, refunds and notifications.
+How the output was used:
+I read every explanation and diff before approving and merged each PR myself with a merge commit, so each member's commits stay in the history. Conflicts in AI_PROMPTS.txt, README.md, app.module.ts and flights.module.ts were resolved by keeping both sides. Fixes I approved: SchemaTypes.ObjectId in airline-policy.schema.ts (#35) and in the hotel schemas (#38), required by the schema id test from #39; #38 moved onto the team's auth decorators (@CurrentUser, @Roles, @Public) with real Swagger error examples, and a HotelModeratorAssignmentAdapter so ACC-13 creates hotel moderators instead of answering 501; #30 dropped hotel-core and uses the one HotelsModule from #38, imports BookingStatus and BookingsPort from common/bookings instead of copies, makes HotelBookingsModule global so payments can reach HOTEL_BOOKINGS_PORT, and calls C2's RefundsService and NotificationsService through adapters (RefundsService is looked up at call time to avoid a provider cycle). It also found that session-ownership.spec.ts failed tsc --noEmit once the incremental cache was cleared, and typed the model as Model<Session>. Before each merge I ran tsc, lint, npm test and npm run test:e2e against Atlas myself (final: 70 unit suites / 1167 tests, 32 e2e suites / 369 tests). The hotel integration was also checked with a scripted journey (search, hold, policy acceptance, signed webhook, confirmation, cancellation, refund, notifications) against a local MongoDB. I can explain each change in my own words.
+================================================
+Date: 2026-11-18
+Student: Youssef Khaleel
+Tool: Claude Code
+Related Requirement: Test data on the shared Atlas database (PAY-01, PAY-03 e2e suites)
+Prompt:
+Count the documents in payments, refunds, policyAcceptances and stripeWebhookEvents without printing any secret, explain why test payments were left behind, and after my approval delete only documents owned by e2e test users (test_c2_ emails), never with deleteMany({}).
+How the output was used:
+The diagnosis showed the payment e2e suites clean up after themselves, and the leftovers came from an e2e run I had interrupted. After I approved, 18 payments, 20 policy acceptances and their two test users were deleted by owner id and email prefix; every other collection was left untouched. No repository file was changed.
+================================================
