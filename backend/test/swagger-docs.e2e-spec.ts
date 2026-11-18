@@ -4,13 +4,11 @@
 // src/common/swagger/ instead.
 import { INestApplication } from '@nestjs/common';
 import {
-  DocumentBuilder,
   getSchemaPath,
   MediaTypeObject,
   OpenAPIObject,
   OperationObject,
   PathItemObject,
-  SwaggerModule,
 } from '@nestjs/swagger';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -18,6 +16,7 @@ import type { Connection } from 'mongoose';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { buildSwaggerDocument } from './../src/swagger.setup';
 import { ErrorResponseDto } from './../src/common/dto/error-response.dto';
 
 // Connecting to Atlas can take longer than Jest's default 5 seconds.
@@ -114,16 +113,8 @@ describe('Swagger document (e2e)', () => {
       Object.values(connection.models).map((model) => model.init()),
     );
 
-    // Same configuration as main.ts.
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Travel Platform API')
-      .setDescription(
-        'REST API for the Travel Planning & Booking Platform. Auth uses an httpOnly cookie.',
-      )
-      .setVersion('1.0')
-      .addCookieAuth('access_token')
-      .build();
-    document = SwaggerModule.createDocument(app, swaggerConfig);
+    // The same document main.ts serves at /api/docs and npm run openapi exports.
+    document = buildSwaggerDocument(app);
   }, CONNECT_TIMEOUT_MS);
 
   // Also closes the MongoDB connection. Awaited, with the same timeout as the connect, so

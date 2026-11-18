@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { configureApp } from './app.setup';
 import { AppModule } from './app.module';
+import { buildSwaggerDocument } from './swagger.setup';
 
 async function bootstrap() {
   // rawBody: PAY-01 verifies the Stripe webhook signature against the exact
@@ -12,16 +13,7 @@ async function bootstrap() {
 
   configureApp(app);
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Travel Platform API')
-    .setDescription(
-      'REST API for the Travel Planning & Booking Platform. Auth uses an httpOnly cookie.',
-    )
-    .setVersion('1.0')
-    .addCookieAuth('access_token')
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api/docs', app, buildSwaggerDocument(app));
 
   await app.listen(process.env.PORT ?? 3000);
 }
