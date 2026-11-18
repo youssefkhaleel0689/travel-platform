@@ -4391,6 +4391,291 @@ paths:
       summary: Create a flight for your airline (FLT-03, airline moderator)
       tags:
         - Flights
+  /api/flights/{id}:
+    patch:
+      description: Send any of departureAirportId, arrivalAirportId, departureLocalInput, arrivalLocalInput. Times are on each airport's local clock (YYYY-MM-DDTHH:mm) and stored in UTC; the departure date is recomputed. The airports can only change while no seat is booked or held (AIRPORTS_LOCKED); if you change an airport, send its local time too. Any change of a time sends an in-app notification to passengers with a CONFIRMED booking; existing bookings keep their own snapshot. Cabin prices and seat counts are changed with PATCH /api/flights/{id}/cabins/{cabinId}.
+      operationId: FlightsController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Flight id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFlightDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightDto'
+        '400':
+          description: Validation failed, nothing to change (EMPTY_UPDATE), or a flight rule was broken (identical airports, unknown airport, a local time that does not exist, departure in the past, arrival not after departure, an airport changed without its local time)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: departureLocalInput
+                        messages:
+                          - departureLocalInput must be a valid local date and time (YYYY-MM-DDTHH:mm)
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                EMPTY_UPDATE:
+                  summary: Send at least one of departureAirportId, arrivalAirportId, departureLocalInput, arrivalLocalInput
+                  value:
+                    statusCode: 400
+                    code: EMPTY_UPDATE
+                    error: Bad Request
+                    message: Send at least one of departureAirportId, arrivalAirportId, departureLocalInput, arrivalLocalInput
+                    errors:
+                      - field: body
+                        messages:
+                          - send at least one of departureAirportId, arrivalAirportId, departureLocalInput, arrivalLocalInput
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                LOCAL_TIME_REQUIRED:
+                  summary: Send departureLocalInput when you change the departure airport
+                  value:
+                    statusCode: 400
+                    code: LOCAL_TIME_REQUIRED
+                    error: Bad Request
+                    message: Send departureLocalInput when you change the departure airport
+                    errors:
+                      - field: departureLocalInput
+                        messages:
+                          - Send departureLocalInput when you change the departure airport
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                SAME_AIRPORTS:
+                  summary: arrivalAirportId must differ from departureAirportId
+                  value:
+                    statusCode: 400
+                    code: SAME_AIRPORTS
+                    error: Bad Request
+                    message: arrivalAirportId must differ from departureAirportId
+                    errors:
+                      - field: arrivalAirportId
+                        messages:
+                          - arrivalAirportId must differ from departureAirportId
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_AIRPORT:
+                  summary: 'Unknown airport: XXX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_AIRPORT
+                    error: Bad Request
+                    message: 'Unknown airport: XXX'
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NONEXISTENT_LOCAL_TIME:
+                  summary: 2027-04-30T00:30 does not exist in Africa/Cairo (clocks move forward)
+                  value:
+                    statusCode: 400
+                    code: NONEXISTENT_LOCAL_TIME
+                    error: Bad Request
+                    message: 2027-04-30T00:30 does not exist in Africa/Cairo (clocks move forward)
+                    errors:
+                      - field: departureLocalInput
+                        messages:
+                          - 2027-04-30T00:30 does not exist in Africa/Cairo (clocks move forward)
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DEPARTURE_IN_PAST:
+                  summary: Departure must be in the future
+                  value:
+                    statusCode: 400
+                    code: DEPARTURE_IN_PAST
+                    error: Bad Request
+                    message: Departure must be in the future
+                    errors:
+                      - field: departureLocalInput
+                        messages:
+                          - Departure must be in the future
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                ARRIVAL_NOT_AFTER_DEPARTURE:
+                  summary: Arrival must be after departure
+                  value:
+                    statusCode: 400
+                    code: ARRIVAL_NOT_AFTER_DEPARTURE
+                    error: Bad Request
+                    message: Arrival must be after departure
+                    errors:
+                      - field: arrivalLocalInput
+                        messages:
+                          - Arrival must be after departure
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, or the session is no longer valid (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: Not an airline moderator (FORBIDDEN), a moderator with no airline assigned (NO_AIRLINE_ASSIGNED), or an airline that is deactivated (AIRLINE_DEACTIVATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NO_AIRLINE_ASSIGNED:
+                  summary: You are not assigned to an airline
+                  value:
+                    statusCode: 403
+                    code: NO_AIRLINE_ASSIGNED
+                    error: Forbidden
+                    message: You are not assigned to an airline
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_DEACTIVATED:
+                  summary: Your airline is deactivated and cannot change its flights
+                  value:
+                    statusCode: 403
+                    code: AIRLINE_DEACTIVATED
+                    error: Forbidden
+                    message: Your airline is deactivated and cannot change its flights
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such flight, or it belongs to another airline (FLIGHT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The flight is not SCHEDULED or has already departed, the airports are locked by a booking or hold (AIRPORTS_LOCKED), the new departure date clashes with the same flight number (FLIGHT_ALREADY_EXISTS), or the flight was changed at the same time (FLIGHT_CHANGED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FLIGHT_NOT_SCHEDULED:
+                  summary: Only a SCHEDULED flight can be changed (this one is CANCELLED)
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_NOT_SCHEDULED
+                    error: Conflict
+                    message: Only a SCHEDULED flight can be changed (this one is CANCELLED)
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FLIGHT_ALREADY_DEPARTED:
+                  summary: This flight has already departed and can no longer be changed
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_ALREADY_DEPARTED
+                    error: Conflict
+                    message: This flight has already departed and can no longer be changed
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRPORTS_LOCKED:
+                  summary: The airports cannot be changed once the flight has a booking or a seat hold
+                  value:
+                    statusCode: 409
+                    code: AIRPORTS_LOCKED
+                    error: Conflict
+                    message: The airports cannot be changed once the flight has a booking or a seat hold
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FLIGHT_ALREADY_EXISTS:
+                  summary: This airline already has a flight with this number on the new departure date
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_ALREADY_EXISTS
+                    error: Conflict
+                    message: This airline already has a flight with this number on the new departure date
+                    errors:
+                      - field: departureLocalInput
+                        messages:
+                          - flight number already used on this departure date
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FLIGHT_CHANGED:
+                  summary: The flight was changed at the same time, please try again
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_CHANGED
+                    error: Conflict
+                    message: The flight was changed at the same time, please try again
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Edit the times or airports of a SCHEDULED flight of your airline (FLT-05, airline moderator)
+      tags:
+        - Flights
+    get:
+      description: Airline, flight number, airports, local departure and arrival times, duration, each cabin with its price, seats remaining and baggage allowance, and the airline's extra-bag price and cancellation tiers. Only flights of ACTIVE airlines are shown; status says whether the flight can still be booked.
+      operationId: FlightDetailsController_getDetails
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightDetailsDto'
+        '404':
+          description: No flight has this id, the id is malformed, or its airline is not active (FLIGHT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Flight details (FLT-17)
+      tags:
+        - Flights
   /api/flights/{id}/cabins:
     post:
       description: Categories are ECONOMY, PREMIUM_ECONOMY, BUSINESS and FIRST, each once per flight. The flight must belong to your airline, be SCHEDULED and not have departed. bookedSeats and heldSeats start at 0 and cannot be sent. Returns the whole flight.
@@ -4541,7 +4826,7 @@ paths:
         - Cabins
   /api/flights/{id}/cabins/{cabinId}:
     patch:
-      description: Send any of price, freeBaggageCount, maxBagWeightKg. A price change does not affect existing bookings. The seat count is changed in a later PR (FLT-05). The cabin is identified by its category in the path.
+      description: Send any of price, totalSeats, freeBaggageCount, maxBagWeightKg. A price change does not affect existing bookings. totalSeats cannot be lower than the seats already booked or held (SEATS_BELOW_BOOKED); the booked and held counters are never sent. The cabin is identified by its category in the path.
       operationId: CabinsController_update
       parameters:
         - name: id
@@ -4597,16 +4882,16 @@ paths:
                     path: /api/flights/6720f1c2a1b2c3d4e5f60718/cabins/ECONOMY
                     timestamp: '2026-11-12T10:00:00.000Z'
                 EMPTY_UPDATE:
-                  summary: Send at least one of price, freeBaggageCount, maxBagWeightKg
+                  summary: Send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg
                   value:
                     statusCode: 400
                     code: EMPTY_UPDATE
                     error: Bad Request
-                    message: Send at least one of price, freeBaggageCount, maxBagWeightKg
+                    message: Send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg
                     errors:
                       - field: body
                         messages:
-                          - send at least one of price, freeBaggageCount, maxBagWeightKg
+                          - send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg
                     path: /api/flights/6720f1c2a1b2c3d4e5f60718/cabins/ECONOMY
                     timestamp: '2026-11-12T10:00:00.000Z'
         '401':
@@ -4682,7 +4967,7 @@ paths:
                     path: /api/flights/6720f1c2a1b2c3d4e5f60718/cabins/ECONOMY
                     timestamp: '2026-11-12T10:00:00.000Z'
         '409':
-          description: The flight is not SCHEDULED or has already departed
+          description: The flight is not SCHEDULED or has already departed, or the new seat count is below the seats already booked or held (SEATS_BELOW_BOOKED)
           content:
             application/json:
               schema:
@@ -4706,15 +4991,168 @@ paths:
                     message: This flight has already departed and can no longer be changed
                     path: /api/flights/6720f1c2a1b2c3d4e5f60718/cabins/ECONOMY
                     timestamp: '2026-11-12T10:00:00.000Z'
+                SEATS_BELOW_BOOKED:
+                  summary: totalSeats cannot be lower than the seats already booked or held (40 booked, 5 held)
+                  value:
+                    statusCode: 409
+                    code: SEATS_BELOW_BOOKED
+                    error: Conflict
+                    message: totalSeats cannot be lower than the seats already booked or held (40 booked, 5 held)
+                    errors:
+                      - field: totalSeats
+                        messages:
+                          - must be at least 45 (seats already booked or held)
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cabins/ECONOMY
+                    timestamp: '2026-11-12T10:00:00.000Z'
       security:
         - access_token: []
-      summary: Change the price or baggage of a cabin (FLT-04, FLT-05, airline moderator)
+      summary: Change the price, seat count or baggage of a cabin (FLT-04, FLT-05, airline moderator)
       tags:
         - Cabins
-  /api/flights/search:
+  /api/flights/{id}/cancel:
+    post:
+      description: 'Send {"confirm": true} to confirm. A SCHEDULED flight of your airline that has not departed becomes CANCELLED and disappears from search. Every CONFIRMED booking on it becomes CANCELLED with a full (100%) refund and its seats go back; a round trip is cancelled as a whole. Unpaid holds are released. Each passenger gets an in-app notice. A failed refund does not undo the cancellation: it is kept on record and can be retried (refundsFailed counts them).'
+      operationId: FlightCancellationController_cancel
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelFlightDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelledFlightResultDto'
+        '400':
+          description: The confirmation is missing or not true, or the reason is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: confirm
+                    messages:
+                      - confirm must be true to cancel the flight
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: Not an airline moderator (FORBIDDEN), a moderator with no airline assigned (NO_AIRLINE_ASSIGNED), or an airline that is deactivated (AIRLINE_DEACTIVATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NO_AIRLINE_ASSIGNED:
+                  summary: You are not assigned to an airline
+                  value:
+                    statusCode: 403
+                    code: NO_AIRLINE_ASSIGNED
+                    error: Forbidden
+                    message: You are not assigned to an airline
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_DEACTIVATED:
+                  summary: Your airline is deactivated and cannot cancel flights
+                  value:
+                    statusCode: 403
+                    code: AIRLINE_DEACTIVATED
+                    error: Forbidden
+                    message: Your airline is deactivated and cannot cancel flights
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No flight of your airline has this id (FLIGHT_NOT_FOUND). Another airline's flight answers the same
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The flight is already cancelled (FLIGHT_ALREADY_CANCELLED) or has departed (FLIGHT_ALREADY_DEPARTED), or it changed while being cancelled (FLIGHT_CHANGED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FLIGHT_ALREADY_CANCELLED:
+                  summary: This flight is already cancelled
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_ALREADY_CANCELLED
+                    error: Conflict
+                    message: This flight is already cancelled
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FLIGHT_ALREADY_DEPARTED:
+                  summary: This flight has already departed and cannot be cancelled
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_ALREADY_DEPARTED
+                    error: Conflict
+                    message: This flight has already departed and cannot be cancelled
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FLIGHT_CHANGED:
+                  summary: The flight changed while it was being cancelled; try again
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_CHANGED
+                    error: Conflict
+                    message: The flight changed while it was being cancelled; try again
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Cancel one of your flights (FLT-06, airline moderator)
+      tags:
+        - Flights
+  /api/flight-bookings:
     get:
-      description: Lists SCHEDULED flights of ACTIVE airlines that have not departed, on departureDate at the departure airport, with a cabin that has a free seat for every adult and child (infants sit on a lap). Only the matching cabins are returned. minPrice and maxPrice are inclusive and apply to the price per seat of each cabin. Results sort by lowestPrice, duration or departure time, 10 per page. A ROUND_TRIP also returns the flights back on returnDate, paged with returnPage. Empty items mean no flights were found.
-      operationId: FlightSearchController_search
+      description: 'One group per request (?group=UPCOMING | PAST | CANCELLED, default UPCOMING), 10 per page, plus how many bookings each group holds. UPCOMING: paid with a flight still ahead, soonest first. PAST: completed, or every flight has left, latest first. CANCELLED: cancelled by you or by the airline, with the refund. Unpaid holds are not listed. Open one with GET /api/flight-bookings/{id}.'
+      operationId: MyFlightBookingsController_list
       parameters:
         - name: page
           required: false
@@ -4725,206 +5163,84 @@ paths:
             default: 1
             example: 1
             type: integer
-        - name: departureAirportId
-          required: true
-          in: query
-          description: IATA code of a seeded airport (GET /api/airports).
-          schema:
-            example: CAI
-            type: string
-        - name: arrivalAirportId
-          required: true
-          in: query
-          description: IATA code of a seeded airport. Must differ from departureAirportId.
-          schema:
-            example: DXB
-            type: string
-        - name: departureDate
-          required: true
-          in: query
-          description: Departure date on the calendar of the DEPARTURE airport (YYYY-MM-DD). Not before today there.
-          schema:
-            example: '2026-12-20'
-            type: string
-        - name: tripType
+        - name: group
           required: false
           in: query
+          description: 'UPCOMING: paid, a flight still ahead (soonest first). PAST: completed or every flight left (latest first). CANCELLED: cancelled by you or by the airline (latest first).'
           schema:
-            default: ONE_WAY
+            default: UPCOMING
             type: string
             enum:
-              - ONE_WAY
-              - ROUND_TRIP
-        - name: returnDate
-          required: false
-          in: query
-          description: Only for a ROUND_TRIP, and required there. Date on the calendar of the return flight's departure airport (the outbound arrival airport). Not before departureDate.
-          schema:
-            example: '2026-12-27'
-            type: string
-        - name: adults
-          required: false
-          in: query
-          description: Passengers aged 12 or more.
-          schema:
-            minimum: 1
-            maximum: 9
-            default: 1
-            type: integer
-        - name: children
-          required: false
-          in: query
-          description: Passengers aged 2 to 11. adults + children is at most 9.
-          schema:
-            minimum: 0
-            default: 0
-            type: integer
-        - name: infants
-          required: false
-          in: query
-          description: Passengers under 2. They sit on an adult's lap, so there are at most as many infants as adults.
-          schema:
-            minimum: 0
-            default: 0
-            type: integer
-        - name: cabin
-          required: false
-          in: query
-          description: Only flights with seats in this cabin.
-          schema:
-            type: string
-            enum:
-              - ECONOMY
-              - PREMIUM_ECONOMY
-              - BUSINESS
-              - FIRST
-        - name: minPrice
-          required: false
-          in: query
-          description: Inclusive, per seat in USD.
-          schema:
-            example: '100.00'
-            type: string
-        - name: maxPrice
-          required: false
-          in: query
-          description: Inclusive, per seat in USD. Not below minPrice.
-          schema:
-            example: '500.00'
-            type: string
-        - name: sortBy
-          required: false
-          in: query
-          schema:
-            default: price
-            type: string
-            enum:
-              - price
-              - duration
-              - departureTime
-        - name: sortOrder
-          required: false
-          in: query
-          schema:
-            default: asc
-            type: string
-            enum:
-              - asc
-              - desc
-        - name: returnPage
-          required: false
-          in: query
-          description: Page of the return flights (ROUND_TRIP). `page` is the page of the outbound flights.
-          schema:
-            minimum: 1
-            default: 1
-            type: integer
+              - UPCOMING
+              - PAST
+              - CANCELLED
       responses:
         '200':
           description: ''
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FlightSearchResponseDto'
+                $ref: '#/components/schemas/MyFlightBookingsDto'
         '400':
-          description: Validation failed, an airport that is not seeded (UNKNOWN_AIRPORT), or a date before today at the airport the flight leaves from (DEPARTURE_DATE_IN_PAST)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                VALIDATION_FAILED:
-                  summary: Validation failed
-                  value:
-                    statusCode: 400
-                    code: VALIDATION_FAILED
-                    error: Bad Request
-                    message: Validation failed
-                    errors:
-                      - field: arrivalAirportId
-                        messages:
-                          - arrivalAirportId must differ from departureAirportId
-                    path: /api/flights/search
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                UNKNOWN_AIRPORT:
-                  summary: 'Unknown airport: XXX'
-                  value:
-                    statusCode: 400
-                    code: UNKNOWN_AIRPORT
-                    error: Bad Request
-                    message: 'Unknown airport: XXX'
-                    path: /api/flights/search
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                DEPARTURE_DATE_IN_PAST:
-                  summary: departureDate must not be before today at CAI
-                  value:
-                    statusCode: 400
-                    code: DEPARTURE_DATE_IN_PAST
-                    error: Bad Request
-                    message: departureDate must not be before today at CAI
-                    errors:
-                      - field: departureDate
-                        messages:
-                          - departureDate must not be before today at CAI
-                    path: /api/flights/search
-                    timestamp: '2026-11-12T10:00:00.000Z'
-      summary: Search flights, one-way or round trip (FLT-11, FLT-12, FLT-15)
-      tags:
-        - Flights
-  /api/flights/{id}:
-    get:
-      description: Airline, flight number, airports, local departure and arrival times, duration, each cabin with its price, seats remaining and baggage allowance, and the airline's extra-bag price and cancellation tiers. Only flights of ACTIVE airlines are shown; status says whether the flight can still be booked.
-      operationId: FlightDetailsController_getDetails
-      parameters:
-        - name: id
-          required: true
-          in: path
-          schema:
-            type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FlightDetailsDto'
-        '404':
-          description: No flight has this id, the id is malformed, or its airline is not active (FLIGHT_NOT_FOUND)
+          description: The group or the page is invalid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
               example:
-                statusCode: 404
-                code: FLIGHT_NOT_FOUND
-                error: Not Found
-                message: Flight not found
-                path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: group
+                    messages:
+                      - 'group must be one of the following values: UPCOMING, PAST, CANCELLED'
+                path: /api/flight-bookings?group=SOON
                 timestamp: '2026-11-12T10:00:00.000Z'
-      summary: Flight details (FLT-17)
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: 'My flight bookings: upcoming, past, cancelled (FLT-25)'
       tags:
-        - Flights
-  /api/flight-bookings:
+        - Flight bookings
     post:
       description: 'Checks the passengers and extra bags against the chosen flights and returns each segment, each passenger with their fare (infants pay 10%), the airline policy and the total. Nothing is stored and no seat is held: send the same body to POST /api/flight-bookings/hold to hold the seats.'
       operationId: FlightBookingsController_summarize
@@ -5120,6 +5436,568 @@ paths:
       summary: Booking summary before payment (FLT-19, FLT-21)
       tags:
         - Flight bookings
+  /api/flight-bookings/{id}/cancellation-quote:
+    get:
+      description: 'Shows the refund before you confirm: the airline tier of this booking''s own policy snapshot for the whole days left until the first flight, and the amount. canCancel is false (with blockedReason) when the booking is not CONFIRMED or its first flight has left. Nothing is changed.'
+      operationId: MyFlightBookingsController_cancellationQuote
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60720
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancellationQuoteDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancellation-quote
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancellation-quote
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancellation-quote
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No booking of yours has this id (BOOKING_NOT_FOUND). Another account's booking answers the same, so ids cannot be probed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BOOKING_NOT_FOUND
+                error: Not Found
+                message: Booking not found
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancellation-quote
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: What cancelling would refund (FLT-26, FLT-09)
+      tags:
+        - Flight bookings
+  /api/flight-bookings/{id}/cancel:
+    post:
+      description: 'Only a CONFIRMED booking whose first flight has not left. The booking becomes CANCELLED, its seats go back to the flight and the refund of the tier that applies today (GET .../cancellation-quote) is requested (PAY-03). A round trip is cancelled as a whole. The status is never sent by the client. A failed refund does not undo the cancellation: it is kept as FAILED and can be retried.'
+      operationId: MyFlightBookingsController_cancel
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60720
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelFlightBookingDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelledFlightBookingDto'
+        '400':
+          description: The reason is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: reason
+                    messages:
+                      - reason must be shorter than or equal to 500 characters
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No booking of yours has this id (BOOKING_NOT_FOUND). Another account's booking answers the same, so ids cannot be probed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BOOKING_NOT_FOUND
+                error: Not Found
+                message: Booking not found
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: 'The booking is not CONFIRMED (BOOKING_NOT_CANCELLABLE: unpaid, expired, completed or already cancelled), or its first flight has left (DEPARTURE_PASSED)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                BOOKING_NOT_CANCELLABLE:
+                  summary: A CANCELLED booking cannot be cancelled
+                  value:
+                    statusCode: 409
+                    code: BOOKING_NOT_CANCELLABLE
+                    error: Conflict
+                    message: A CANCELLED booking cannot be cancelled
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DEPARTURE_PASSED:
+                  summary: 'This booking can no longer be cancelled: its flight has left'
+                  value:
+                    statusCode: 409
+                    code: DEPARTURE_PASSED
+                    error: Conflict
+                    message: 'This booking can no longer be cancelled: its flight has left'
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/cancel
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Cancel my CONFIRMED flight booking (FLT-26)
+      tags:
+        - Flight bookings
+  /api/flights/{id}/bookings:
+    get:
+      description: Each booking shows its reference, the passenger names, the cabin, the seats it takes and its status (CONFIRMED, COMPLETED or CANCELLED), 10 per page, oldest first. The response also lists the seats remaining per cabin category. Only flights of your own airline are visible; the airline comes from your assignment. Passport and ID numbers are never returned.
+      operationId: AirlineBookingsController_list
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: status
+          required: false
+          in: query
+          description: Only bookings in this status. Without it CONFIRMED, COMPLETED and CANCELLED bookings are listed.
+          schema:
+            example: CONFIRMED
+            type: string
+            enum:
+              - CONFIRMED
+              - COMPLETED
+              - CANCELLED
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AirlineFlightBookingsDto'
+        '400':
+          description: The page or the status filter is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: status
+                    messages:
+                      - 'status must be one of the following values: CONFIRMED, COMPLETED, CANCELLED'
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/bookings?status=PENDING_PAYMENT
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: Not an airline moderator (FORBIDDEN), or a moderator with no airline assigned (NO_AIRLINE_ASSIGNED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NO_AIRLINE_ASSIGNED:
+                  summary: You are not assigned to an airline
+                  value:
+                    statusCode: 403
+                    code: NO_AIRLINE_ASSIGNED
+                    error: Forbidden
+                    message: You are not assigned to an airline
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No flight of your airline has this id (FLIGHT_NOT_FOUND). Another airline's flight answers the same, so ids cannot be probed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Bookings of one of your flights (FLT-29, airline moderator)
+      tags:
+        - Flights
+  /api/flights/{id}/passengers/export:
+    get:
+      description: 'One row per passenger of the CONFIRMED and COMPLETED bookings: booking reference, name, passenger type, date of birth, cabin, whether the passenger needs a seat and the booking status. Cancelled bookings are left out. Passport and ID numbers are not exported. In Swagger UI use "Download file" in the response.'
+      operationId: AirlineBookingsController_export
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: The CSV file (UTF-8 with BOM, CRLF line ends)
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: "Booking reference,Passenger name,Passenger type,Date of birth,Cabin,Needs a seat,Booking status\r\nK7M2QX,Amira Hassan,ADULT,1990-05-04,ECONOMY,YES,CONFIRMED\r\n"
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            text/csv:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/passengers/export
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: Not an airline moderator (FORBIDDEN), or a moderator with no airline assigned (NO_AIRLINE_ASSIGNED)
+          content:
+            text/csv:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/passengers/export
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NO_AIRLINE_ASSIGNED:
+                  summary: You are not assigned to an airline
+                  value:
+                    statusCode: 403
+                    code: NO_AIRLINE_ASSIGNED
+                    error: Forbidden
+                    message: You are not assigned to an airline
+                    path: /api/flights/6720f1c2a1b2c3d4e5f60718/passengers/export
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No flight of your airline has this id (FLIGHT_NOT_FOUND). Another airline's flight answers the same, so ids cannot be probed
+          content:
+            text/csv:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718/passengers/export
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Passenger list of one of your flights as CSV (FLT-29)
+      tags:
+        - Flights
+  /api/flights/search:
+    get:
+      description: Lists SCHEDULED flights of ACTIVE airlines that have not departed, on departureDate at the departure airport, with a cabin that has a free seat for every adult and child (infants sit on a lap). Only the matching cabins are returned. minPrice and maxPrice are inclusive and apply to the price per seat of each cabin. Results sort by lowestPrice, duration or departure time, 10 per page. A ROUND_TRIP also returns the flights back on returnDate, paged with returnPage. Empty items mean no flights were found.
+      operationId: FlightSearchController_search
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: departureAirportId
+          required: true
+          in: query
+          description: IATA code of a seeded airport (GET /api/airports).
+          schema:
+            example: CAI
+            type: string
+        - name: arrivalAirportId
+          required: true
+          in: query
+          description: IATA code of a seeded airport. Must differ from departureAirportId.
+          schema:
+            example: DXB
+            type: string
+        - name: departureDate
+          required: true
+          in: query
+          description: Departure date on the calendar of the DEPARTURE airport (YYYY-MM-DD). Not before today there.
+          schema:
+            example: '2026-12-20'
+            type: string
+        - name: tripType
+          required: false
+          in: query
+          schema:
+            default: ONE_WAY
+            type: string
+            enum:
+              - ONE_WAY
+              - ROUND_TRIP
+        - name: returnDate
+          required: false
+          in: query
+          description: Only for a ROUND_TRIP, and required there. Date on the calendar of the return flight's departure airport (the outbound arrival airport). Not before departureDate.
+          schema:
+            example: '2026-12-27'
+            type: string
+        - name: adults
+          required: false
+          in: query
+          description: Passengers aged 12 or more.
+          schema:
+            minimum: 1
+            maximum: 9
+            default: 1
+            type: integer
+        - name: children
+          required: false
+          in: query
+          description: Passengers aged 2 to 11. adults + children is at most 9.
+          schema:
+            minimum: 0
+            default: 0
+            type: integer
+        - name: infants
+          required: false
+          in: query
+          description: Passengers under 2. They sit on an adult's lap, so there are at most as many infants as adults.
+          schema:
+            minimum: 0
+            default: 0
+            type: integer
+        - name: cabin
+          required: false
+          in: query
+          description: Only flights with seats in this cabin.
+          schema:
+            type: string
+            enum:
+              - ECONOMY
+              - PREMIUM_ECONOMY
+              - BUSINESS
+              - FIRST
+        - name: minPrice
+          required: false
+          in: query
+          description: Inclusive, per seat in USD.
+          schema:
+            example: '100.00'
+            type: string
+        - name: maxPrice
+          required: false
+          in: query
+          description: Inclusive, per seat in USD. Not below minPrice.
+          schema:
+            example: '500.00'
+            type: string
+        - name: sortBy
+          required: false
+          in: query
+          schema:
+            default: price
+            type: string
+            enum:
+              - price
+              - duration
+              - departureTime
+        - name: sortOrder
+          required: false
+          in: query
+          schema:
+            default: asc
+            type: string
+            enum:
+              - asc
+              - desc
+        - name: returnPage
+          required: false
+          in: query
+          description: Page of the return flights (ROUND_TRIP). `page` is the page of the outbound flights.
+          schema:
+            minimum: 1
+            default: 1
+            type: integer
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightSearchResponseDto'
+        '400':
+          description: Validation failed, an airport that is not seeded (UNKNOWN_AIRPORT), or a date before today at the airport the flight leaves from (DEPARTURE_DATE_IN_PAST)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: arrivalAirportId
+                        messages:
+                          - arrivalAirportId must differ from departureAirportId
+                    path: /api/flights/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_AIRPORT:
+                  summary: 'Unknown airport: XXX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_AIRPORT
+                    error: Bad Request
+                    message: 'Unknown airport: XXX'
+                    path: /api/flights/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DEPARTURE_DATE_IN_PAST:
+                  summary: departureDate must not be before today at CAI
+                  value:
+                    statusCode: 400
+                    code: DEPARTURE_DATE_IN_PAST
+                    error: Bad Request
+                    message: departureDate must not be before today at CAI
+                    errors:
+                      - field: departureDate
+                        messages:
+                          - departureDate must not be before today at CAI
+                    path: /api/flights/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Search flights, one-way or round trip (FLT-11, FLT-12, FLT-15)
+      tags:
+        - Flights
   /api/flight-bookings/hold:
     post:
       description: Same body as the summary. In one transaction it checks and prices the request again, holds a seat per adult and child on every segment and creates the booking in PENDING_PAYMENT with holdExpiresAt 10 minutes ahead. If any segment is full, no seat is held at all. Then accept the policies (GET and POST /api/bookings/flight/{id}/policies) and pay (POST /api/payments). An unpaid hold expires and its seats are released.
@@ -9658,6 +10536,25 @@ components:
         - cabinInventory
         - createdAt
         - updatedAt
+    UpdateFlightDto:
+      type: object
+      properties:
+        departureAirportId:
+          type: string
+          example: CAI
+          description: IATA code of a seeded airport. Can only change while the flight has no booking and no seat hold. If you change it, send departureLocalInput too.
+        arrivalAirportId:
+          type: string
+          example: DXB
+          description: IATA code of a seeded airport. Can only change while the flight has no booking and no seat hold. If you change it, send arrivalLocalInput too.
+        departureLocalInput:
+          type: string
+          example: 2026-12-20T09:15
+          description: 'New departure time on the clock of the DEPARTURE airport: YYYY-MM-DDTHH:mm, no offset. Stored in UTC. Must be in the future. Passengers with a CONFIRMED booking are notified.'
+        arrivalLocalInput:
+          type: string
+          example: 2026-12-20T15:15
+          description: 'New arrival time on the clock of the ARRIVAL airport: YYYY-MM-DDTHH:mm, no offset. Stored in UTC. Must be after the departure when both are compared in UTC. Passengers with a CONFIRMED booking are notified.'
     CreateCabinDto:
       type: object
       properties:
@@ -9702,6 +10599,11 @@ components:
           type: number
           example: 179.5
           description: New price per seat in USD. Existing bookings keep the price they were made at.
+        totalSeats:
+          type: number
+          example: 180
+          minimum: 1
+          description: New number of seats, a whole number greater than 0. It cannot be lower than the seats already booked or held (SEATS_BELOW_BOOKED).
         freeBaggageCount:
           type: number
           example: 2
@@ -9710,6 +10612,494 @@ components:
           type: number
           example: 30
           minimum: 0.1
+    CancelFlightDto:
+      type: object
+      properties:
+        confirm:
+          type: boolean
+          example: true
+          description: 'The confirmation: must be true. All CONFIRMED bookings of the flight are cancelled and refunded in full.'
+        reason:
+          type: string
+          example: Aircraft unavailable
+          maxLength: 500
+          description: Optional reason, kept on every cancelled booking.
+      required:
+        - confirm
+    CancelledFlightResultDto:
+      type: object
+      properties:
+        flight:
+          description: The flight, now CANCELLED.
+          allOf:
+            - $ref: '#/components/schemas/FlightDto'
+        cancelledBookings:
+          type: number
+          example: 42
+          description: CONFIRMED bookings cancelled with a 100% refund.
+        releasedHolds:
+          type: number
+          example: 3
+          description: Unpaid holds released (they expire, their seats go back).
+        refundsRequested:
+          type: number
+          example: 40
+          description: Refunds the payment provider accepted (PAY-03).
+        refundsFailed:
+          type: number
+          example: 0
+          description: Refunds that could not be requested. The cancellations stand; the refund can be retried.
+      required:
+        - flight
+        - cancelledBookings
+        - releasedHolds
+        - refundsRequested
+        - refundsFailed
+    MyFlightBookingCountsDto:
+      type: object
+      properties:
+        upcoming:
+          type: number
+          example: 2
+        past:
+          type: number
+          example: 5
+        cancelled:
+          type: number
+          example: 1
+      required:
+        - upcoming
+        - past
+        - cancelled
+    MyFlightBookingSegmentDto:
+      type: object
+      properties:
+        flightNumber:
+          type: string
+          example: MS777
+        departureAirportId:
+          type: string
+          example: CAI
+        arrivalAirportId:
+          type: string
+          example: DXB
+        departureAtUtc:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+        arrivalAtUtc:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+        cabin:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+      required:
+        - flightNumber
+        - departureAirportId
+        - arrivalAirportId
+        - departureAtUtc
+        - arrivalAtUtc
+        - cabin
+    MyFlightBookingRefundDto:
+      type: object
+      properties:
+        percentage:
+          type: number
+          example: 50
+          description: The cancellation tier that applied.
+        amount:
+          type: string
+          example: '199.99'
+          description: Refund in USD.
+      required:
+        - percentage
+        - amount
+    MyFlightBookingDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+          description: Open it with GET /api/flight-bookings/{id}.
+        bookingReference:
+          type: string
+          nullable: true
+          example: K7M2QX
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - COMPLETED
+            - EXPIRED
+            - CANCELLED
+          example: CONFIRMED
+        tripType:
+          type: string
+          enum:
+            - ONE_WAY
+            - ROUND_TRIP
+          example: ONE_WAY
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyFlightBookingSegmentDto'
+        passengerCount:
+          type: number
+          example: 2
+          description: All passengers, infants included.
+        total:
+          type: string
+          example: '399.98'
+          description: Total paid in USD.
+        currency:
+          type: string
+          example: USD
+        confirmedAt:
+          type: string
+          nullable: true
+          example: '2026-11-18T09:15:00.000Z'
+        cancelledAt:
+          type: string
+          nullable: true
+          example: null
+        refund:
+          nullable: true
+          description: Only on a cancelled booking.
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/MyFlightBookingRefundDto'
+      required:
+        - id
+        - bookingReference
+        - status
+        - tripType
+        - segments
+        - passengerCount
+        - total
+        - currency
+        - confirmedAt
+        - cancelledAt
+        - refund
+    MyFlightBookingsPageDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyFlightBookingDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - items
+        - meta
+    MyFlightBookingsDto:
+      type: object
+      properties:
+        group:
+          type: string
+          enum:
+            - UPCOMING
+            - PAST
+            - CANCELLED
+          example: UPCOMING
+        counts:
+          description: How many bookings each group holds, for the tabs.
+          allOf:
+            - $ref: '#/components/schemas/MyFlightBookingCountsDto'
+        bookings:
+          description: One page (10) of the chosen group.
+          allOf:
+            - $ref: '#/components/schemas/MyFlightBookingsPageDto'
+      required:
+        - group
+        - counts
+        - bookings
+    CancellationQuoteDto:
+      type: object
+      properties:
+        bookingId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        bookingReference:
+          type: string
+          nullable: true
+          example: K7M2QX
+        canCancel:
+          type: boolean
+          example: true
+          description: True only for a CONFIRMED booking whose first flight has not left.
+        blockedReason:
+          type: string
+          enum:
+            - NOT_CONFIRMED
+            - DEPARTURE_PASSED
+          nullable: true
+          example: null
+          description: Why canCancel is false.
+        departureAtUtc:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+          description: The first flight. A round trip is cancelled as a whole, with the outbound tier.
+        daysRemaining:
+          type: number
+          example: 12
+          description: Whole 24-hour periods from now to the departure; 0 once it has left.
+        refundPercentage:
+          type: number
+          example: 50
+          description: The tier that applies today.
+        refundAmount:
+          type: string
+          example: '199.99'
+          description: Refund in USD if you cancel now.
+        currency:
+          type: string
+          example: USD
+        tiers:
+          description: The airline terms this booking was made under, highest threshold first.
+          type: array
+          items:
+            $ref: '#/components/schemas/CancellationTierDto'
+      required:
+        - bookingId
+        - bookingReference
+        - canCancel
+        - blockedReason
+        - departureAtUtc
+        - daysRemaining
+        - refundPercentage
+        - refundAmount
+        - currency
+        - tiers
+    CancelFlightBookingDto:
+      type: object
+      properties:
+        reason:
+          type: string
+          example: My plans changed
+          maxLength: 500
+          description: Optional reason, kept on the booking and the refund.
+    CancelledFlightBookingDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        bookingReference:
+          type: string
+          nullable: true
+          example: K7M2QX
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - COMPLETED
+            - EXPIRED
+            - CANCELLED
+          example: CANCELLED
+        cancelledAt:
+          type: string
+          example: '2026-11-19T08:00:00.000Z'
+        refundPercentage:
+          type: number
+          example: 50
+        refundAmount:
+          type: string
+          example: '199.99'
+          description: The refund in USD. 0.00 when the tier is 0% or no payment was captured.
+        currency:
+          type: string
+          example: USD
+        refundId:
+          type: string
+          nullable: true
+          example: 6720f1c2a1b2c3d4e5f60730
+          description: The refund record (PAY-03); null when nothing is refunded. If the payment provider fails the refund is kept as FAILED and can be retried; the cancellation stands.
+      required:
+        - id
+        - bookingReference
+        - status
+        - cancelledAt
+        - refundPercentage
+        - refundAmount
+        - currency
+        - refundId
+    AirlineFlightSummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        flightNumber:
+          type: string
+          example: MS777
+        departureAirportId:
+          type: string
+          example: CAI
+        arrivalAirportId:
+          type: string
+          example: DXB
+        departureAtUtc:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+        arrivalAtUtc:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+        status:
+          type: string
+          enum:
+            - SCHEDULED
+            - CANCELLED
+            - DEPARTED
+          example: SCHEDULED
+      required:
+        - id
+        - flightNumber
+        - departureAirportId
+        - arrivalAirportId
+        - departureAtUtc
+        - arrivalAtUtc
+        - status
+    CabinSeatsDto:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+        totalSeats:
+          type: number
+          example: 150
+        bookedSeats:
+          type: number
+          example: 40
+        heldSeats:
+          type: number
+          example: 2
+          description: Seats of unpaid holds.
+        remainingSeats:
+          type: number
+          example: 108
+          description: totalSeats minus bookedSeats minus heldSeats.
+      required:
+        - category
+        - totalSeats
+        - bookedSeats
+        - heldSeats
+        - remainingSeats
+    FlightBookingPassengerDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+          example: Amira Hassan
+        passengerType:
+          type: string
+          enum:
+            - ADULT
+            - CHILD
+            - INFANT
+          example: ADULT
+      required:
+        - fullName
+        - passengerType
+    AirlineFlightBookingDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        bookingReference:
+          type: string
+          nullable: true
+          example: K7M2QX
+          description: Set once the payment is confirmed.
+        status:
+          type: string
+          enum:
+            - CONFIRMED
+            - COMPLETED
+            - CANCELLED
+          example: CONFIRMED
+        cabin:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+          description: The cabin booked on this flight.
+        seats:
+          type: number
+          example: 2
+          description: Seats this booking takes on this flight (adults and children; infants sit on a lap).
+        passengerCount:
+          type: number
+          example: 3
+          description: All passengers, infants included.
+        passengers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingPassengerDto'
+        confirmedAt:
+          type: string
+          nullable: true
+          example: '2026-11-18T09:15:00.000Z'
+        cancelledAt:
+          type: string
+          nullable: true
+          example: null
+      required:
+        - id
+        - bookingReference
+        - status
+        - cabin
+        - seats
+        - passengerCount
+        - passengers
+        - confirmedAt
+        - cancelledAt
+    AirlineFlightBookingsPageDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AirlineFlightBookingDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - items
+        - meta
+    AirlineFlightBookingsDto:
+      type: object
+      properties:
+        flight:
+          $ref: '#/components/schemas/AirlineFlightSummaryDto'
+        seats:
+          description: Seats remaining per cabin category.
+          type: array
+          items:
+            $ref: '#/components/schemas/CabinSeatsDto'
+        bookings:
+          description: One page (10) of the flight bookings, oldest first.
+          allOf:
+            - $ref: '#/components/schemas/AirlineFlightBookingsPageDto'
+      required:
+        - flight
+        - seats
+        - bookings
     FlightSearchAirlineDto:
       type: object
       properties:
@@ -10129,59 +11519,6 @@ components:
         - pricePerSeat
         - freeBaggageCount
         - maxBagWeightKg
-    FlightBookingExtraBagsDto:
-      type: object
-      properties:
-        count:
-          type: number
-          example: 1
-        weightKg:
-          type: number
-          example: 20
-        fee:
-          type: string
-          example: '50.00'
-          description: 'count x price per bag x segments: a bag flies every segment.'
-      required:
-        - count
-        - weightKg
-        - fee
-    FlightBookingPassengerDto:
-      type: object
-      properties:
-        fullName:
-          type: string
-          example: Khaled Elshitany
-        dateOfBirth:
-          type: string
-          example: '2004-03-10'
-        passengerType:
-          type: string
-          enum:
-            - ADULT
-            - CHILD
-            - INFANT
-          example: ADULT
-        documentNumber:
-          type: string
-          example: •••••5678
-          description: 'Masked: only the last 4 characters are shown. The full number is personal data.'
-        fare:
-          type: string
-          example: '199.99'
-          description: Over all segments; an infant pays 10% of each fare.
-        extraBags:
-          nullable: true
-          type: object
-          allOf:
-            - $ref: '#/components/schemas/FlightBookingExtraBagsDto'
-      required:
-        - fullName
-        - dateOfBirth
-        - passengerType
-        - documentNumber
-        - fare
-        - extraBags
     FlightBookingCancellationTierDto:
       type: object
       properties:
