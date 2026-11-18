@@ -18,6 +18,7 @@ travel-platform/
 |-- docs/
 |   |-- requirements/   project description (PDF)
 |   |-- api/
+|       |-- openapi.yaml    the API contract, generated (see "API document (OpenAPI)")
 |-- AI_PROMPTS.txt  log of AI prompts (required by the project)
 |-- README.md
 ~~~
@@ -93,6 +94,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run build` | Compile and catch TypeScript errors |
 | `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
 | `npm run seed:admin` | Build, then create the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (it boots the app, so it also needs `MONGODB_URI` and `JWT_SECRET`). Safe to run again: an existing admin is left unchanged |
+| `npm run openapi` | Build, then write the OpenAPI document Swagger UI serves to `docs/api/openapi.yaml` (needs `.env`: the app connects to MongoDB). See "API document (OpenAPI)" |
 | `npm run test:e2e -- <name>` | Run the e2e test files whose name contains `<name>` (needs `.env` when the test uses the database) |
 
 ### Troubleshooting
@@ -255,8 +257,27 @@ Rules:
 
 - Use codes and messages the endpoint really returns (read your service and the filter), and the endpoint's real path with an example id.
 - When one status can return several codes, give one example per code; Swagger UI shows them in a dropdown named by code. Two examples with the same code in one response are refused.
-- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, and like every e2e test that boots `AppModule` it needs both `MONGODB_URI` and `JWT_SECRET` in `backend/.env`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`.
+- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, and like every e2e test that boots `AppModule` it needs both `MONGODB_URI` and `JWT_SECRET` in `backend/.env`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`. It also fails when an operation refers to a security scheme the document does not define, naming the method, path and key (see "API document (OpenAPI)").
 - Branches that already document errors with `type: ErrorResponseDto` must switch to `ApiErrorResponse` after merging `develop`.
+
+### API document (OpenAPI)
+
+`docs/api/openapi.yaml` is the OpenAPI 3 document that Swagger UI serves at `/api/docs`, exported from the NestJS decorators (code-first: the decorators are the only source). It is the contract the frontend works against: open it in Swagger Editor, or generate a typed client from it.
+
+To regenerate it, run inside `backend/`:
+
+~~~
+npm run openapi
+~~~
+
+It builds, creates the app without starting the HTTP server, writes the file and prints its path with the number of paths and operations. It needs `backend/.env`, because creating the app connects to MongoDB.
+
+Rules:
+
+- Never edit the file by hand: change the decorators and regenerate.
+- For Milestone 1 the team leader regenerates it, which avoids merge conflicts in a large generated file. If two branches change it, resolve the conflict by regenerating, not by merging lines.
+- The document's configuration (title, version, security schemes) lives only in `buildSwaggerDocument` (`src/swagger.setup.ts`), shared by `main.ts`, the export and `test/swagger-docs.e2e-spec.ts`, so all three describe the same API.
+- Security schemes: the `access_token` cookie is registered under two keys, `cookie` and `access_token`, so both `@ApiCookieAuth()` and `@ApiCookieAuth('access_token')` are valid. `swagger-docs.e2e-spec.ts` fails, naming the method, path and key, if an operation refers to a scheme the document does not define.
 
 ## Pagination (GEN-05)
 
