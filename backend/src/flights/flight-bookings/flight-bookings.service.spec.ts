@@ -169,10 +169,12 @@ function setup(
     findById: jest.fn(() =>
       query(airlineStatus ? { status: airlineStatus } : null),
     ),
+    // The names the e-ticket prints (FLT-23).
+    find: jest.fn(() => query([{ _id: AIRLINE_ID, name: 'EgyptAir' }])),
   };
   const referenceData = {
     getAirportOrThrow: jest.fn((id: string) =>
-      Promise.resolve({ id, timeZone: ZONES[id] }),
+      Promise.resolve({ id, name: `${id} airport`, timeZone: ZONES[id] }),
     ),
   };
   // No airline policy by default: tests that need one override snapshotFor below.
@@ -773,5 +775,88 @@ describe('FlightBookingsService.findOwned (FLT-22, ACC-11)', () => {
 
     expect(error.getStatus()).toBe(404);
     expect(bookingModel.findOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('FlightBookingsService.eTicket (FLT-23)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ now: NOW });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // The document hold() stores, then changed to the given status.
+  async function stored(
+    status: BookingStatus,
+    bookingReference?: string,
+  ): Promise<FlightBooking> {
+    const { service, bookingModel } = setup();
+    await service.hold(request({ passengers: [adult, infant] }), USER);
+    const [docs] = bookingModel.create.mock.calls[0] as unknown as [
+      Partial<FlightBooking>[],
+    ];
+    return {
+      _id: BOOKING_ID,
+      createdAt: NOW,
+      ...docs[0],
+      status,
+      bookingReference,
+    } as FlightBooking;
+  }
+
+  it('gives the owner a PDF named after the booking reference', async () => {
+    const { service, bookingModel } = setup({
+      stored: await stored(BookingStatus.CONFIRMED, 'K7Q2PX'),
+    });
+
+    const ticket = await service.eTicket(BOOKING_ID.toString(), USER);
+
+    expect(bookingModel.findOne).toHaveBeenCalledWith({
+      _id: BOOKING_ID.toString(),
+      userId: USER.userId,
+    });
+    expect(ticket.filename).toBe('e-ticket-K7Q2PX.pdf');
+    expect(ticket.content.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  });
+
+  it('still gives the ticket of a COMPLETED booking', async () => {
+    const { service } = setup({
+      stored: await stored(BookingStatus.COMPLETED, 'K7Q2PX'),
+    });
+
+    await expect(
+      service.eTicket(BOOKING_ID.toString(), USER),
+    ).resolves.toMatchObject({ filename: 'e-ticket-K7Q2PX.pdf' });
+  });
+
+  it.each([
+    BookingStatus.PENDING_PAYMENT,
+    BookingStatus.EXPIRED,
+    BookingStatus.CANCELLED,
+  ])('refuses a %s booking with 409 TICKET_NOT_AVAILABLE', async (status) => {
+    const { service } = setup({ stored: await stored(status) });
+
+    const error = await failure(service.eTicket(BOOKING_ID.toString(), USER));
+
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toEqual({
+      code: 'TICKET_NOT_AVAILABLE',
+      message:
+        'The e-ticket is available once the booking is paid and confirmed',
+    });
+  });
+
+  it("answers 404 for another account's booking, as for a missing one", async () => {
+    const { service } = setup();
+
+    const error = await failure(service.eTicket(BOOKING_ID.toString(), USER));
+
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      code: 'BOOKING_NOT_FOUND',
+      message: 'Booking not found',
+    });
   });
 });

@@ -187,6 +187,18 @@ describe('Flight bookings (e2e, shared database)', () => {
     return request(app.getHttpServer()).get(path).set('Cookie', user.cookie);
   }
 
+  // GET /api/flight-bookings/:id/e-ticket with the PDF collected as a Buffer: supertest
+  // only buffers text and JSON bodies by itself.
+  function eTicket(id: string, user = traveller) {
+    return get(`${bookingPath(id)}/e-ticket`, user)
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+  }
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -469,6 +481,12 @@ describe('Flight bookings (e2e, shared database)', () => {
       });
     });
 
+    it('has no e-ticket before it is paid (FLT-23)', async () => {
+      const res = await get(`${bookingPath(held.id)}/e-ticket`).expect(409);
+
+      expect(res.body.code).toBe('TICKET_NOT_AVAILABLE');
+    });
+
     it(
       'confirms after payment once: a reference, and the held seat becomes a booked one',
       async () => {
@@ -505,6 +523,33 @@ describe('Flight bookings (e2e, shared database)', () => {
       },
       SLOW_MS,
     );
+
+    it(
+      'lets the owner download the e-ticket once it is confirmed (FLT-23)',
+      async () => {
+        const reference = (await storedBooking(held.id))?.bookingReference;
+
+        const res = await eTicket(held.id).expect(200);
+
+        expect(res.headers['content-type']).toBe('application/pdf');
+        expect(res.headers['content-disposition']).toBe(
+          `attachment; filename="e-ticket-${reference}.pdf"`,
+        );
+        const pdf = res.body as Buffer;
+        expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+        expect(pdf.toString('latin1')).toContain(`(E-ticket ${reference})`);
+      },
+      SLOW_MS,
+    );
+
+    it('does not give another account the e-ticket: the same 404 as a missing booking', async () => {
+      const res = await get(
+        `${bookingPath(held.id)}/e-ticket`,
+        otherTraveller,
+      ).expect(404);
+
+      expect(res.body.code).toBe('BOOKING_NOT_FOUND');
+    });
 
     it('counts as an upcoming confirmed booking, which blocks deactivation (ACC-12)', async () => {
       await expect(

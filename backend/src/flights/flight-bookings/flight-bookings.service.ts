@@ -49,6 +49,8 @@ import {
   toSummaryDto,
 } from './flight-booking.mapper';
 import { SeatInventoryService } from '../seat-inventory/seat-inventory.service';
+import { renderETicket } from './e-ticket/e-ticket.pdf';
+import { type ETicketNames, toETicketView } from './e-ticket/e-ticket.view';
 
 /** One flight of a quote, read in the same session as the seats it will hold. */
 interface QuotedSegment {
@@ -153,6 +155,71 @@ export class FlightBookingsService {
       notFoundMessage: 'Booking not found',
     });
     return this.toDto(booking);
+  }
+
+  /**
+   * FLT-23: the e-ticket of one of the caller's bookings, as a PDF. Only a CONFIRMED or
+   * COMPLETED booking has one: before payment there is no ticket, and a cancelled or
+   * expired booking no longer flies. Built on every download from the booking itself, so
+   * it is never out of date and nothing has to be stored.
+   */
+  async eTicket(
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<{ filename: string; content: Buffer }> {
+    const booking = await findOwnedOrThrow(this.bookingModel, id, user, {
+      notFoundCode: 'BOOKING_NOT_FOUND',
+      notFoundMessage: 'Booking not found',
+    });
+    if (
+      booking.status !== BookingStatus.CONFIRMED &&
+      booking.status !== BookingStatus.COMPLETED
+    ) {
+      throw new ConflictException({
+        code: 'TICKET_NOT_AVAILABLE',
+        message:
+          'The e-ticket is available once the booking is paid and confirmed',
+      });
+    }
+    const dto = await this.toDto(booking);
+    const view = toETicketView(
+      dto,
+      await this.ticketNames(booking),
+      new Date(),
+    );
+    return {
+      filename: `e-ticket-${view.bookingReference}.pdf`,
+      content: await renderETicket(view),
+    };
+  }
+
+  // The airline and airport names the ticket prints next to the stored ids and codes.
+  private async ticketNames(booking: FlightBooking): Promise<ETicketNames> {
+    const airlineIds = [
+      ...new Set(booking.segments.map((s) => s.airlineId.toString())),
+    ];
+    const airlines = await this.airlineModel
+      .find({ _id: { $in: airlineIds } }, { name: 1 })
+      .lean<Pick<Airline, '_id' | 'name'>[]>()
+      .exec();
+    const airports = new Map<string, string>();
+    for (const segment of booking.segments) {
+      for (const code of [
+        segment.departureAirportId,
+        segment.arrivalAirportId,
+      ]) {
+        if (!airports.has(code)) {
+          airports.set(
+            code,
+            (await this.referenceData.getAirportOrThrow(code)).name,
+          );
+        }
+      }
+    }
+    return {
+      airlines: new Map(airlines.map((a) => [a._id.toString(), a.name])),
+      airports,
+    };
   }
 
   /**

@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -14,6 +15,7 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
 import { Role } from '../../common/auth/auth.enums';
@@ -38,6 +40,7 @@ import { FlightBookingsService } from './flight-bookings.service';
 const SUMMARY_PATH = '/api/flight-bookings';
 const HOLD_PATH = '/api/flight-bookings/hold';
 const BOOKING_PATH = '/api/flight-bookings/6720f1c2a1b2c3d4e5f60720';
+const E_TICKET_PATH = `${BOOKING_PATH}/e-ticket`;
 
 // The errors the summary and the hold share: both check the same request against the
 // same flights (FLT-19, FLT-21, FLT-22).
@@ -256,5 +259,59 @@ export class FlightBookingsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FlightBookingDto> {
     return this.bookings.findOwned(id, user);
+  }
+  @Get(':id/e-ticket')
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'Download the e-ticket of a confirmed booking (FLT-23)',
+    description:
+      'A PDF with the booking reference, the flights in local times, the passengers ' +
+      '(document numbers masked), the baggage, the price and the cancellation policy. ' +
+      'Only for your own booking once it is CONFIRMED (or COMPLETED). Generated on ' +
+      'every download from the booking itself.',
+  })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'The e-ticket, downloaded as e-ticket-<reference>.pdf',
+    content: {
+      'application/pdf': { schema: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiErrorResponse(unauthenticated(E_TICKET_PATH))
+  @ApiErrorResponse(forbidden(E_TICKET_PATH))
+  @ApiErrorResponse({
+    status: 404,
+    description:
+      'No such booking, or it belongs to another account (BOOKING_NOT_FOUND)',
+    examples: [
+      {
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+        path: E_TICKET_PATH,
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 409,
+    description:
+      'The booking is not paid yet, or it was cancelled or expired (TICKET_NOT_AVAILABLE)',
+    examples: [
+      {
+        code: 'TICKET_NOT_AVAILABLE',
+        message:
+          'The e-ticket is available once the booking is paid and confirmed',
+        path: E_TICKET_PATH,
+      },
+    ],
+  })
+  async eTicket(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<StreamableFile> {
+    const ticket = await this.bookings.eTicket(id, user);
+    return new StreamableFile(ticket.content, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${ticket.filename}"`,
+    });
   }
 }
