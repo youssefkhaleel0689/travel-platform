@@ -6,6 +6,8 @@ import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
+import { FlightCancellationController } from './flight-cancellation/flight-cancellation.controller';
+import { FlightCancellationService } from './flight-cancellation/flight-cancellation.service';
 import { FlightDetailsController } from './flight-details/flight-details.controller';
 import { FlightDetailsService } from './flight-details/flight-details.service';
 import { FlightSearchController } from './flight-search/flight-search.controller';
@@ -38,7 +40,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 @Module({
   imports: [
     ReferenceDataModule,
-    // FLT-05: the in-app notice to passengers when a flight's times change.
+    // FLT-05 (time-change notices) and FLT-06 (cancellation notices).
     NotificationsModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
@@ -56,6 +58,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesController,
     FlightsController,
     CabinsController,
+    // FLT-06: POST /flights/:id/cancel.
+    FlightCancellationController,
     FlightSearchController,
     // Last: its GET /flights/:id would otherwise take GET /flights/search (FLT-17).
     FlightDetailsController,
@@ -65,6 +69,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesService,
     FlightsService,
     CabinsService,
+    FlightCancellationService,
     FlightSearchService,
     FlightDetailsService,
     FlightStatusService,

@@ -83,6 +83,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 | `STRIPE_SECRET_KEY` | No | Stripe **test mode** secret key (`sk_test_...`). Without it the payment endpoints answer 503 and everything else works, so only the people demonstrating payments need one |
 | `STRIPE_WEBHOOK_SECRET` | No | The `whsec_...` printed by `stripe listen`. Without it every webhook delivery is rejected, because an unverified event is never trusted |
+| `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
+| `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
