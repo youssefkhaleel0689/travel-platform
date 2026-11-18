@@ -10,11 +10,11 @@ import {
 import { isSent } from '../../airlines/dto/create-airline.dto';
 import { MAX_CABIN_PRICE } from './create-cabin.dto';
 
-// Body of PATCH /flights/:id/cabins/:cabinId (FLT-04, FLT-05): any of price,
-// freeBaggageCount, maxBagWeightKg. totalSeats is not here: changing the seat count needs
-// the conditional update of FLT-05 and comes with that PR. category is the path value and
-// cannot be changed. Written out instead of PartialType because PartialType adds
-// @IsOptional(), which lets null through.
+// Body of PATCH /flights/:id/cabins/:cabinId (FLT-04, FLT-05): any of price, totalSeats,
+// freeBaggageCount, maxBagWeightKg. totalSeats is changed by a conditional update that only
+// succeeds while bookedSeats + heldSeats still fit (FLT-05); the counters themselves are
+// never accepted here. category is the path value and cannot be changed. Written out
+// instead of PartialType because PartialType adds @IsOptional(), which lets null through.
 export class UpdateCabinDto {
   @ApiPropertyOptional({
     example: 179.5,
@@ -29,6 +29,17 @@ export class UpdateCabinDto {
   @IsPositive({ message: 'price must be greater than 0' })
   @Max(MAX_CABIN_PRICE, { message: `price must not exceed ${MAX_CABIN_PRICE}` })
   price?: number;
+
+  @ApiPropertyOptional({
+    example: 180,
+    minimum: 1,
+    description:
+      'New number of seats, a whole number greater than 0. It cannot be lower than the seats already booked or held (SEATS_BELOW_BOOKED).',
+  })
+  @ValidateIf(isSent)
+  @IsInt({ message: 'totalSeats must be a whole number' })
+  @Min(1, { message: 'totalSeats must be greater than 0' })
+  totalSeats?: number;
 
   @ApiPropertyOptional({ example: 2, minimum: 0 })
   @ValidateIf(isSent)
