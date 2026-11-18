@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
@@ -9,6 +10,8 @@ import { FlightDetailsController } from './flight-details/flight-details.control
 import { FlightDetailsService } from './flight-details/flight-details.service';
 import { FlightSearchController } from './flight-search/flight-search.controller';
 import { FlightSearchService } from './flight-search/flight-search.service';
+import { MyFlightBookingsController } from './my-bookings/my-flight-bookings.controller';
+import { MyFlightBookingsService } from './my-bookings/my-flight-bookings.service';
 import { FlightStatusJob } from './flight-status/flight-status.job';
 import { FlightStatusService } from './flight-status/flight-status.service';
 import { FlightsController } from './flights/flights.controller';
@@ -37,6 +40,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 @Module({
   imports: [
     ReferenceDataModule,
+    // FLT-26: the in-app notice when a booking is cancelled.
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
       { name: AirlinePolicy.name, schema: AirlinePolicySchema },
@@ -53,6 +58,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesController,
     FlightsController,
     CabinsController,
+    MyFlightBookingsController,
     FlightSearchController,
     // Last: its GET /flights/:id would otherwise take GET /flights/search (FLT-17).
     FlightDetailsController,
@@ -62,6 +68,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesService,
     FlightsService,
     CabinsService,
+    MyFlightBookingsService,
     FlightSearchService,
     FlightDetailsService,
     FlightStatusService,
