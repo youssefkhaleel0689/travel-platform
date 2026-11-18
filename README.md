@@ -937,9 +937,9 @@ Booking flow:
 1. `POST /api/flight-bookings` (FLT-19, FLT-21) validates passengers and baggage and returns the summary. Nothing is stored.
 2. `POST /api/flight-bookings/hold` (FLT-22) takes the same body, re-validates and re-prices it, and in one transaction holds every segment and creates the `PENDING_PAYMENT` booking with `holdExpiresAt` 10 minutes ahead.
 3. Policies are accepted (PAY-02) and the booking is paid (PAY-01) with the booking id.
-4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released.
+4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released. Both are described under "Flight bookings" below.
 
-The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
+The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD, the airline policy it was booked under (`policySnapshot`, PAY-02) and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
 
 Rules:
 
@@ -1044,6 +1044,100 @@ Rules:
 - Search never returns the seat counters, and its results are not a reservation: the hold (FLT-22) checks the seats again. For a round trip, the hold must also check that the return flight leaves after the outbound flight lands.
 
 The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
+
+## Flight details (FLT-17)
+
+`GET /api/flights/:id` is public, like search, so a guest can open the details page from a search result. It returns:
+
+- the airline (`id`, `name`, `iataCode`), the flight number and the `status`;
+- both airports as seeded (name, city, country, time zone);
+- local departure and arrival times in each airport's own time zone (GEN-06), the UTC times and the duration;
+- every cabin with its price per seat, `seatsRemaining` (total minus booked minus held, never below 0) and its baggage allowance;
+- the airline's terms from `AirlinePoliciesService.getForAirline()`: extra-bag price and limit, and the cancellation tiers from the most days before departure to the fewest. An airline without a policy shows `null` extra bags and no tiers, the same terms a booking would get.
+
+The seat counters themselves are never returned. A flight of an airline that is not `ACTIVE` answers 404 `FLIGHT_NOT_FOUND`, the same as a missing flight or a malformed id, because search hides it too (ACC-15). A cancelled or departed flight is still shown, with its status, so an old link explains itself.
+
+`FlightDetailsController` is the last controller in `flights.module.ts` on purpose: routes match in the order they are registered, and `GET /flights/:id` registered before search would take `GET /flights/search` as a flight with the id `search`. `test/flight-details.e2e-spec.ts` checks the full response for a guest, the three 404s and that search still answers. It creates two airlines named "KE e2e details ..." with unused two-digit IATA codes from 30 up, a policy and flights numbered `KE7xxx` in March 2099, and deletes exactly those.
+
+## Flight bookings (FLT-19, FLT-21, FLT-22)
+
+The code is in `src/flights/flight-bookings/`. Every route is for a signed-in traveller (`@Roles(Role.USER)`): a moderator or an admin gets 403.
+
+| Endpoint | Requirement | Notes |
+| --- | --- | --- |
+| `POST /api/flight-bookings` | FLT-19, FLT-21 | The summary: checks and prices the request and stores nothing (200) |
+| `POST /api/flight-bookings/hold` | FLT-22 | The same body: holds the seats for 10 minutes and creates the `PENDING_PAYMENT` booking (201) |
+| `GET /api/flight-bookings/:id` | FLT-22, ACC-11 | One of your bookings, with its status, `holdExpiresAt` and, once paid, its `bookingReference` |
+
+The body of both POST routes:
+
+~~~
+{
+  "tripType": "ROUND_TRIP",                                // optional, ONE_WAY by default
+  "outbound": { "flightId": "...", "cabin": "ECONOMY" },
+  "inbound": { "flightId": "...", "cabin": "ECONOMY" },    // only for a ROUND_TRIP
+  "passengers": [
+    {
+      "fullName": "Khaled Elshitany",
+      "dateOfBirth": "2004-03-10",
+      "passengerType": "ADULT",                            // ADULT, CHILD or INFANT
+      "documentNumber": "A12345678",
+      "extraBags": { "count": 1, "weightKg": 20 }          // optional
+    }
+  ]
+}
+~~~
+
+Prices, seats and the status never come from the client: the server reads them from the flights and the airline every time, and the hold prices the request again instead of trusting the summary.
+
+Rules, in the order they are checked:
+
+- **The body** (400 `VALIDATION_FAILED`): 1 to 18 passengers, at least one adult, no more infants than adults and at most 9 adults and children. `documentNumber` is 5 to 30 letters and digits, stored upper-case. A rule between two values stays silent while one of them is invalid, so each mistake gives one error.
+- **The flights**: each must exist (404 `FLIGHT_NOT_FOUND`), be `SCHEDULED`, not have departed and belong to an `ACTIVE` airline (409 `FLIGHT_NOT_BOOKABLE`), offer the cabin (400 `CABIN_NOT_OFFERED`) and have a seat for every adult and child (409 `SEAT_UNAVAILABLE`, on `outbound.cabin` or `inbound.cabin`).
+- **A round trip**: the return flies the same route backwards (400 `ROUND_TRIP_ROUTE_MISMATCH`) and leaves after the outbound flight lands (400 `RETURN_BEFORE_ARRIVAL`).
+- **Passenger types** (FLT-12): the type must match the age on the outbound departure date, adult 12 and over, child 2 to 11, infant under 2 (400 `PASSENGER_TYPE_MISMATCH`, on the passenger's `passengerType` or `dateOfBirth`).
+- **Extra bags** (FLT-21): only when the airline sells them, up to its limit per passenger, and no heavier than the lighter cabin's `maxBagWeightKg` on a round trip (400 `EXTRA_BAGS_NOT_ALLOWED`).
+
+Prices: adults and children pay the cabin price, an infant sits on a lap (no seat) and pays 10% of it, rounded half up. An extra bag costs the airline's price once per segment, so a round trip charges it twice. All amounts are decimal strings in USD through `common/money`; nothing goes through a float.
+
+The hold runs in one transaction (`connection.transaction`): the flights and the airline are read with the transaction's session, every segment is held through `SeatInventoryService`, and the booking is created with snapshots of the segments, the passengers, the bags, the prices and the airline policy. If any step fails, nothing is held and nothing is stored. The response is the summary plus `id`, `status`, `holdExpiresAt`, `bookingReference` (null until paid) and `createdAt`. `documentNumber` is personal data, so every response masks it to its last four characters (`•••••5678`).
+
+`GET /api/flight-bookings/:id` uses `findOwnedOrThrow`: another account's booking, a missing one and a malformed id all answer the same 404 `BOOKING_NOT_FOUND`, so ids cannot be probed.
+
+### The airline policy
+
+The booking takes the **outbound** airline's policy, because FLT-12 cancels a round trip with the outbound tier, and stores it in `policySnapshot`. That snapshot is what PAY-02 shows and what a later cancellation (FLT-26) uses, so an airline editing its policy never changes an existing booking.
+
+`FlightBookingPolicyReader` reads it with `AirlinePoliciesService.getForAirline()` (FLT-08, FLT-09) and copies the version, the extra-bag price and limit and the cancellation tiers, nothing else. An airline that has never defined a policy gets version 0: no extra bags for sale (they answer "this airline does not sell extra bags") and no cancellation tiers. A stored policy starts at version 1, so 0 always means "no policy".
+
+### Connected to payments (GEN-11)
+
+`FlightBookingsPortAdapter` is the flights side of the `BookingsPort` described under "Booking lifecycle and the BookingsPort". Payments never reads `flightBookings` itself.
+
+| Method | What it does |
+| --- | --- |
+| `findPayable` | The total and currency from the price snapshot, `holdExpiresAt` only while `PENDING_PAYMENT`, and the airline as the provider |
+| `findPolicies` | The booking's `policySnapshot`, with its `version` as `policyVersion` |
+| `confirmAfterPayment` | In one transaction: `PENDING_PAYMENT` -> `CONFIRMED` with `confirmedAt`, `paymentId` and a new `bookingReference`, and the held seats become booked seats. A repeated call returns the same reference and moves nothing; once the hold has run out it is refused with 409 `HOLD_EXPIRED` |
+| `releaseHold` | In one transaction: `PENDING_PAYMENT` -> `EXPIRED` with `expiredAt`, and the held seats go back. It only matches a `PENDING_PAYMENT` booking, so a second call changes nothing |
+| `hasUpcomingConfirmedBookings` | A `CONFIRMED` booking with a segment that has not departed (ACC-12) |
+
+The booking reference is 6 random characters (`crypto.randomInt`) from A to Z and 2 to 9 without 0, O, 1 and I, which are easy to misread: about a billion values. The unique index on `bookingReference` refuses a clash, and the confirmation is retried with a new reference, up to three times. Payments sends the `BOOKING_CONFIRMED` notification (GEN-01) itself; the e-ticket PDF (FLT-23) is not generated yet.
+
+`FlightBookingsModule` is `@Global()` and exports only `FLIGHT_BOOKINGS_PORT`. `BookingsGateway` is created inside `BookingsModule` (`common/`), and a provider is only visible to the modules that import the module exporting it. `common/` must never import a feature module, so `BookingsModule` cannot import this one; a global module's exports are visible everywhere, `BookingsModule` included. Exported from an ordinary module instead, the gateway's optional port stays undefined and every flight payment answers 501. `test/flight-bookings.e2e-spec.ts` checks that `gateway.supports(BookingType.FLIGHT)` is true and that `GET /api/bookings/flight/:id/policies` returns the snapshot.
+
+### Hold expiry
+
+`FlightHoldExpiryService` runs every minute (`@Cron`; `ScheduleModule.forRoot()` is registered once, in `PaymentsModule`). It finds up to 100 `PENDING_PAYMENT` bookings past `holdExpiresAt`, oldest first (the `status + holdExpiresAt` index), and calls `releaseHold` with `HOLD_EXPIRED` for each.
+
+Payments' own sweep only looks at bookings with an open payment, so without this job a hold the user never started paying for would keep its seats for good. When both reach the same booking, the first one releases the seats and the second changes nothing. A hold keeps its seats for 11 minutes at most, one failing booking is logged without stopping the rest, and a run is skipped while the previous one is still going.
+
+### Tests
+
+Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
+
+`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
+
 ## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
 Login, the cookie and the guards are described under "Accounts and

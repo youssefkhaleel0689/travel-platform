@@ -4891,6 +4891,504 @@ paths:
       summary: Search flights, one-way or round trip (FLT-11, FLT-12, FLT-15)
       tags:
         - Flights
+  /api/flights/{id}:
+    get:
+      description: Airline, flight number, airports, local departure and arrival times, duration, each cabin with its price, seats remaining and baggage allowance, and the airline's extra-bag price and cancellation tiers. Only flights of ACTIVE airlines are shown; status says whether the flight can still be booked.
+      operationId: FlightDetailsController_getDetails
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightDetailsDto'
+        '404':
+          description: No flight has this id, the id is malformed, or its airline is not active (FLIGHT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                path: /api/flights/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Flight details (FLT-17)
+      tags:
+        - Flights
+  /api/flight-bookings:
+    post:
+      description: 'Checks the passengers and extra bags against the chosen flights and returns each segment, each passenger with their fare (infants pay 10%), the airline policy and the total. Nothing is stored and no seat is held: send the same body to POST /api/flight-bookings/hold to hold the seats.'
+      operationId: FlightBookingsController_summarize
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightBookingRequestDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightBookingSummaryDto'
+        '400':
+          description: Validation failed, a passenger type that does not match the date of birth, a cabin the flight does not have, a return flight that does not fit the outbound one, or extra bags the airline or cabin does not allow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: passengers
+                        messages:
+                          - passengers must not have more infants than adults
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSENGER_TYPE_MISMATCH:
+                  summary: Passenger types must match their dates of birth on the departure date
+                  value:
+                    statusCode: 400
+                    code: PASSENGER_TYPE_MISMATCH
+                    error: Bad Request
+                    message: Passenger types must match their dates of birth on the departure date
+                    errors:
+                      - field: passengers.1.passengerType
+                        messages:
+                          - passengerType must be CHILD for someone born on 2018-01-01 (age on 2026-12-20)
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                CABIN_NOT_OFFERED:
+                  summary: This flight has no FIRST cabin
+                  value:
+                    statusCode: 400
+                    code: CABIN_NOT_OFFERED
+                    error: Bad Request
+                    message: This flight has no FIRST cabin
+                    errors:
+                      - field: outbound.cabin
+                        messages:
+                          - This flight has no FIRST cabin
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                ROUND_TRIP_ROUTE_MISMATCH:
+                  summary: inbound must fly from DXB to CAI
+                  value:
+                    statusCode: 400
+                    code: ROUND_TRIP_ROUTE_MISMATCH
+                    error: Bad Request
+                    message: inbound must fly from DXB to CAI
+                    errors:
+                      - field: inbound.flightId
+                        messages:
+                          - inbound must fly from DXB to CAI
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                RETURN_BEFORE_ARRIVAL:
+                  summary: inbound must leave after the outbound flight lands
+                  value:
+                    statusCode: 400
+                    code: RETURN_BEFORE_ARRIVAL
+                    error: Bad Request
+                    message: inbound must leave after the outbound flight lands
+                    errors:
+                      - field: inbound.flightId
+                        messages:
+                          - inbound must leave after the outbound flight lands
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                EXTRA_BAGS_NOT_ALLOWED:
+                  summary: Extra bags must fit the airline's policy and the cabin's bag weight
+                  value:
+                    statusCode: 400
+                    code: EXTRA_BAGS_NOT_ALLOWED
+                    error: Bad Request
+                    message: Extra bags must fit the airline's policy and the cabin's bag weight
+                    errors:
+                      - field: passengers.0.extraBags
+                        messages:
+                          - this airline does not sell extra bags
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No flight has this id (FLIGHT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                errors:
+                  - field: outbound.flightId
+                    messages:
+                      - no flight has this id
+                path: /api/flight-bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The flight is cancelled, has departed or its airline is deactivated (FLIGHT_NOT_BOOKABLE), or the cabin has fewer free seats than adults and children (SEAT_UNAVAILABLE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FLIGHT_NOT_BOOKABLE:
+                  summary: This flight can no longer be booked
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_NOT_BOOKABLE
+                    error: Conflict
+                    message: This flight can no longer be booked
+                    errors:
+                      - field: outbound.flightId
+                        messages:
+                          - this flight can no longer be booked
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                SEAT_UNAVAILABLE:
+                  summary: Only 1 seat left in ECONOMY
+                  value:
+                    statusCode: 409
+                    code: SEAT_UNAVAILABLE
+                    error: Conflict
+                    message: Only 1 seat left in ECONOMY
+                    errors:
+                      - field: outbound.cabin
+                        messages:
+                          - Only 1 seat left in ECONOMY
+                    path: /api/flight-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Booking summary before payment (FLT-19, FLT-21)
+      tags:
+        - Flight bookings
+  /api/flight-bookings/hold:
+    post:
+      description: Same body as the summary. In one transaction it checks and prices the request again, holds a seat per adult and child on every segment and creates the booking in PENDING_PAYMENT with holdExpiresAt 10 minutes ahead. If any segment is full, no seat is held at all. Then accept the policies (GET and POST /api/bookings/flight/{id}/policies) and pay (POST /api/payments). An unpaid hold expires and its seats are released.
+      operationId: FlightBookingsController_hold
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlightBookingRequestDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightBookingDto'
+        '400':
+          description: Validation failed, a passenger type that does not match the date of birth, a cabin the flight does not have, a return flight that does not fit the outbound one, or extra bags the airline or cabin does not allow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: passengers
+                        messages:
+                          - passengers must not have more infants than adults
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSENGER_TYPE_MISMATCH:
+                  summary: Passenger types must match their dates of birth on the departure date
+                  value:
+                    statusCode: 400
+                    code: PASSENGER_TYPE_MISMATCH
+                    error: Bad Request
+                    message: Passenger types must match their dates of birth on the departure date
+                    errors:
+                      - field: passengers.1.passengerType
+                        messages:
+                          - passengerType must be CHILD for someone born on 2018-01-01 (age on 2026-12-20)
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                CABIN_NOT_OFFERED:
+                  summary: This flight has no FIRST cabin
+                  value:
+                    statusCode: 400
+                    code: CABIN_NOT_OFFERED
+                    error: Bad Request
+                    message: This flight has no FIRST cabin
+                    errors:
+                      - field: outbound.cabin
+                        messages:
+                          - This flight has no FIRST cabin
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                ROUND_TRIP_ROUTE_MISMATCH:
+                  summary: inbound must fly from DXB to CAI
+                  value:
+                    statusCode: 400
+                    code: ROUND_TRIP_ROUTE_MISMATCH
+                    error: Bad Request
+                    message: inbound must fly from DXB to CAI
+                    errors:
+                      - field: inbound.flightId
+                        messages:
+                          - inbound must fly from DXB to CAI
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                RETURN_BEFORE_ARRIVAL:
+                  summary: inbound must leave after the outbound flight lands
+                  value:
+                    statusCode: 400
+                    code: RETURN_BEFORE_ARRIVAL
+                    error: Bad Request
+                    message: inbound must leave after the outbound flight lands
+                    errors:
+                      - field: inbound.flightId
+                        messages:
+                          - inbound must leave after the outbound flight lands
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                EXTRA_BAGS_NOT_ALLOWED:
+                  summary: Extra bags must fit the airline's policy and the cabin's bag weight
+                  value:
+                    statusCode: 400
+                    code: EXTRA_BAGS_NOT_ALLOWED
+                    error: Bad Request
+                    message: Extra bags must fit the airline's policy and the cabin's bag weight
+                    errors:
+                      - field: passengers.0.extraBags
+                        messages:
+                          - this airline does not sell extra bags
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings/hold
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No flight has this id (FLIGHT_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: FLIGHT_NOT_FOUND
+                error: Not Found
+                message: Flight not found
+                errors:
+                  - field: outbound.flightId
+                    messages:
+                      - no flight has this id
+                path: /api/flight-bookings/hold
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The flight is cancelled, has departed or its airline is deactivated (FLIGHT_NOT_BOOKABLE), or the cabin has fewer free seats than adults and children (SEAT_UNAVAILABLE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FLIGHT_NOT_BOOKABLE:
+                  summary: This flight can no longer be booked
+                  value:
+                    statusCode: 409
+                    code: FLIGHT_NOT_BOOKABLE
+                    error: Conflict
+                    message: This flight can no longer be booked
+                    errors:
+                      - field: outbound.flightId
+                        messages:
+                          - this flight can no longer be booked
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                SEAT_UNAVAILABLE:
+                  summary: Only 1 seat left in ECONOMY
+                  value:
+                    statusCode: 409
+                    code: SEAT_UNAVAILABLE
+                    error: Conflict
+                    message: Only 1 seat left in ECONOMY
+                    errors:
+                      - field: outbound.cabin
+                        messages:
+                          - Only 1 seat left in ECONOMY
+                    path: /api/flight-bookings/hold
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Hold the seats for 10 minutes (FLT-22)
+      tags:
+        - Flight bookings
+  /api/flight-bookings/{id}:
+    get:
+      description: 'The booking with its status, the hold expiry and, once paid, the booking reference. Only the owner sees it: another account''s booking answers the same 404 as one that does not exist.'
+      operationId: FlightBookingsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightBookingDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: 'No such booking, or it belongs to another account (BOOKING_NOT_FOUND): both answer the same, so ids cannot be probed'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BOOKING_NOT_FOUND
+                error: Not Found
+                message: Booking not found
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: One of your flight bookings (FLT-22, ACC-11)
+      tags:
+        - Flight bookings
   /api/admin/accounts:
     get:
       description: Pages of 10, newest registration first (GEN-05). search matches a fragment of the name or the email, case-insensitively and literally; role and status narrow the list further.
@@ -7286,6 +7784,495 @@ components:
       required:
         - outbound
         - inbound
+    FlightDetailsCabinDto:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+        pricePerSeat:
+          type: string
+          example: '199.99'
+          description: Price per seat in USD, as a decimal string.
+        seatsRemaining:
+          type: number
+          example: 42
+          description: 'Seats that can still be booked: total minus booked minus held.'
+        freeBaggageCount:
+          type: number
+          example: 1
+          description: Bags included in the fare.
+        maxBagWeightKg:
+          type: number
+          example: 23
+          description: Maximum weight of one bag.
+      required:
+        - category
+        - pricePerSeat
+        - seatsRemaining
+        - freeBaggageCount
+        - maxBagWeightKg
+    FlightDetailsCancellationTierDto:
+      type: object
+      properties:
+        daysBeforeDeparture:
+          type: number
+          example: 7
+          description: Applies when cancelling at least this many days before departure.
+        refundPercentage:
+          type: number
+          example: 80
+          description: Percentage of the price refunded.
+      required:
+        - daysBeforeDeparture
+        - refundPercentage
+    FlightDetailsPolicyDto:
+      type: object
+      properties:
+        extraBagPrice:
+          type: string
+          example: '15.00'
+          nullable: true
+          description: Price of one extra bag in USD; null when the airline sells none.
+        maxExtraBagsPerPassenger:
+          type: number
+          example: 2
+          nullable: true
+          description: Extra bags one passenger can buy; null when the airline sells none.
+        cancellationTiers:
+          description: 'From the most days before departure to the fewest. Empty: no refund on cancellation.'
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightDetailsCancellationTierDto'
+      required:
+        - extraBagPrice
+        - maxExtraBagsPerPassenger
+        - cancellationTiers
+    FlightDetailsDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        status:
+          type: string
+          enum:
+            - SCHEDULED
+            - CANCELLED
+            - DEPARTED
+          example: SCHEDULED
+          description: Only a SCHEDULED flight that has not departed can be booked.
+        airline:
+          $ref: '#/components/schemas/FlightSearchAirlineDto'
+        flightNumber:
+          type: string
+          example: MS777
+        departureAirport:
+          $ref: '#/components/schemas/AirportDto'
+        arrivalAirport:
+          $ref: '#/components/schemas/AirportDto'
+        departureLocalTime:
+          type: string
+          example: '2026-12-20T08:30:00+02:00'
+          description: Local time at the departure airport, with its UTC offset.
+        arrivalLocalTime:
+          type: string
+          example: '2026-12-20T14:30:00+04:00'
+          description: Local time at the arrival airport, with its UTC offset.
+        departureAtUtc:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+        arrivalAtUtc:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+        durationMinutes:
+          type: number
+          example: 240
+          description: Computed from the two UTC instants, never stored.
+        cabins:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightDetailsCabinDto'
+        policy:
+          $ref: '#/components/schemas/FlightDetailsPolicyDto'
+      required:
+        - id
+        - status
+        - airline
+        - flightNumber
+        - departureAirport
+        - arrivalAirport
+        - departureLocalTime
+        - arrivalLocalTime
+        - departureAtUtc
+        - arrivalAtUtc
+        - durationMinutes
+        - cabins
+        - policy
+    SegmentChoiceDto:
+      type: object
+      properties:
+        flightId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+          description: The id of a flight from GET /api/flights/search.
+        cabin:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+      required:
+        - flightId
+        - cabin
+    ExtraBagsDto:
+      type: object
+      properties:
+        count:
+          type: number
+          example: 1
+          minimum: 1
+          maximum: 20
+          description: At most the airline's maxExtraBagsPerPassenger (FLT-08).
+        weightKg:
+          type: number
+          example: 20
+          description: Weight of each extra bag in kg, at most the cabin's maxBagWeightKg (FLT-08).
+      required:
+        - count
+        - weightKg
+    PassengerDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+          example: Khaled Elshitany
+          maxLength: 100
+        dateOfBirth:
+          type: string
+          example: '2004-03-10'
+          description: YYYY-MM-DD.
+        passengerType:
+          type: string
+          enum:
+            - ADULT
+            - CHILD
+            - INFANT
+          example: ADULT
+          description: ADULT 12+, CHILD 2-11, INFANT under 2, on the outbound departure date. Infants sit on a lap.
+        documentNumber:
+          type: string
+          example: A12345678
+          description: 'Passport or national ID number: 5 to 30 letters or digits.'
+        extraBags:
+          $ref: '#/components/schemas/ExtraBagsDto'
+      required:
+        - fullName
+        - dateOfBirth
+        - passengerType
+        - documentNumber
+    FlightBookingRequestDto:
+      type: object
+      properties:
+        tripType:
+          type: string
+          enum:
+            - ONE_WAY
+            - ROUND_TRIP
+          default: ONE_WAY
+        outbound:
+          $ref: '#/components/schemas/SegmentChoiceDto'
+        inbound:
+          description: The flight back. Required for a ROUND_TRIP, not allowed for a ONE_WAY trip.
+          allOf:
+            - $ref: '#/components/schemas/SegmentChoiceDto'
+        passengers:
+          description: At least one adult, no more infants than adults, at most 9 adults and children.
+          type: array
+          items:
+            $ref: '#/components/schemas/PassengerDto'
+      required:
+        - outbound
+        - passengers
+    FlightBookingSegmentDto:
+      type: object
+      properties:
+        flightId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+        airlineId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        flightNumber:
+          type: string
+          example: MS910
+        departureAirportId:
+          type: string
+          example: CAI
+        arrivalAirportId:
+          type: string
+          example: DXB
+        departureLocalTime:
+          type: string
+          example: '2026-12-20T08:30:00+02:00'
+          description: Local time at the departure airport, with its UTC offset.
+        arrivalLocalTime:
+          type: string
+          example: '2026-12-20T14:30:00+04:00'
+          description: Local time at the arrival airport, with its UTC offset.
+        departureAtUtc:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+        arrivalAtUtc:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+        durationMinutes:
+          type: number
+          example: 240
+        cabin:
+          type: string
+          enum:
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
+          example: ECONOMY
+        pricePerSeat:
+          type: string
+          example: '199.99'
+          description: Fare per adult or child; an infant pays 10% of it.
+        freeBaggageCount:
+          type: number
+          example: 1
+          description: Free bags per passenger.
+        maxBagWeightKg:
+          type: number
+          example: 23
+          description: Maximum weight of every bag, free or extra (FLT-08).
+      required:
+        - flightId
+        - airlineId
+        - flightNumber
+        - departureAirportId
+        - arrivalAirportId
+        - departureLocalTime
+        - arrivalLocalTime
+        - departureAtUtc
+        - arrivalAtUtc
+        - durationMinutes
+        - cabin
+        - pricePerSeat
+        - freeBaggageCount
+        - maxBagWeightKg
+    FlightBookingExtraBagsDto:
+      type: object
+      properties:
+        count:
+          type: number
+          example: 1
+        weightKg:
+          type: number
+          example: 20
+        fee:
+          type: string
+          example: '50.00'
+          description: 'count x price per bag x segments: a bag flies every segment.'
+      required:
+        - count
+        - weightKg
+        - fee
+    FlightBookingPassengerDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+          example: Khaled Elshitany
+        dateOfBirth:
+          type: string
+          example: '2004-03-10'
+        passengerType:
+          type: string
+          enum:
+            - ADULT
+            - CHILD
+            - INFANT
+          example: ADULT
+        documentNumber:
+          type: string
+          example: •••••5678
+          description: 'Masked: only the last 4 characters are shown. The full number is personal data.'
+        fare:
+          type: string
+          example: '199.99'
+          description: Over all segments; an infant pays 10% of each fare.
+        extraBags:
+          nullable: true
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/FlightBookingExtraBagsDto'
+      required:
+        - fullName
+        - dateOfBirth
+        - passengerType
+        - documentNumber
+        - fare
+        - extraBags
+    FlightBookingCancellationTierDto:
+      type: object
+      properties:
+        daysBeforeDeparture:
+          type: number
+          example: 7
+        refundPercentage:
+          type: number
+          example: 80
+      required:
+        - daysBeforeDeparture
+        - refundPercentage
+    FlightBookingPolicyDto:
+      type: object
+      properties:
+        airlineId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        version:
+          type: number
+          example: 1
+          description: 0 when the airline had not defined a policy yet.
+        extraBagPrice:
+          type: string
+          example: '25.00'
+          nullable: true
+          description: Price of one extra bag; null when the airline sells none.
+        maxExtraBagsPerPassenger:
+          type: number
+          example: 2
+          nullable: true
+        cancellationTiers:
+          description: 'Highest threshold first. Empty: a cancellation refunds 0% (FLT-09).'
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingCancellationTierDto'
+      required:
+        - airlineId
+        - version
+        - extraBagPrice
+        - maxExtraBagsPerPassenger
+        - cancellationTiers
+    FlightBookingPriceDto:
+      type: object
+      properties:
+        subtotal:
+          type: string
+          example: '419.98'
+          description: All fares.
+        baggageTotal:
+          type: string
+          example: '0.00'
+          description: All extra-bag fees.
+        total:
+          type: string
+          example: '419.98'
+        currency:
+          type: string
+          example: USD
+      required:
+        - subtotal
+        - baggageTotal
+        - total
+        - currency
+    FlightBookingSummaryDto:
+      type: object
+      properties:
+        tripType:
+          type: string
+          enum:
+            - ONE_WAY
+            - ROUND_TRIP
+          example: ONE_WAY
+        segments:
+          description: Outbound first.
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingSegmentDto'
+        passengers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingPassengerDto'
+        policy:
+          $ref: '#/components/schemas/FlightBookingPolicyDto'
+        price:
+          $ref: '#/components/schemas/FlightBookingPriceDto'
+      required:
+        - tripType
+        - segments
+        - passengers
+        - policy
+        - price
+    FlightBookingDto:
+      type: object
+      properties:
+        tripType:
+          type: string
+          enum:
+            - ONE_WAY
+            - ROUND_TRIP
+          example: ONE_WAY
+        segments:
+          description: Outbound first.
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingSegmentDto'
+        passengers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightBookingPassengerDto'
+        policy:
+          $ref: '#/components/schemas/FlightBookingPolicyDto'
+        price:
+          $ref: '#/components/schemas/FlightBookingPriceDto'
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - COMPLETED
+            - EXPIRED
+            - CANCELLED
+          example: PENDING_PAYMENT
+        holdExpiresAt:
+          type: string
+          example: '2026-11-18T12:10:00.000Z'
+          description: End of the 10-minute hold. After it the booking can only become EXPIRED.
+        bookingReference:
+          type: string
+          example: null
+          nullable: true
+          description: Generated when a verified payment confirms the booking (FLT-23).
+        createdAt:
+          type: string
+          example: '2026-11-18T12:00:00.000Z'
+      required:
+        - tripType
+        - segments
+        - passengers
+        - policy
+        - price
+        - id
+        - status
+        - holdExpiresAt
+        - bookingReference
+        - createdAt
     AdminAccountDto:
       type: object
       properties:

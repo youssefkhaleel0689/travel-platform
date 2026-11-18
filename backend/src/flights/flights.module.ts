@@ -6,6 +6,8 @@ import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
+import { FlightDetailsController } from './flight-details/flight-details.controller';
+import { FlightDetailsService } from './flight-details/flight-details.service';
 import { FlightSearchController } from './flight-search/flight-search.controller';
 import { FlightSearchService } from './flight-search/flight-search.service';
 import { FlightStatusJob } from './flight-status/flight-status.job';
@@ -55,6 +57,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     FlightsController,
     CabinsController,
     FlightSearchController,
+    // Last: its GET /flights/:id would otherwise take GET /flights/search (FLT-17).
+    FlightDetailsController,
   ],
   providers: [
     AirlinesService,
@@ -62,6 +66,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     FlightsService,
     CabinsService,
     FlightSearchService,
+    FlightDetailsService,
     FlightStatusService,
     FlightStatusJob,
     SeatInventoryService,

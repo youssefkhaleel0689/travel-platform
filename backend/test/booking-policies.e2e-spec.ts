@@ -1,10 +1,12 @@
 // PAY-02 end to end against the shared database.
 //
-// No booking module provides a BookingsPort yet, so the gateway is stood in
-// for here: the suite supplies one booking's facts and policies and drives the
-// real HTTP path through the guard, the parameter validation, the ownership
-// check and the policyAcceptances collection. When A1 and B2 wire their ports
-// in, only the two spies below go away.
+// Both booking modules provide their BookingsPort now (flights since FLT-22,
+// tested in flight-bookings.e2e-spec.ts; hotels since PR #30), but the gateway
+// is still stood in for here: the suite supplies one booking's facts and
+// policies, so it can set any status and version, and drives the real HTTP
+// path through the guard, the parameter validation, the ownership check and
+// the policyAcceptances collection. The last test of the policies block drops
+// the stand-in and reaches the real modules.
 import { INestApplication, NotFoundException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -209,19 +211,22 @@ describe('Booking policies (e2e)', () => {
       expect(res.body.errors[0].field).toBe('id');
     });
 
-    // The flights module is not wired in, so this is the real 501 path.
-    // The real behaviour today: no module provides a flight BookingsPort, so
-    // the stand-in is dropped and the gateway answers for itself.
-    it('answers 501 for a booking type with no module connected', async () => {
-      jest.restoreAllMocks();
+    // Without the stand-in, both types reach their real module, which has no
+    // booking with this id: 404, never 501 BOOKING_TYPE_UNAVAILABLE. The 501
+    // path for an unwired type is covered by bookings.gateway.spec.ts.
+    it.each(['flight', 'hotel'])(
+      'reaches the real %s module once the stand-in is gone',
+      async (type) => {
+        jest.restoreAllMocks();
 
-      const res = await request(app.getHttpServer())
-        .get(policiesPath(bookingId, 'flight'))
-        .set('Cookie', owner.cookie)
-        .expect(501);
+        const res = await request(app.getHttpServer())
+          .get(policiesPath(bookingId, type))
+          .set('Cookie', owner.cookie)
+          .expect(404);
 
-      expect(res.body.code).toBe('BOOKING_TYPE_UNAVAILABLE');
-    });
+        expect(res.body.code).not.toBe('BOOKING_TYPE_UNAVAILABLE');
+      },
+    );
   });
 
   describe('POST /api/bookings/:type/:id/accept-policies', () => {
