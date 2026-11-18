@@ -1,11 +1,19 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import {
+  COMMENT_MODERATION_PORT,
+  POST_MODERATION_PORT,
+} from '../common/moderation/content-moderation.port';
 import { ItinerariesModule } from '../itineraries/itineraries.module';
 import { MediaModule } from '../media/media.module';
 import { AuthorsController } from './authors.controller';
 import { AuthorsService } from './authors.service';
 import { BlogAccessService } from './blog-access.service';
+import {
+  CommentModerationAdapter,
+  PostModerationAdapter,
+} from './blog-moderation.adapters';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
 import { PostsController } from './posts.controller';
@@ -32,7 +40,14 @@ import { TagsController } from './tags.controller';
     TagsController,
     AuthorsController,
   ],
-  providers: [BlogAccessService, PostsService, CommentsService, AuthorsService],
-  exports: [BlogAccessService, PostsService, CommentsService],
+  providers: [
+    BlogAccessService,
+    PostsService,
+    CommentsService,
+    AuthorsService,
+    { provide: POST_MODERATION_PORT, useClass: PostModerationAdapter },
+    { provide: COMMENT_MODERATION_PORT, useClass: CommentModerationAdapter },
+  ],
+  exports: [POST_MODERATION_PORT, COMMENT_MODERATION_PORT],
 })
 export class BlogModule {}
