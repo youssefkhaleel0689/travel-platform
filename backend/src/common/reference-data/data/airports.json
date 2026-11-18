@@ -1,0 +1,58 @@
+[
+  {
+    "iata_code": "CAI",
+    "name": "Cairo International Airport",
+    "city_id": "cairo",
+    "country_code": "EG",
+    "time_zone": "Africa/Cairo"
+  },
+  {
+    "iata_code": "DXB",
+    "name": "Dubai International Airport",
+    "city_id": "dubai",
+    "country_code": "AE",
+    "time_zone": "Asia/Dubai"
+  },
+  {
+    "iata_code": "LHR",
+    "name": "Heathrow Airport",
+    "city_id": "london",
+    "country_code": "GB",
+    "time_zone": "Europe/London"
+  },
+  {
+    "iata_code": "JFK",
+    "name": "John F. Kennedy International Airport",
+    "city_id": "new_york",
+    "country_code": "US",
+    "time_zone": "America/New_York"
+  },
+  {
+    "iata_code": "CDG",
+    "name": "Charles de Gaulle Airport",
+    "city_id": "paris",
+    "country_code": "FR",
+    "time_zone": "Europe/Paris"
+  },
+  {
+    "iata_code": "HND",
+    "name": "Haneda Airport",
+    "city_id": "tokyo",
+    "country_code": "JP",
+    "time_zone": "Asia/Tokyo"
+  },
+  {
+    "iata_code": "RUH",
+    "name": "King Khalid International Airport",
+    "city_id": "riyadh",
+    "country_code": "SA",
+    "time_zone": "Asia/Riyadh"
+  },
+  {
+    "iata_code": "FRA",
+    "name": "Frankfurt Airport",
+    "city_id": "frankfurt",
+    "country_code": "DE",
+    "time_zone": "Europe/Berlin"
+  }
+]
