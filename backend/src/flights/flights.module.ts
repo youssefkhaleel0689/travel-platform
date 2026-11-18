@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AirlineBookingsController } from './airline-bookings/airline-bookings.controller';
+import { AirlineBookingsService } from './airline-bookings/airline-bookings.service';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
@@ -63,6 +65,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     // FLT-06: POST /flights/:id/cancel.
     FlightCancellationController,
     MyFlightBookingsController,
+    AirlineBookingsController,
     FlightSearchController,
     // Last: its GET /flights/:id would otherwise take GET /flights/search (FLT-17).
     FlightDetailsController,
@@ -74,6 +77,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     CabinsService,
     FlightCancellationService,
     MyFlightBookingsService,
+    AirlineBookingsService,
     FlightSearchService,
     FlightDetailsService,
     FlightStatusService,
