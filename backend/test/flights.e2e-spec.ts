@@ -49,6 +49,13 @@ describe('Flights (e2e, fake service)', () => {
       (_dto: unknown, _user: AuthenticatedUser): Promise<FlightDto> =>
         Promise.resolve(FLIGHT),
     ),
+    update: jest.fn(
+      (
+        _id: string,
+        _dto: unknown,
+        _user: AuthenticatedUser,
+      ): Promise<FlightDto> => Promise.resolve(FLIGHT),
+    ),
   };
 
   beforeAll(async () => {
@@ -170,6 +177,92 @@ describe('Flights (e2e, fake service)', () => {
       statusCode: 409,
       code: 'FLIGHT_ALREADY_EXISTS',
       path: '/api/flights',
+    });
+  });
+  const patch = (body: object, id = FLIGHT.id) =>
+    request(app.getHttpServer())
+      .patch(`/api/flights/${id}`)
+      .set('x-test-user', MODERATOR_ID)
+      .send(body);
+
+  it('PATCH /api/flights/:id edits with 200, normalised input and the logged-in user (FLT-05)', async () => {
+    const res = await patch({
+      departureAirportId: ' lhr ',
+      departureLocalInput: ' 2026-12-20T09:15 ',
+    }).expect(200);
+    expect(res.body).toMatchObject({ id: FLIGHT.id, status: 'SCHEDULED' });
+    expect(service.update.mock.calls[0][0]).toBe(FLIGHT.id);
+    expect(service.update.mock.calls[0][1]).toEqual({
+      departureAirportId: 'LHR',
+      departureLocalInput: '2026-12-20T09:15',
+    });
+    expect(service.update.mock.calls[0][2]).toEqual({
+      userId: MODERATOR_ID,
+      role: 'AIRLINE_MODERATOR',
+      sessionId: SESSION_ID,
+    });
+  });
+
+  it('PATCH returns 401 UNAUTHENTICATED without a logged-in user', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/flights/${FLIGHT.id}`)
+      .send({ departureLocalInput: '2026-12-20T09:15' })
+      .expect(401);
+    expect(res.body).toMatchObject({ code: 'UNAUTHENTICATED' });
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH returns field-level errors for a bad body (GEN-02)', async () => {
+    const res = await patch({
+      departureAirportId: 'CA',
+      departureLocalInput: '2026-12-20 09:15',
+      arrivalLocalInput: null,
+    }).expect(400);
+    expect(res.body.code).toBe('VALIDATION_FAILED');
+    const fields = (res.body.errors as { field: string }[]).map((e) => e.field);
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        'departureAirportId',
+        'departureLocalInput',
+        'arrivalLocalInput',
+      ]),
+    );
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'airlineId',
+    'flightNumber',
+    'status',
+    'cabinInventory',
+    'departureAtUtc',
+    'arrivalAtUtc',
+    'departureDateKey',
+  ])('PATCH rejects the client-supplied field %s', async (field) => {
+    const res = await patch({
+      departureLocalInput: '2026-12-20T09:15',
+      [field]: 'x',
+    }).expect(400);
+    expect(res.body.code).toBe('VALIDATION_FAILED');
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH returns the shared 409 error shape', async () => {
+    service.update.mockRejectedValueOnce(
+      new ConflictException({
+        code: 'AIRPORTS_LOCKED',
+        message:
+          'The airports cannot be changed once the flight has a booking or a seat hold',
+      }),
+    );
+    const res = await patch({
+      arrivalAirportId: 'LHR',
+      arrivalLocalInput: '2026-12-20T12:00',
+    }).expect(409);
+    expect(res.body).toMatchObject({
+      statusCode: 409,
+      code: 'AIRPORTS_LOCKED',
+      path: `/api/flights/${FLIGHT.id}`,
     });
   });
 });

@@ -189,16 +189,20 @@ describe('Cabins (e2e, fake service)', () => {
     });
   });
 
-  it('PATCH does not accept totalSeats (that is FLT-05) or the counters', async () => {
-    for (const field of [
-      'totalSeats',
-      'bookedSeats',
-      'heldSeats',
-      'category',
-    ]) {
+  it('PATCH does not accept the counters or the category', async () => {
+    for (const field of ['bookedSeats', 'heldSeats', 'category']) {
       await patch('ECONOMY', { [field]: 5 }).expect(400);
     }
     expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH accepts totalSeats as a whole number above 0 (FLT-05) and rejects the rest', async () => {
+    await patch('ECONOMY', { totalSeats: 180 }).expect(200);
+    expect(service.update.mock.calls[0][2]).toEqual({ totalSeats: 180 });
+    for (const bad of [0, -3, 1.5, '180']) {
+      await patch('ECONOMY', { totalSeats: bad }).expect(400);
+    }
+    expect(service.update).toHaveBeenCalledTimes(1);
   });
 
   it('PATCH returns field-level 400 errors and rejects null', async () => {

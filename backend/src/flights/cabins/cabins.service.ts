@@ -22,7 +22,10 @@ import { UpdateCabinDto } from './dto/update-cabin.dto';
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
 
 type FlightState = Pick<Flight, 'status' | 'departureAtUtc'> & {
-  cabinInventory: { category: CabinCategory }[];
+  cabinInventory: Pick<
+    Flight['cabinInventory'][number],
+    'category' | 'bookedSeats' | 'heldSeats'
+  >[];
 };
 
 // Cabins of a flight (FLT-04). Every call first resolves the moderator's airline from
@@ -97,9 +100,12 @@ export class CabinsService {
   }
 
   /**
-   * FLT-04 / FLT-05: change the price or the baggage allowance of one cabin of a
-   * SCHEDULED flight of the moderator's airline. A price change does not touch existing
-   * bookings: they keep their own price snapshot. The seat count is changed by FLT-05.
+   * FLT-04 / FLT-05: change the price, the seat count or the baggage allowance of one
+   * cabin of a SCHEDULED flight of the moderator's airline. A price change does not touch
+   * existing bookings: they keep their own price snapshot. A new seat count is written
+   * only if the seats already booked or held still fit (bookedSeats + heldSeats <= the
+   * new total): that test is part of the update's filter, so a hold made at the same
+   * moment cannot slip past it. The counters themselves are never written here.
    */
   async update(
     flightId: string,
@@ -115,6 +121,9 @@ export class CabinsService {
       ...(dto.price !== undefined && {
         'cabinInventory.$.price': this.toDecimal(dto.price),
       }),
+      ...(dto.totalSeats !== undefined && {
+        'cabinInventory.$.totalSeats': dto.totalSeats,
+      }),
       ...(dto.freeBaggageCount !== undefined && {
         'cabinInventory.$.freeBaggageCount': dto.freeBaggageCount,
       }),
@@ -125,12 +134,13 @@ export class CabinsService {
     if (Object.keys(changes).length === 0) {
       throw new BadRequestException({
         code: 'EMPTY_UPDATE',
-        message: 'Send at least one of price, freeBaggageCount, maxBagWeightKg',
+        message:
+          'Send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg',
         errors: [
           {
             field: 'body',
             messages: [
-              'send at least one of price, freeBaggageCount, maxBagWeightKg',
+              'send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg',
             ],
           },
         ],
@@ -142,6 +152,10 @@ export class CabinsService {
         {
           ...this.editableFlight(flightId, airlineId),
           'cabinInventory.category': category,
+          ...(dto.totalSeats !== undefined && {
+            // The matched cabin must still hold the seats already booked and held.
+            $expr: this.seatsFit(category, dto.totalSeats),
+          }),
         },
         { $set: changes },
         { new: true },
@@ -151,7 +165,36 @@ export class CabinsService {
     if (updated) {
       return toFlightDto(updated);
     }
-    throw await this.rejection(flightId, airlineId, category, 'update');
+    throw await this.rejection(
+      flightId,
+      airlineId,
+      category,
+      'update',
+      dto.totalSeats,
+    );
+  }
+
+  // True when the cabin of this category has bookedSeats + heldSeats <= totalSeats.
+  private seatsFit(category: CabinCategory, totalSeats: number) {
+    return {
+      $anyElementTrue: {
+        $map: {
+          input: '$cabinInventory',
+          as: 'cabin',
+          in: {
+            $and: [
+              { $eq: ['$$cabin.category', category] },
+              {
+                $lte: [
+                  { $add: ['$$cabin.bookedSeats', '$$cabin.heldSeats'] },
+                  totalSeats,
+                ],
+              },
+            ],
+          },
+        },
+      },
+    };
   }
 
   // Own airline, SCHEDULED and not yet departed. The departure check matters until the
@@ -172,10 +215,13 @@ export class CabinsService {
     airlineId: Types.ObjectId,
     category: CabinCategory,
     action: 'add' | 'update',
+    totalSeats?: number,
   ): Promise<HttpException> {
     const flight = await this.flightModel
       .findOne({ _id: flightId, airlineId })
-      .select('status departureAtUtc cabinInventory.category')
+      .select(
+        'status departureAtUtc cabinInventory.category cabinInventory.bookedSeats cabinInventory.heldSeats',
+      )
       .lean<FlightState>()
       .exec();
     if (!flight) {
@@ -208,6 +254,26 @@ export class CabinsService {
     }
     if (action === 'update' && !hasCabin) {
       return this.cabinNotFound(category);
+    }
+    const cabin = flight.cabinInventory.find((c) => c.category === category);
+    if (
+      action === 'update' &&
+      totalSeats !== undefined &&
+      cabin &&
+      cabin.bookedSeats + cabin.heldSeats > totalSeats
+    ) {
+      return new ConflictException({
+        code: 'SEATS_BELOW_BOOKED',
+        message: `totalSeats cannot be lower than the seats already booked or held (${cabin.bookedSeats} booked, ${cabin.heldSeats} held)`,
+        errors: [
+          {
+            field: 'totalSeats',
+            messages: [
+              `must be at least ${cabin.bookedSeats + cabin.heldSeats} (seats already booked or held)`,
+            ],
+          },
+        ],
+      });
     }
     // The flight changed between the update and this read: ask the caller to retry.
     return new ConflictException({
