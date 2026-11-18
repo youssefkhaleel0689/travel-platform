@@ -6551,6 +6551,2064 @@ paths:
       summary: Refund status (PAY-03)
       tags:
         - Payments and policies
+  /api/itineraries:
+    post:
+      description: Creates a private itinerary owned by the logged-in user. Countries must be seeded country codes.
+      operationId: ItinerariesController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateItineraryDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: title
+                        messages:
+                          - title must be longer than or equal to 1 characters
+                    path: /api/itineraries
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_COUNTRY:
+                  summary: 'Unknown countries: XX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_COUNTRY
+                    error: Bad Request
+                    message: 'Unknown countries: XX'
+                    path: /api/itineraries
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Create an itinerary (ITN-01)
+      tags:
+        - Itineraries
+    get:
+      operationId: ItinerariesController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ItinerarySummaryDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List my itineraries, most recently updated first (ITN-03)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}:
+    get:
+      description: 'Owner only (ACC-11): another user’s itinerary answers 404 exactly like a missing one.'
+      operationId: ItinerariesController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Get one of my itineraries (ITN-03)
+      tags:
+        - Itineraries
+    patch:
+      operationId: ItinerariesController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateItineraryDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: startDate
+                        messages:
+                          - startDate must be a valid ISO 8601 date string
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_COUNTRY:
+                  summary: 'Unknown countries: XX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_COUNTRY
+                    error: Bad Request
+                    message: 'Unknown countries: XX'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit title, countries, start date or visibility (ITN-01, ITN-20)
+      tags:
+        - Itineraries
+    delete:
+      operationId: ItinerariesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete an itinerary (ITN-01)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/visibility:
+    patch:
+      operationId: ItinerariesController_setVisibility
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetVisibilityDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: visibility
+                    messages:
+                      - 'visibility must be one of the following values: private, public'
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/visibility
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/visibility
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Set Public or Private (ITN-20)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/days:
+    post:
+      description: Day numbers and dates are derived from the position and the start date, so they are never stored.
+      operationId: DaysController_addDay
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDayDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: city
+                        messages:
+                          - city must be a city id such as paris
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY:
+                  summary: 'Unknown city: atlantis'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY
+                    error: Bad Request
+                    message: 'Unknown city: atlantis'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                MAX_DAYS_REACHED:
+                  summary: An itinerary can have at most 60 days
+                  value:
+                    statusCode: 400
+                    code: MAX_DAYS_REACHED
+                    error: Bad Request
+                    message: An itinerary can have at most 60 days
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Add a day at the end of the itinerary (ITN-05)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/days/reorder:
+    patch:
+      description: Numbers, dates, city groups and budgets follow the new order automatically.
+      operationId: DaysController_reorderDays
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderDaysDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: position
+                        messages:
+                          - position must not be less than 1
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/reorder
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_POSITION:
+                  summary: Position must be between 1 and 3
+                  value:
+                    statusCode: 400
+                    code: INVALID_POSITION
+                    error: Bad Request
+                    message: Position must be between 1 and 3
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/reorder
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/reorder
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/reorder
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Move a day to a new position (ITN-08)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/days/{dayId}:
+    patch:
+      operationId: DaysController_updateDay
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDayDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: notes
+                        messages:
+                          - notes must be shorter than or equal to 2000 characters
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY:
+                  summary: 'Unknown city: atlantis'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY
+                    error: Bad Request
+                    message: 'Unknown city: atlantis'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Change a day city or notes (ITN-05)
+      tags:
+        - Itineraries
+    delete:
+      description: Later days move up one number and one date.
+      operationId: DaysController_deleteDay
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete a day with its activities, budget entries and transport costs (ITN-07)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/days/{dayId}/activities:
+    post:
+      description: An optional cost needs a currency; it counts under "activities" in the budget summary (ITN-14).
+      operationId: ActivitiesController_create
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateActivityDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: time
+                        messages:
+                          - time must be HH:mm
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/activities
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/activities
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/activities
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/activities
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Add an activity to a day (ITN-10)
+      tags:
+        - Itineraries - Activities
+  /api/activities/{id}:
+    patch:
+      operationId: ActivitiesController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateActivityDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: cost
+                        messages:
+                          - cost must not be less than 0
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ACTIVITY_NOT_FOUND
+                error: Not Found
+                message: Activity not found
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit an activity (ITN-10)
+      tags:
+        - Itineraries - Activities
+    delete:
+      operationId: ActivitiesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ACTIVITY_NOT_FOUND
+                error: Not Found
+                message: Activity not found
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete an activity (ITN-10)
+      tags:
+        - Itineraries - Activities
+  /api/itineraries/{id}/days/{dayId}/budgets:
+    post:
+      description: 'Categories: food, accommodation, local_transport, activities. Any seeded currency; the summary converts.'
+      operationId: BudgetsController_createEntry
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBudgetEntryDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetEntryResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: amount
+                        messages:
+                          - amount must not be less than 0
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/budgets
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/budgets
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/budgets
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/days/6720f1c2a1b2c3d4e5f60719/budgets
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Add a budget entry to a day (ITN-14)
+      tags:
+        - Itineraries - Budget
+  /api/budgets/{id}:
+    patch:
+      operationId: BudgetsController_updateEntry
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBudgetEntryDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetEntryResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: category
+                        messages:
+                          - 'category must be one of the following values: food, accommodation, local_transport, activities'
+                    path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BUDGET_ENTRY_NOT_FOUND
+                error: Not Found
+                message: Budget entry not found
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit a budget entry (ITN-14)
+      tags:
+        - Itineraries - Budget
+    delete:
+      operationId: BudgetsController_removeEntry
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BUDGET_ENTRY_NOT_FOUND
+                error: Not Found
+                message: Budget entry not found
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete a budget entry (ITN-14)
+      tags:
+        - Itineraries - Budget
+  /api/itineraries/{id}/transport-costs:
+    post:
+      description: Attached to one day of the itinerary; counted as intercity_transport, separate from local transport.
+      operationId: BudgetsController_createTransport
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransportCostDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransportCostResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: dayId
+                        messages:
+                          - dayId must be a mongodb id
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                SAME_CITY:
+                  summary: fromCity and toCity must be different
+                  value:
+                    statusCode: 400
+                    code: SAME_CITY
+                    error: Bad Request
+                    message: fromCity and toCity must be different
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY:
+                  summary: 'Unknown city: atlantis'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY
+                    error: Bad Request
+                    message: 'Unknown city: atlantis'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_NOT_FOUND:
+                  summary: Itinerary not found
+                  value:
+                    statusCode: 404
+                    code: ITINERARY_NOT_FOUND
+                    error: Not Found
+                    message: Itinerary not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/transport-costs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Add an intercity transport cost (ITN-16)
+      tags:
+        - Itineraries - Budget
+  /api/transport-costs/{id}:
+    patch:
+      operationId: BudgetsController_updateTransport
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTransportCostDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransportCostResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: amount
+                        messages:
+                          - amount must not be less than 0
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                SAME_CITY:
+                  summary: fromCity and toCity must be different
+                  value:
+                    statusCode: 400
+                    code: SAME_CITY
+                    error: Bad Request
+                    message: fromCity and toCity must be different
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY:
+                  summary: 'Unknown city: atlantis'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY
+                    error: Bad Request
+                    message: 'Unknown city: atlantis'
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                TRANSPORT_COST_NOT_FOUND:
+                  summary: Transport cost not found
+                  value:
+                    statusCode: 404
+                    code: TRANSPORT_COST_NOT_FOUND
+                    error: Not Found
+                    message: Transport cost not found
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DAY_NOT_FOUND:
+                  summary: Day not found
+                  value:
+                    statusCode: 404
+                    code: DAY_NOT_FOUND
+                    error: Not Found
+                    message: Day not found
+                    path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit a transport cost (ITN-16)
+      tags:
+        - Itineraries - Budget
+    delete:
+      operationId: BudgetsController_removeTransport
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/budgets/6720f1c2a1b2c3d4e5f60730
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: TRANSPORT_COST_NOT_FOUND
+                error: Not Found
+                message: Transport cost not found
+                path: /api/transport-costs/6720f1c2a1b2c3d4e5f60740
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete a transport cost (ITN-16)
+      tags:
+        - Itineraries - Budget
+  /api/itineraries/{id}/budget-summary:
+    get:
+      description: Exchange rates come from FXRatesAPI through the backend only, cached once a day; when the API is down the last cached rates are used and ratesStale is true.
+      operationId: BudgetSummaryController_budgetSummary
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: currency
+          required: true
+          in: query
+          description: 'Display currency: one of the seeded currencies (GET /api/currencies); others give 400 UNSUPPORTED_CURRENCY'
+          schema:
+            example: EGP
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BudgetSummaryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: currency
+                        messages:
+                          - currency must be a 3-letter currency code
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/budget-summary?currency=EURO
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/budget-summary?currency=EURO
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/budget-summary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/budget-summary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/budget-summary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '503':
+          description: 'FXRatesAPI is unreachable and no rates were ever cached (ITN-18); with cached rates the answer is 200 with stale: true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 503
+                code: EXCHANGE_RATES_UNAVAILABLE
+                error: Service Unavailable
+                message: Exchange rates are currently unavailable. Please try again later.
+                path: /api/exchange-rates
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Budget totals by category, day and city, converted to one currency (ITN-14, ITN-18)
+      tags:
+        - Itineraries - Budget
+  /api/itineraries/public/search:
+    get:
+      description: Open to guests. q matches the title, or a country or city by id or name.
+      operationId: PublicItinerariesController_search
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: q
+          required: false
+          in: query
+          description: Matches title, country name/code or city name
+          schema:
+            example: paris
+            type: string
+        - name: country
+          required: false
+          in: query
+          description: Country code
+          schema:
+            example: FR
+            type: string
+        - name: city
+          required: false
+          in: query
+          description: City id
+          schema:
+            example: paris
+            type: string
+        - name: minDays
+          required: false
+          in: query
+          schema:
+            minimum: 0
+            maximum: 60
+            example: 3
+            type: number
+        - name: maxDays
+          required: false
+          in: query
+          schema:
+            minimum: 0
+            maximum: 60
+            example: 10
+            type: number
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PublicItinerarySummaryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: country
+                        messages:
+                          - country must be a 2-letter country code
+                    path: /api/itineraries/public/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_DAY_RANGE:
+                  summary: minDays cannot be greater than maxDays
+                  value:
+                    statusCode: 400
+                    code: INVALID_DAY_RANGE
+                    error: Bad Request
+                    message: minDays cannot be greater than maxDays
+                    path: /api/itineraries/public/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_COUNTRY:
+                  summary: 'Unknown countries: XX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_COUNTRY
+                    error: Bad Request
+                    message: 'Unknown countries: XX'
+                    path: /api/itineraries/public/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY:
+                  summary: 'Unknown city: atlantis'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY
+                    error: Bad Request
+                    message: 'Unknown city: atlantis'
+                    path: /api/itineraries/public/search
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Search public itineraries by keyword, country, city and duration (ITN-20, ITN-21)
+      tags:
+        - Itineraries - Public
+  /api/itineraries/public/{id}:
+    get:
+      description: Open to guests. A private itinerary answers 404 exactly like a missing one.
+      operationId: PublicItinerariesController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: currency
+          required: false
+          in: query
+          description: If given, the response also includes a budget summary
+          schema:
+            example: EGP
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: currency
+                        messages:
+                          - currency must be a 3-letter currency code
+                    path: /api/itineraries/public/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNSUPPORTED_CURRENCY:
+                  summary: 'Unsupported currency: XYZ'
+                  value:
+                    statusCode: 400
+                    code: UNSUPPORTED_CURRENCY
+                    error: Bad Request
+                    message: 'Unsupported currency: XYZ'
+                    path: /api/itineraries/public/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Public itinerary not found
+                path: /api/itineraries/public/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '503':
+          description: 'FXRatesAPI is unreachable and no rates were ever cached (ITN-18); with cached rates the answer is 200 with stale: true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 503
+                code: EXCHANGE_RATES_UNAVAILABLE
+                error: Service Unavailable
+                message: Exchange rates are currently unavailable. Please try again later.
+                path: /api/exchange-rates
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: View a public itinerary; add ?currency= to include its budget summary (ITN-21)
+      tags:
+        - Itineraries - Public
+  /api/itineraries/{id}/clone:
+    post:
+      description: The copy is private, owned by the logged-in user, has new ids for every day and item, and records clonedFrom (itinerary and author).
+      operationId: PublicItinerariesController_clone
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/clone
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/clone
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Public itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/clone
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Clone a public itinerary into my own private copy, keeping attribution (ITN-21)
+      tags:
+        - Itineraries - Public
+  /api/exchange-rates:
+    get:
+      description: 'Open to guests: rates are not private. The backend fetches FXRatesAPI at most once a day and caches the answer; the API key never leaves the server.'
+      operationId: ExchangeRatesController_getRates
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangeRatesResponseDto'
+        '503':
+          description: 'FXRatesAPI is unreachable and no rates were ever cached (ITN-18); with cached rates the answer is 200 with stale: true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 503
+                code: EXCHANGE_RATES_UNAVAILABLE
+                error: Service Unavailable
+                message: Exchange rates are currently unavailable. Please try again later.
+                path: /api/exchange-rates
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Latest exchange rates used for budget conversion (ITN-18)
+      tags:
+        - Exchange Rates
 components:
   securitySchemes:
     cookie:
@@ -8780,3 +10838,641 @@ components:
         - reason
         - refundPercentage
         - requestedAt
+    CreateItineraryDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Summer in Europe
+          maxLength: 100
+        countries:
+          example:
+            - FR
+            - GB
+          description: Country codes from the seeded country list (GET /api/countries); unknown codes give 400 UNKNOWN_COUNTRY
+          type: array
+          items:
+            type: string
+        startDate:
+          type: string
+          example: '2026-12-20'
+          description: ISO date (YYYY-MM-DD)
+      required:
+        - title
+        - countries
+        - startDate
+    ItineraryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        ownerId:
+          type: string
+          example: 64b7f0c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Summer in Europe
+        countries:
+          example:
+            - FR
+            - GB
+          type: array
+          items:
+            type: string
+        startDate:
+          type: string
+          example: '2026-12-20'
+        visibility:
+          type: string
+          enum:
+            - private
+            - public
+        days:
+          type: array
+          items:
+            type: object
+          description: Days in order. dayNumber and date are derived from position and startDate.
+        cityGroups:
+          type: array
+          items:
+            type: object
+          description: Consecutive days in the same city, with day count (ITN-09)
+        transportCosts:
+          type: array
+          items:
+            type: object
+        clonedFrom:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          format: date-time
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - ownerId
+        - title
+        - countries
+        - startDate
+        - visibility
+        - days
+        - cityGroups
+        - transportCosts
+        - clonedFrom
+        - createdAt
+        - updatedAt
+    ItinerarySummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Summer in Europe
+        countries:
+          example:
+            - FR
+            - GB
+          type: array
+          items:
+            type: string
+        startDate:
+          type: string
+          example: '2026-12-20'
+        dayCount:
+          type: number
+          example: 5
+        visibility:
+          type: string
+          enum:
+            - private
+            - public
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+        - id
+        - title
+        - countries
+        - startDate
+        - dayCount
+        - visibility
+        - updatedAt
+    UpdateItineraryDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Summer in Europe
+          maxLength: 100
+        countries:
+          example:
+            - FR
+            - GB
+          description: Country codes from the seeded country list (GET /api/countries); unknown codes give 400 UNKNOWN_COUNTRY
+          type: array
+          items:
+            type: string
+        startDate:
+          type: string
+          example: '2026-12-20'
+          description: ISO date (YYYY-MM-DD)
+        visibility:
+          type: string
+          enum:
+            - private
+            - public
+          example: public
+    SetVisibilityDto:
+      type: object
+      properties:
+        visibility:
+          type: string
+          enum:
+            - private
+            - public
+          example: public
+      required:
+        - visibility
+    CreateDayDto:
+      type: object
+      properties:
+        city:
+          type: string
+          example: paris
+          description: City id from the seeded city list (GET /api/cities); unknown ids give 400 UNKNOWN_CITY
+        notes:
+          type: string
+          example: Arrive and walk along the Seine
+      required:
+        - city
+    ReorderDaysDto:
+      type: object
+      properties:
+        dayId:
+          type: string
+          description: The day to move
+        position:
+          type: number
+          example: 1
+          minimum: 1
+          description: New position of that day (1 = first day)
+      required:
+        - dayId
+        - position
+    UpdateDayDto:
+      type: object
+      properties:
+        city:
+          type: string
+          example: paris
+          description: City id from the seeded city list (GET /api/cities); unknown ids give 400 UNKNOWN_CITY
+        notes:
+          type: string
+          example: Arrive and walk along the Seine
+    CreateActivityDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Eiffel Tower visit
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 1000
+        time:
+          type: string
+          example: '09:30'
+          description: HH:mm (24h)
+        cost:
+          type: number
+          example: 25.5
+          minimum: 0
+          description: At most 2 decimals; returned as a string such as "25.50"
+        currency:
+          type: string
+          example: EUR
+          description: Required with cost
+      required:
+        - name
+    ActivityDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        name:
+          type: string
+          example: Eiffel Tower visit
+        description:
+          type: string
+          nullable: true
+          example: null
+        time:
+          type: string
+          nullable: true
+          example: '09:30'
+        cost:
+          type: string
+          nullable: true
+          example: '25.50'
+          description: Decimal string with 2 decimals, in `currency`
+        currency:
+          type: string
+          nullable: true
+          example: EUR
+      required:
+        - id
+        - name
+        - description
+        - time
+        - cost
+        - currency
+    UpdateActivityDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Eiffel Tower visit
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 1000
+        time:
+          type: string
+          example: '09:30'
+          description: HH:mm (24h)
+        cost:
+          type: number
+          example: 25.5
+          minimum: 0
+          description: At most 2 decimals; returned as a string such as "25.50"
+        currency:
+          type: string
+          example: EUR
+          description: Required with cost
+    CreateBudgetEntryDto:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - food
+            - accommodation
+            - local_transport
+            - activities
+          example: food
+        amount:
+          type: number
+          example: 40
+          minimum: 0
+          description: Amount in `currency`, at most 2 decimals. Stored as Decimal128 and returned as a string.
+        currency:
+          type: string
+          example: EUR
+          description: A seeded currency (GET /api/currencies); others give 400 UNSUPPORTED_CURRENCY
+      required:
+        - category
+        - amount
+        - currency
+    BudgetEntryResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60730
+        category:
+          type: string
+          example: food
+        amount:
+          type: string
+          example: '40.00'
+          description: Decimal string with 2 decimals, in `currency`
+        currency:
+          type: string
+          example: EUR
+      required:
+        - id
+        - category
+        - amount
+        - currency
+    UpdateBudgetEntryDto:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - food
+            - accommodation
+            - local_transport
+            - activities
+          example: food
+        amount:
+          type: number
+          example: 40
+          minimum: 0
+          description: Amount in `currency`, at most 2 decimals. Stored as Decimal128 and returned as a string.
+        currency:
+          type: string
+          example: EUR
+          description: A seeded currency (GET /api/currencies); others give 400 UNSUPPORTED_CURRENCY
+    CreateTransportCostDto:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+            - flight
+            - train
+            - bus
+            - car
+            - ferry
+            - other
+          example: train
+        fromCity:
+          type: string
+          example: london
+          description: Seeded city id
+        toCity:
+          type: string
+          example: paris
+          description: Seeded city id
+        amount:
+          type: number
+          example: 120
+          minimum: 0
+          description: Amount in `currency`, at most 2 decimals. Stored as Decimal128 and returned as a string.
+        currency:
+          type: string
+          example: GBP
+          description: A seeded currency
+        dayId:
+          type: string
+          description: The day of the itinerary this travel belongs to
+      required:
+        - mode
+        - fromCity
+        - toCity
+        - amount
+        - currency
+        - dayId
+    TransportCostResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60740
+        mode:
+          type: string
+          example: train
+        fromCity:
+          type: string
+          example: london
+        toCity:
+          type: string
+          example: paris
+        amount:
+          type: string
+          example: '120.00'
+          description: Decimal string with 2 decimals, in `currency`
+        currency:
+          type: string
+          example: GBP
+        dayId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+      required:
+        - id
+        - mode
+        - fromCity
+        - toCity
+        - amount
+        - currency
+        - dayId
+    UpdateTransportCostDto:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+            - flight
+            - train
+            - bus
+            - car
+            - ferry
+            - other
+          example: train
+        fromCity:
+          type: string
+          example: london
+          description: Seeded city id
+        toCity:
+          type: string
+          example: paris
+          description: Seeded city id
+        amount:
+          type: number
+          example: 120
+          minimum: 0
+          description: Amount in `currency`, at most 2 decimals. Stored as Decimal128 and returned as a string.
+        currency:
+          type: string
+          example: GBP
+          description: A seeded currency
+        dayId:
+          type: string
+          description: The day of the itinerary this travel belongs to
+    BudgetByCategoryDto:
+      type: object
+      properties:
+        food:
+          type: string
+          example: '100.00'
+        accommodation:
+          type: string
+          example: '100.00'
+        local_transport:
+          type: string
+          example: '0.00'
+        activities:
+          type: string
+          example: '50.00'
+          description: Includes activity costs
+        intercity_transport:
+          type: string
+          example: '100.00'
+          description: Intercity transport, kept separate from local transport (ITN-16)
+      required:
+        - food
+        - accommodation
+        - local_transport
+        - activities
+        - intercity_transport
+    BudgetDayDto:
+      type: object
+      properties:
+        dayId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+        dayNumber:
+          type: number
+          example: 1
+        date:
+          type: string
+          example: '2026-12-20'
+        city:
+          type: string
+          example: paris
+        total:
+          type: string
+          example: '250.00'
+        byCategory:
+          $ref: '#/components/schemas/BudgetByCategoryDto'
+      required:
+        - dayId
+        - dayNumber
+        - date
+        - city
+        - total
+        - byCategory
+    BudgetCityGroupDto:
+      type: object
+      properties:
+        city:
+          type: string
+          example: paris
+        fromDay:
+          type: number
+          example: 1
+        toDay:
+          type: number
+          example: 2
+        dayCount:
+          type: number
+          example: 2
+        total:
+          type: string
+          example: '350.00'
+      required:
+        - city
+        - fromDay
+        - toDay
+        - dayCount
+        - total
+    BudgetSummaryDto:
+      type: object
+      properties:
+        currency:
+          type: string
+          example: USD
+          description: The display currency asked for
+        total:
+          type: string
+          example: '350.00'
+        byCategory:
+          $ref: '#/components/schemas/BudgetByCategoryDto'
+        byDay:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetDayDto'
+        byCityGroup:
+          type: array
+          items:
+            $ref: '#/components/schemas/BudgetCityGroupDto'
+        rateDate:
+          type: string
+          example: '2026-11-18'
+          description: Date of the exchange rates used
+        ratesStale:
+          type: boolean
+          example: false
+          description: true when FXRatesAPI was unreachable and the last cached rates were used
+      required:
+        - currency
+        - total
+        - byCategory
+        - byDay
+        - byCityGroup
+        - rateDate
+        - ratesStale
+    PublicItinerarySummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Summer in Europe
+        countries:
+          example:
+            - FR
+            - GB
+          type: array
+          items:
+            type: string
+        startDate:
+          type: string
+          example: '2026-12-20'
+        dayCount:
+          type: number
+          example: 5
+        visibility:
+          type: string
+          enum:
+            - private
+            - public
+        updatedAt:
+          format: date-time
+          type: string
+        authorId:
+          type: string
+          example: 64b7f0c2a1b2c3d4e5f60718
+        cities:
+          example:
+            - london
+            - paris
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - title
+        - countries
+        - startDate
+        - dayCount
+        - visibility
+        - updatedAt
+        - authorId
+        - cities
+    ExchangeRatesResponseDto:
+      type: object
+      properties:
+        base:
+          type: string
+          example: USD
+        rates:
+          type: object
+          example:
+            USD: 1
+            EUR: 0.92
+            EGP: 48.5
+          description: Units of each currency per 1 USD
+        rateDate:
+          type: string
+          example: '2026-11-05'
+          description: Date of these rates
+        stale:
+          type: boolean
+          example: false
+          description: true if FXRatesAPI was unreachable and older rates are shown
+      required:
+        - base
+        - rates
+        - rateDate
+        - stale

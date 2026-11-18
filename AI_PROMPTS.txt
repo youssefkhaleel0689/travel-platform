@@ -917,6 +917,33 @@ Before any code I decided the approach: a code-first export generated from the d
 Date: 2026-11-19
 Student: Marawan Elgendy
 Tool: Claude Code
+Related Requirement: FLT-06
+Prompt:
+Build the airline's flight cancellation: POST /api/flights/:id/cancel for the airline moderator, with an explicit confirmation. A SCHEDULED flight of the moderator's airline that has not departed becomes CANCELLED; every CONFIRMED booking on it is cancelled with a 100% refund and its booked seats go back, a round trip as a whole; unpaid holds are released; the passengers are notified; an audit entry is written if a shared audit service exists. Seat counters must only change through Khaled's SeatInventoryService, and none of his files may be edited.
+How the output was used:
+Khaled was busy and told me to go ahead, so the cancel logic lives in my own service and calls only SeatInventoryService.releaseBooked and releaseHeld. I read the schema, the hold-expiry job and my FLT-26 cancellation before accepting the design. Decisions I made: the endpoint needs {"confirm": true} because it cancels many bookings at once; the flight, every booking and every seat release happen in one transaction, and a booking a user cancelled a moment earlier is skipped so seats are never returned twice; refunds are requested after the commit as PROVIDER at 100%, and a failed refund never undoes the cancellation (the response counts refundsFailed); a round trip is cancelled whole and the seats of its other flight go back too. Claude found that there is no shared audit service in the codebase (GEN-07), so I did not invent one: the cancellation is only written to the application log, marked with a TODO, and I will ask the team leader for the service. I ran build, lint (no new warnings), the unit tests (80 suites, 1309 tests) and the fake-service e2e tests (5 suites, 43 tests) myself. Not tested yet on Atlas or in Swagger: the transaction, the real refunds and the notices need a flight with CONFIRMED bookings that have payments.
+================================================
+Date: 2026-11-19
+Student: Youssef Khaleel
+Tool: Claude (chat with access to the repository)
+Related Requirement: ITN-01, ITN-03, ITN-05, ITN-07, ITN-08, ITN-10, ITN-14, ITN-16, ITN-18, ITN-20, ITN-21 (with ACC-11, GEN-02, GEN-12, PAY-04 conventions)
+Prompt:
+Review and finish Abdelrahman's itineraries PR #45 before the deadline: merge develop into the branch, replace the temporary x-dev-user-id login with the shared auth and ownership, use ReferenceDataService instead of the hard-coded mock data, fix the schema id types, store money as Decimal128, document every error with ApiErrorResponse, and add an e2e test.
+How the output was used:
+I decided to finish the branch myself because of the deadline. The review showed the branch started before PR #12, so the header login let anyone act as any user and the module did not use the shared guards; I chose to remove it completely rather than keep it outside production. I kept Abdelrahman's design (embedded days, derived day numbers and dates, the daily FXRatesAPI cache with a stale fallback) and asked only for the integration fixes: identity from @CurrentUser, @Public on the guest routes, the same 404 for a malformed, missing or foreign id, the owner renamed to userId with SchemaTypes.ObjectId, references checked through ReferenceDataService (two small read methods added there), and amounts as Decimal128 added with Decimal. Verified: tsc --noEmit, build and lint clean, unit tests 85 suites / 1326 passed; the new itineraries e2e test is run on my machine because it needs the database.
+================================================
+Date: 2026-11-19
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-05
+Prompt:
+Edit a flight as an airline moderator: change the departure and arrival times (entered in each airport's local time, stored in UTC), cabin prices and cabin seat counts of my own SCHEDULED flights. Airports cannot change once the flight has a booking, a seat count cannot go below the seats already booked or held, price changes must not affect existing bookings, and a time change must notify the passengers with CONFIRMED bookings. Use Option 2: PATCH /api/flights/:id for times and airports, and add totalSeats to the existing cabin PATCH. Seat counts must use a conditional update and never write bookedSeats or heldSeats.
+How the output was used:
+I chose Option 2 (times and airports on PATCH /api/flights/:id, seat count on the existing cabin PATCH) because it reuses the cabin code from FLT-04 and keeps the change small, and Khaled agreed that the seat count is a conditional update in my service, since SeatInventoryService has no method for it. I reviewed the generated code against FLT-05 and the schema: the seat rule (bookedSeats + heldSeats <= the new total) and the airport rule (no seat booked or held) are part of each update's filter, so a hold made at the same moment cannot slip past them; the counters are never written; departureDateKey is recomputed with the GEN-06 helper; an airport change must come with its local time. I decided that only a time change notifies (FLIGHT_SCHEDULE_CHANGED, one notice per CONFIRMED booking, through the shared NotificationsService) and that existing bookings keep their own snapshot. I ran tsc, lint (no warnings in the flights files), all unit tests (72 suites, 1213 tests) and the fake-service e2e tests (6 suites, 69 tests) on my machine. I did not test against Atlas or Swagger yet, so the time-change notification and the seat conflicts still need a check with a moderator account and a CONFIRMED booking once the booking code from Khaled is merged. Cancelling a flight (FLT-06) is left for a later PR.
+================================================
+Date: 2026-11-19
+Student: Marawan Elgendy
+Tool: Claude Code
 Related Requirement: FLT-25, FLT-26
 Prompt:
 Build my flight bookings for the registered user and the user cancellation: GET /api/flight-bookings grouped as upcoming, past and cancelled with 10 per page, a refund preview before cancelling, and POST /api/flight-bookings/:id/cancel that cancels a CONFIRMED booking before departure using the refund tier of the booking's own policy snapshot, gives the booked seats back through Khaled's SeatInventoryService in the same transaction, and requests the refund through the payments module. Do not change any of Khaled's files.
