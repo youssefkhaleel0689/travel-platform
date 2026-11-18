@@ -7,9 +7,9 @@ const days = [
   {
     id: 'd1',
     city: 'paris',
-    budgetEntries: [{ category: 'food', amount: 90, currency: 'EUR' }],
+    budgetEntries: [{ category: 'food', amount: '90.00', currency: 'EUR' }],
     activities: [
-      { cost: 45, currency: 'EUR' },
+      { cost: '45.00', currency: 'EUR' },
       { cost: null, currency: null },
     ],
   },
@@ -17,13 +17,13 @@ const days = [
     id: 'd2',
     city: 'paris',
     budgetEntries: [
-      { category: 'accommodation', amount: 100, currency: 'USD' },
+      { category: 'accommodation', amount: '100.00', currency: 'USD' },
     ],
     activities: [],
   },
   { id: 'd3', city: 'london', budgetEntries: [], activities: [] },
 ];
-const transportCosts = [{ amount: 80, currency: 'GBP', dayId: 'd1' }];
+const transportCosts = [{ amount: '80.00', currency: 'GBP', dayId: 'd1' }];
 
 describe('computeBudgetSummary', () => {
   it('converts every item and totals by category, day and city group', () => {
@@ -34,19 +34,19 @@ describe('computeBudgetSummary', () => {
       currency: 'USD',
       rates,
     });
-    expect(s.total).toBe(350);
+    expect(s.total).toBe('350.00');
     expect(s.byCategory).toEqual({
-      food: 100,
-      accommodation: 100,
-      local_transport: 0,
-      activities: 50, // activity costs count under "activities"
-      intercity_transport: 100, // kept separate from local transport
+      food: '100.00',
+      accommodation: '100.00',
+      local_transport: '0.00',
+      activities: '50.00', // activity costs count under "activities"
+      intercity_transport: '100.00', // kept separate from local transport
     });
-    expect(s.byDay.map((d) => d.total)).toEqual([250, 100, 0]);
+    expect(s.byDay.map((d) => d.total)).toEqual(['250.00', '100.00', '0.00']);
     expect(s.byDay[0]).toMatchObject({ dayNumber: 1, date: '2026-12-20' });
     expect(s.byCityGroup).toEqual([
-      { city: 'paris', fromDay: 1, toDay: 2, dayCount: 2, total: 350 },
-      { city: 'london', fromDay: 3, toDay: 3, dayCount: 1, total: 0 },
+      { city: 'paris', fromDay: 1, toDay: 2, dayCount: 2, total: '350.00' },
+      { city: 'london', fromDay: 3, toDay: 3, dayCount: 1, total: '0.00' },
     ]);
   });
 
@@ -59,7 +59,7 @@ describe('computeBudgetSummary', () => {
       rates,
     });
     expect(s.currency).toBe('EGP');
-    expect(s.total).toBe(17500);
+    expect(s.total).toBe('17500.00');
   });
 
   it('handles an empty itinerary', () => {
@@ -70,7 +70,7 @@ describe('computeBudgetSummary', () => {
       currency: 'USD',
       rates,
     });
-    expect(s.total).toBe(0);
+    expect(s.total).toBe('0.00');
     expect(s.byDay).toEqual([]);
     expect(s.byCityGroup).toEqual([]);
   });
@@ -78,12 +78,12 @@ describe('computeBudgetSummary', () => {
   it('ignores a transport cost whose day no longer exists', () => {
     const s = computeBudgetSummary({
       days,
-      transportCosts: [{ amount: 999, currency: 'USD', dayId: 'gone' }],
+      transportCosts: [{ amount: '999.00', currency: 'USD', dayId: 'gone' }],
       startDate,
       currency: 'USD',
       rates,
     });
-    expect(s.byCategory.intercity_transport).toBe(0);
+    expect(s.byCategory.intercity_transport).toBe('0.00');
   });
 
   it('rounds to 2 decimals', () => {
@@ -92,7 +92,9 @@ describe('computeBudgetSummary', () => {
         {
           id: 'd1',
           city: 'paris',
-          budgetEntries: [{ category: 'food', amount: 10, currency: 'EUR' }],
+          budgetEntries: [
+            { category: 'food', amount: '10.00', currency: 'EUR' },
+          ],
           activities: [],
         },
       ],
@@ -101,6 +103,6 @@ describe('computeBudgetSummary', () => {
       currency: 'USD',
       rates,
     });
-    expect(s.total).toBe(11.11); // 10 / 0.9
+    expect(s.total).toBe('11.11'); // 10 / 0.9
   });
 });

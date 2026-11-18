@@ -1,63 +1,78 @@
 import {
-  BadRequestException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { ownerFilter } from '../common/auth/ownership';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { paginateQuery } from '../common/pagination/paginate';
+import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { CreateItineraryDto } from './dto/create-itinerary.dto';
 import { UpdateItineraryDto } from './dto/update-itinerary.dto';
 import { SetVisibilityDto } from './dto/set-visibility.dto';
 import { Itinerary, ItineraryDocument } from './schemas/itinerary.schema';
 import { toItinerarySummary, toItineraryView } from './itinerary.view';
 
+const OBJECT_ID = /^[0-9a-f]{24}$/i;
+
+export const ITINERARY_NOT_FOUND = {
+  code: 'ITINERARY_NOT_FOUND',
+  message: 'Itinerary not found',
+} as const;
+
 @Injectable()
 export class ItinerariesService {
   constructor(
     @InjectModel(Itinerary.name)
     private readonly itineraryModel: Model<Itinerary>,
+    private readonly referenceData: ReferenceDataService,
   ) {}
 
-  toObjectId(id: string, what: string): Types.ObjectId {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new BadRequestException({
-        code: 'INVALID_VALUE',
-        message: `Invalid ${what}`,
+  /** True for a 24-hex id; anything else can never match a document. */
+  isObjectId(id: string): boolean {
+    return OBJECT_ID.test(id);
+  }
+
+  userObjectId(user: AuthenticatedUser): Types.ObjectId {
+    if (!this.isObjectId(user.userId)) {
+      throw new UnauthorizedException({
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
       });
     }
-    return new Types.ObjectId(id);
+    return new Types.ObjectId(user.userId);
   }
 
-  userObjectId(userId: string): Types.ObjectId {
-    if (!Types.ObjectId.isValid(userId)) {
-      throw new UnauthorizedException('Not authenticated');
-    }
-    return new Types.ObjectId(userId);
-  }
-
-  // Ownership check (backend-side, never only in the frontend).
-  // Someone else's itinerary is reported as 404 so its existence is not leaked.
+  /**
+   * Ownership check (ACC-11), always in the database filter. A malformed id, a
+   * missing itinerary and someone else's itinerary all give the same 404, so ids
+   * cannot be probed. Returns a hydrated document because the callers edit and
+   * save its embedded days.
+   */
   async findOwnedOrThrow(
-    userId: string,
+    user: AuthenticatedUser,
     itineraryId: string,
   ): Promise<ItineraryDocument> {
-    const doc = await this.itineraryModel.findOne({
-      _id: this.toObjectId(itineraryId, 'itinerary id'),
-      owner: this.userObjectId(userId),
-    });
+    if (!this.isObjectId(itineraryId)) {
+      throw new NotFoundException(ITINERARY_NOT_FOUND);
+    }
+    const doc = await this.itineraryModel
+      .findOne({ _id: itineraryId, ...ownerFilter(user) })
+      .exec();
     if (!doc) {
-      throw new NotFoundException('Itinerary not found');
+      throw new NotFoundException(ITINERARY_NOT_FOUND);
     }
     return doc;
   }
 
   // ITN-01
-  async create(userId: string, dto: CreateItineraryDto) {
+  async create(user: AuthenticatedUser, dto: CreateItineraryDto) {
+    await this.referenceData.assertCountriesExist(dto.countries);
     const doc = await this.itineraryModel.create({
-      owner: this.userObjectId(userId),
+      userId: this.userObjectId(user),
       title: dto.title,
       countries: dto.countries,
       startDate: new Date(dto.startDate),
@@ -66,40 +81,47 @@ export class ItinerariesService {
   }
 
   // ITN-03: most recently updated first; uses the team pagination helper (GEN-05)
-  async list(userId: string, page: number) {
-    const result = await paginateQuery(
-      this.itineraryModel,
-      { owner: this.userObjectId(userId) },
-      { page, sort: { updatedAt: -1 } },
-    );
+  async list(user: AuthenticatedUser, page: number) {
+    const result = await paginateQuery(this.itineraryModel, ownerFilter(user), {
+      page,
+      sort: { updatedAt: -1 },
+    });
     return new PageDto(result.items.map(toItinerarySummary), result.meta);
   }
 
   // ITN-03
-  async findOne(userId: string, id: string) {
-    return toItineraryView(await this.findOwnedOrThrow(userId, id));
+  async findOne(user: AuthenticatedUser, id: string) {
+    return toItineraryView(await this.findOwnedOrThrow(user, id));
   }
 
-  // ITN-01 (edit)
-  async update(userId: string, id: string, dto: UpdateItineraryDto) {
-    const doc = await this.findOwnedOrThrow(userId, id);
+  // ITN-01 (edit), ITN-20 (visibility can be changed here too)
+  async update(user: AuthenticatedUser, id: string, dto: UpdateItineraryDto) {
+    const doc = await this.findOwnedOrThrow(user, id);
+    if (dto.countries !== undefined) {
+      await this.referenceData.assertCountriesExist(dto.countries);
+    }
     if (dto.title !== undefined) doc.title = dto.title;
     if (dto.countries !== undefined) doc.countries = dto.countries;
     if (dto.startDate !== undefined) doc.startDate = new Date(dto.startDate);
+    if (dto.visibility !== undefined) doc.visibility = dto.visibility;
     await doc.save();
     return toItineraryView(doc);
   }
 
   // ITN-01 (delete). Clones made by others are separate documents,
   // so they stay untouched.
-  async remove(userId: string, id: string): Promise<void> {
-    const doc = await this.findOwnedOrThrow(userId, id);
+  async remove(user: AuthenticatedUser, id: string): Promise<void> {
+    const doc = await this.findOwnedOrThrow(user, id);
     await doc.deleteOne();
   }
 
   // ITN-20
-  async setVisibility(userId: string, id: string, dto: SetVisibilityDto) {
-    const doc = await this.findOwnedOrThrow(userId, id);
+  async setVisibility(
+    user: AuthenticatedUser,
+    id: string,
+    dto: SetVisibilityDto,
+  ) {
+    const doc = await this.findOwnedOrThrow(user, id);
     doc.visibility = dto.visibility;
     await doc.save();
     return toItineraryView(doc);

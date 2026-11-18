@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { ActivitiesController } from './activities.controller';
 import { ActivitiesService } from './activities.service';
@@ -21,6 +22,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
       { name: Itinerary.name, schema: ItinerarySchema },
     ]),
     ExchangeRatesModule,
+    ReferenceDataModule,
   ],
   controllers: [
     ItinerariesController,

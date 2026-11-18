@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { ExchangeRatesController } from './exchange-rates.controller';
 import { ExchangeRatesService } from './exchange-rates.service';
 import {
@@ -12,6 +13,7 @@ import {
     MongooseModule.forFeature([
       { name: ExchangeRateSnapshot.name, schema: ExchangeRateSnapshotSchema },
     ]),
+    ReferenceDataModule,
   ],
   controllers: [ExchangeRatesController],
   providers: [ExchangeRatesService],

@@ -8,12 +8,13 @@ import {
 } from './schemas/itinerary.schema';
 
 const oid = () => new Types.ObjectId();
+const money = (amount: string) => Types.Decimal128.fromString(amount);
 
 function source(): Itinerary {
   const dayId = oid();
   return {
     _id: oid(),
-    owner: oid(),
+    userId: oid(),
     title: 'Trip',
     countries: ['FR'],
     startDate: new Date('2026-12-20'),
@@ -24,13 +25,13 @@ function source(): Itinerary {
         city: 'paris',
         notes: 'n',
         activities: [
-          { _id: oid(), name: 'A', cost: 5, currency: 'EUR' },
+          { _id: oid(), name: 'A', cost: money('5.00'), currency: 'EUR' },
         ] as Itinerary['days'][number]['activities'],
         budgetEntries: [
           {
             _id: oid(),
             category: BudgetCategory.FOOD,
-            amount: 9,
+            amount: money('9.00'),
             currency: 'EUR',
           },
         ],
@@ -42,7 +43,7 @@ function source(): Itinerary {
         mode: TransportMode.TRAIN,
         fromCity: 'london',
         toCity: 'paris',
-        amount: 80,
+        amount: money('80.00'),
         currency: 'GBP',
         dayId,
       },
@@ -57,11 +58,11 @@ describe('buildCloneData', () => {
     const src = source();
     const me = oid();
     const copy = buildCloneData(src, me);
-    expect(copy.owner).toBe(me);
+    expect(copy.userId).toBe(me);
     expect(copy.visibility).toBe(Visibility.PRIVATE);
     expect(copy.clonedFrom).toEqual({
       itineraryId: src._id,
-      authorId: src.owner,
+      authorId: src.userId,
     });
     expect(copy.title).toBe('Trip');
   });
@@ -72,7 +73,7 @@ describe('buildCloneData', () => {
     expect(copy.days[0]._id.equals(src.days[0]._id)).toBe(false);
     expect(copy.transportCosts[0].dayId.equals(copy.days[0]._id)).toBe(true);
     expect(copy.days[0].activities[0]).not.toHaveProperty('_id');
-    expect(copy.days[0].budgetEntries[0]).toMatchObject({ amount: 9 });
+    expect(copy.days[0].budgetEntries[0].amount.toString()).toBe('9.00');
   });
 
   it('does not share arrays with the original', () => {

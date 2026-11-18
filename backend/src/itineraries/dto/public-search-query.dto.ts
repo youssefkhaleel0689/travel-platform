@@ -1,17 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
-import { CITY_IDS, COUNTRY_CODES } from '../reference/reference-data';
+import {
+  COUNTRY_CODE,
+  SLUG_ID,
+} from '../../common/reference-data/reference-data.patterns';
 import { MAX_DAYS } from '../itinerary-days.logic';
 
 export class PublicSearchQueryDto extends PaginationQueryDto {
@@ -33,7 +36,7 @@ export class PublicSearchQueryDto extends PaginationQueryDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
-  @IsIn(COUNTRY_CODES)
+  @Matches(COUNTRY_CODE, { message: 'country must be a 2-letter country code' })
   country?: string;
 
   @ApiPropertyOptional({ example: 'paris', description: 'City id' })
@@ -41,7 +44,7 @@ export class PublicSearchQueryDto extends PaginationQueryDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
-  @IsIn(CITY_IDS)
+  @Matches(SLUG_ID, { message: 'city must be a city id such as paris' })
   city?: string;
 
   @ApiPropertyOptional({ example: 3, minimum: 0, maximum: MAX_DAYS })

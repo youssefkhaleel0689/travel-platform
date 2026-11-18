@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { convertAmount } from './convert';
 import { ExchangeRatesService } from './exchange-rates.service';
 import { ExchangeRateSnapshot } from './schemas/exchange-rate-snapshot.schema';
+import type { ReferenceDataService } from '../common/reference-data/reference-data.service';
 
 const RATES = {
   USD: 1,
@@ -27,7 +28,13 @@ function setup(
   const config = {
     get: jest.fn((key: string) => env[key]),
   } as unknown as ConfigService;
-  return { service: new ExchangeRatesService(model, config), updateOne };
+  const referenceData = {
+    listCurrencyCodes: jest.fn().mockResolvedValue(Object.keys(RATES).sort()),
+  } as unknown as ReferenceDataService;
+  return {
+    service: new ExchangeRatesService(model, config, referenceData),
+    updateOne,
+  };
 }
 
 function mockFetch(impl: () => Promise<Partial<Response>>) {
@@ -170,13 +177,15 @@ describe('ExchangeRatesService', () => {
 
 describe('convertAmount', () => {
   it('converts through USD and returns the same amount for the same currency', () => {
-    expect(convertAmount(90, 'EUR', 'USD', RATES)).toBeCloseTo(100);
-    expect(convertAmount(100, 'USD', 'EGP', RATES)).toBe(5000);
-    expect(convertAmount(80, 'GBP', 'EUR', RATES)).toBeCloseTo(90);
-    expect(convertAmount(7, 'EGP', 'EGP', RATES)).toBe(7);
+    expect(convertAmount('90', 'EUR', 'USD', RATES).toFixed(2)).toBe('100.00');
+    expect(convertAmount('100', 'USD', 'EGP', RATES).toFixed(2)).toBe(
+      '5000.00',
+    );
+    expect(convertAmount('80', 'GBP', 'EUR', RATES).toFixed(2)).toBe('90.00');
+    expect(convertAmount('7', 'EGP', 'EGP', RATES).toFixed(2)).toBe('7.00');
   });
 
   it('throws for a currency without a rate', () => {
-    expect(() => convertAmount(1, 'XYZ', 'USD', RATES)).toThrow();
+    expect(() => convertAmount('1', 'XYZ', 'USD', RATES)).toThrow();
   });
 });

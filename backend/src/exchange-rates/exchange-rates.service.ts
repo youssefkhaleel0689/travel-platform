@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { SUPPORTED_CURRENCIES } from '../itineraries/reference/reference-data';
+import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { ExchangeRateSnapshot } from './schemas/exchange-rate-snapshot.schema';
 
 const BASE = 'USD';
@@ -32,6 +32,7 @@ export class ExchangeRatesService {
     @InjectModel(ExchangeRateSnapshot.name)
     private readonly model: Model<ExchangeRateSnapshot>,
     private readonly config: ConfigService,
+    private readonly referenceData: ReferenceDataService,
   ) {}
 
   // 1. rates already fetched today -> use them (no API call)
@@ -71,11 +72,13 @@ export class ExchangeRatesService {
   }
 
   private async fetchAndStore(): Promise<RatesResult> {
+    // Supported currencies = the seeded currency codes from Countries.csv (5.1, ITN-18).
+    const currencies = await this.referenceData.listCurrencyCodes();
     // `||` (not `??`): an empty "FXRATES_API_URL=" line in .env must use the default.
     const url = new URL(
       this.config.get<string>('FXRATES_API_URL') || DEFAULT_URL,
     );
-    url.searchParams.set('currencies', SUPPORTED_CURRENCIES.join(','));
+    url.searchParams.set('currencies', currencies.join(','));
     // The key stays on the server: it is sent as a header, never to the frontend.
     const apiKey = this.config.get<string>('FXRATES_API_KEY');
 
@@ -97,7 +100,7 @@ export class ExchangeRatesService {
     }
 
     const rates: Record<string, number> = {};
-    for (const code of SUPPORTED_CURRENCIES) {
+    for (const code of currencies) {
       const value = code === BASE ? 1 : body.rates[code];
       if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
         throw new Error(`FXRatesAPI returned no usable rate for ${code}`);

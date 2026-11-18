@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { CreateDayDto, ReorderDaysDto, UpdateDayDto } from './dto/day.dto';
 import { ItinerariesService } from './itineraries.service';
 import { MAX_DAYS, moveItem } from './itinerary-days.logic';
@@ -8,11 +10,15 @@ import { ItineraryDay } from './schemas/itinerary.schema';
 
 @Injectable()
 export class DaysService {
-  constructor(private readonly itineraries: ItinerariesService) {}
+  constructor(
+    private readonly itineraries: ItinerariesService,
+    private readonly referenceData: ReferenceDataService,
+  ) {}
 
   // ITN-05: a new day goes at the end; its number and date follow from that.
-  async addDay(userId: string, id: string, dto: CreateDayDto) {
-    const doc = await this.itineraries.findOwnedOrThrow(userId, id);
+  async addDay(user: AuthenticatedUser, id: string, dto: CreateDayDto) {
+    const doc = await this.itineraries.findOwnedOrThrow(user, id);
+    await this.referenceData.assertCityExists(dto.city);
     if (doc.days.length >= MAX_DAYS) {
       throw new BadRequestException({
         code: 'MAX_DAYS_REACHED',
@@ -30,14 +36,17 @@ export class DaysService {
   }
 
   async updateDay(
-    userId: string,
+    user: AuthenticatedUser,
     id: string,
     dayId: string,
     dto: UpdateDayDto,
   ) {
-    const doc = await this.itineraries.findOwnedOrThrow(userId, id);
+    const doc = await this.itineraries.findOwnedOrThrow(user, id);
     const day = findDayOrThrow(doc, dayId);
-    if (dto.city !== undefined) day.city = dto.city;
+    if (dto.city !== undefined) {
+      await this.referenceData.assertCityExists(dto.city);
+      day.city = dto.city;
+    }
     if (dto.notes !== undefined) day.notes = dto.notes;
     await doc.save();
     return toItineraryView(doc);
@@ -45,8 +54,8 @@ export class DaysService {
 
   // ITN-07: later days move up one number and one date automatically, and the
   // day's activities, budget entries and transport costs go with it.
-  async deleteDay(userId: string, id: string, dayId: string) {
-    const doc = await this.itineraries.findOwnedOrThrow(userId, id);
+  async deleteDay(user: AuthenticatedUser, id: string, dayId: string) {
+    const doc = await this.itineraries.findOwnedOrThrow(user, id);
     const dayOid = findDayOrThrow(doc, dayId)._id;
     const plain = doc.toObject();
     doc.set(
@@ -63,8 +72,8 @@ export class DaysService {
 
   // ITN-08: numbers, dates, city groups and budgets are all derived from the
   // order, so they stay consistent without extra work.
-  async reorderDays(userId: string, id: string, dto: ReorderDaysDto) {
-    const doc = await this.itineraries.findOwnedOrThrow(userId, id);
+  async reorderDays(user: AuthenticatedUser, id: string, dto: ReorderDaysDto) {
+    const doc = await this.itineraries.findOwnedOrThrow(user, id);
     const dayOid = findDayOrThrow(doc, dto.dayId)._id;
     if (dto.position > doc.days.length) {
       throw new BadRequestException({

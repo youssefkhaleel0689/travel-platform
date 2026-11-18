@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 export enum Visibility {
   PRIVATE = 'private',
@@ -36,8 +36,9 @@ export class Activity {
   @Prop()
   time?: string;
 
-  @Prop({ min: 0 })
-  cost?: number;
+  // Money: Decimal128 in the database, a string in the API (PAY-04 convention).
+  @Prop({ type: SchemaTypes.Decimal128 })
+  cost?: Types.Decimal128;
 
   @Prop({ uppercase: true, length: 3 })
   currency?: string;
@@ -51,8 +52,8 @@ export class BudgetEntry {
   @Prop({ required: true, enum: Object.values(BudgetCategory) })
   category: BudgetCategory;
 
-  @Prop({ required: true, min: 0 })
-  amount: number;
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
+  amount: Types.Decimal128;
 
   @Prop({ required: true, uppercase: true, length: 3 })
   currency: string;
@@ -93,23 +94,23 @@ export class TransportCost {
   @Prop({ required: true })
   toCity: string;
 
-  @Prop({ required: true, min: 0 })
-  amount: number;
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
+  amount: Types.Decimal128;
 
   @Prop({ required: true, uppercase: true, length: 3 })
   currency: string;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   dayId: Types.ObjectId;
 }
 export const TransportCostSchema = SchemaFactory.createForClass(TransportCost);
 
 @Schema({ _id: false })
 export class ClonedFrom {
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Itinerary', required: true })
   itineraryId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   authorId: Types.ObjectId;
 }
 export const ClonedFromSchema = SchemaFactory.createForClass(ClonedFrom);
@@ -118,8 +119,9 @@ export const ClonedFromSchema = SchemaFactory.createForClass(ClonedFrom);
 export class Itinerary {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, index: true })
-  owner: Types.ObjectId;
+  // The owner (ACC-11): named userId like every other owner reference.
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
 
   @Prop({ required: true, trim: true, maxlength: 100 })
   title: string;
@@ -153,4 +155,4 @@ export class Itinerary {
 
 export type ItineraryDocument = HydratedDocument<Itinerary>;
 export const ItinerarySchema = SchemaFactory.createForClass(Itinerary);
-ItinerarySchema.index({ owner: 1, updatedAt: -1 });
+ItinerarySchema.index({ userId: 1, updatedAt: -1 });

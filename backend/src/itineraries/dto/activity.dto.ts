@@ -1,17 +1,18 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
-  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { SUPPORTED_CURRENCIES } from '../reference/reference-data';
+import { CURRENCY_CODE } from '../../common/reference-data/reference-data.patterns';
+import { MAX_ITINERARY_AMOUNT } from './money-limits';
 
 export class CreateActivityDto {
   @ApiProperty({ example: 'Eiffel Tower visit', maxLength: 100 })
@@ -34,15 +35,25 @@ export class CreateActivityDto {
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'time must be HH:mm' })
   time?: string;
 
-  @ApiPropertyOptional({ example: 25.5, minimum: 0 })
+  @ApiPropertyOptional({
+    example: 25.5,
+    minimum: 0,
+    description: 'At most 2 decimals; returned as a string such as "25.50"',
+  })
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
   @Min(0)
+  @Max(MAX_ITINERARY_AMOUNT)
   cost?: number;
 
   @ApiPropertyOptional({ example: 'EUR', description: 'Required with cost' })
   @ValidateIf((o: CreateActivityDto) => o.cost !== undefined)
-  @IsIn(SUPPORTED_CURRENCIES)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @Matches(CURRENCY_CODE, {
+    message: 'currency must be a 3-letter currency code',
+  })
   currency?: string;
 }
 

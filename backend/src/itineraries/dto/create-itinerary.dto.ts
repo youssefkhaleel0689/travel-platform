@@ -5,13 +5,13 @@ import {
   ArrayUnique,
   IsArray,
   IsDateString,
-  IsIn,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { COUNTRY_CODES } from '../reference/reference-data';
+import { COUNTRY_CODE } from '../../common/reference-data/reference-data.patterns';
 
 export class CreateItineraryDto {
   @ApiProperty({ example: 'Summer in Europe', maxLength: 100 })
@@ -25,13 +25,22 @@ export class CreateItineraryDto {
 
   @ApiProperty({
     example: ['FR', 'GB'],
-    description: 'Country codes from the predefined country list',
+    description:
+      'Country codes from the seeded country list (GET /api/countries); unknown codes give 400 UNKNOWN_COUNTRY',
   })
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(20)
   @ArrayUnique()
-  @IsIn(COUNTRY_CODES, { each: true })
+  @Transform(({ value }: { value: unknown }) =>
+    Array.isArray(value)
+      ? value.map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : v))
+      : value,
+  )
+  @Matches(COUNTRY_CODE, {
+    each: true,
+    message: 'each country must be a 2-letter country code',
+  })
   countries: string[];
 
   @ApiProperty({ example: '2026-12-20', description: 'ISO date (YYYY-MM-DD)' })

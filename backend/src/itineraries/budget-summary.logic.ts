@@ -1,7 +1,10 @@
+import Decimal from 'decimal.js';
 import { convertAmount } from '../exchange-rates/convert';
 import { dateOfDay, groupConsecutiveDays } from './itinerary-days.logic';
 
 // Pure calculation (no database, no network) so it can be unit tested.
+// Money is added as Decimal and shown as a string with 2 decimals (half up),
+// never as a JavaScript float, like every other amount in the API.
 
 export const SUMMARY_CATEGORIES = [
   'food',
@@ -11,37 +14,40 @@ export const SUMMARY_CATEGORIES = [
   'intercity_transport', // kept separate from local transport (ITN-14, ITN-16)
 ] as const;
 export type SummaryCategory = (typeof SUMMARY_CATEGORIES)[number];
-type Totals = Record<SummaryCategory, number>;
+type Totals = Record<SummaryCategory, Decimal>;
+export type ShownTotals = Record<SummaryCategory, string>;
 
 export interface SummaryDayInput {
   id: string;
   city: string;
-  budgetEntries: { category: string; amount: number; currency: string }[];
-  activities: { cost?: number | null; currency?: string | null }[];
+  budgetEntries: { category: string; amount: string; currency: string }[];
+  activities: { cost?: string | null; currency?: string | null }[];
 }
 
 export interface SummaryTransportInput {
-  amount: number;
+  amount: string;
   currency: string;
   dayId: string;
 }
 
 const emptyTotals = (): Totals => ({
-  food: 0,
-  accommodation: 0,
-  local_transport: 0,
-  activities: 0,
-  intercity_transport: 0,
+  food: new Decimal(0),
+  accommodation: new Decimal(0),
+  local_transport: new Decimal(0),
+  activities: new Decimal(0),
+  intercity_transport: new Decimal(0),
 });
 
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const show = (value: Decimal): string =>
+  value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
 
-const roundTotals = (t: Totals): Totals =>
+const showTotals = (t: Totals): ShownTotals =>
   Object.fromEntries(
-    SUMMARY_CATEGORIES.map((c) => [c, round2(t[c])]),
-  ) as Totals;
+    SUMMARY_CATEGORIES.map((c) => [c, show(t[c])]),
+  ) as ShownTotals;
 
-const sum = (t: Totals) => SUMMARY_CATEGORIES.reduce((s, c) => s + t[c], 0);
+const sum = (t: Totals): Decimal =>
+  SUMMARY_CATEGORIES.reduce((s, c) => s.plus(t[c]), new Decimal(0));
 
 export function computeBudgetSummary(input: {
   days: SummaryDayInput[];
@@ -51,7 +57,7 @@ export function computeBudgetSummary(input: {
   rates: Record<string, number>;
 }) {
   const { days, transportCosts, startDate, currency, rates } = input;
-  const convert = (amount: number, from: string) =>
+  const convert = (amount: string, from: string) =>
     convertAmount(amount, from, currency, rates);
 
   const perDay = new Map<string, Totals>(
@@ -61,28 +67,32 @@ export function computeBudgetSummary(input: {
   for (const day of days) {
     const totals = perDay.get(day.id)!;
     for (const entry of day.budgetEntries) {
-      totals[entry.category as SummaryCategory] += convert(
-        entry.amount,
-        entry.currency,
+      const category = entry.category as SummaryCategory;
+      totals[category] = totals[category].plus(
+        convert(entry.amount, entry.currency),
       );
     }
     // An activity cost counts under "activities" (ITN-14)
     for (const activity of day.activities) {
       if (activity.cost != null && activity.currency) {
-        totals.activities += convert(activity.cost, activity.currency);
+        totals.activities = totals.activities.plus(
+          convert(activity.cost, activity.currency),
+        );
       }
     }
   }
   for (const cost of transportCosts) {
     const totals = perDay.get(cost.dayId);
     if (totals) {
-      totals.intercity_transport += convert(cost.amount, cost.currency);
+      totals.intercity_transport = totals.intercity_transport.plus(
+        convert(cost.amount, cost.currency),
+      );
     }
   }
 
   const overall = emptyTotals();
   for (const totals of perDay.values()) {
-    for (const c of SUMMARY_CATEGORIES) overall[c] += totals[c];
+    for (const c of SUMMARY_CATEGORIES) overall[c] = overall[c].plus(totals[c]);
   }
 
   const byDay = days.map((day, index) => {
@@ -92,8 +102,8 @@ export function computeBudgetSummary(input: {
       dayNumber: index + 1,
       date: dateOfDay(startDate, index),
       city: day.city,
-      total: round2(sum(totals)),
-      byCategory: roundTotals(totals),
+      total: show(sum(totals)),
+      byCategory: showTotals(totals),
     };
   });
 
@@ -105,13 +115,15 @@ export function computeBudgetSummary(input: {
     fromDay: g.fromDay,
     toDay: g.toDay,
     dayCount: g.dayCount,
-    total: round2(g.dayIds.reduce((s, id) => s + sum(perDay.get(id)!), 0)),
+    total: show(
+      g.dayIds.reduce((s, id) => s.plus(sum(perDay.get(id)!)), new Decimal(0)),
+    ),
   }));
 
   return {
     currency,
-    total: round2(sum(overall)),
-    byCategory: roundTotals(overall),
+    total: show(sum(overall)),
+    byCategory: showTotals(overall),
     byDay,
     byCityGroup,
   };

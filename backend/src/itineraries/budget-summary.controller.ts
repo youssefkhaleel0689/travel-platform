@@ -1,26 +1,25 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import {
-  ApiBadRequestResponse,
-  ApiHeader,
-  ApiNotFoundResponse,
-  ApiOperation,
-  ApiServiceUnavailableResponse,
-  ApiTags,
-  ApiUnauthorizedResponse,
-} from '@nestjs/swagger';
-import { CurrentUserId } from '../common/decorators/current-user-id.decorator';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { CurrentUser } from '../common/auth/current-user.decorator';
 import { BudgetSummaryQueryDto } from './dto/budget-summary-query.dto';
+import { BudgetSummaryDto } from './dto/budget-summary-response.dto';
 import { ItineraryBudgetSummaryService } from './itinerary-budget-summary.service';
+import {
+  ApiErrorResponse,
+  ApiItineraryAuth,
+  badRequestError,
+  EXCHANGE_RATES_UNAVAILABLE,
+  ITINERARY_NOT_FOUND_EXAMPLE,
+  ITINERARY_PATH,
+  notFoundError,
+  UNSUPPORTED_CURRENCY,
+} from './itinerary-api-docs';
+
+const SUMMARY_PATH = `${ITINERARY_PATH}/budget-summary`;
 
 @ApiTags('Itineraries - Budget')
-// TEMPORARY: remove this header once the Auth module is merged.
-@ApiHeader({
-  name: 'x-dev-user-id',
-  description: 'TEMPORARY dev user id (a 24-hex ObjectId) until auth is merged',
-  required: false,
-})
-@ApiUnauthorizedResponse({ type: ErrorResponseDto })
+@ApiItineraryAuth(SUMMARY_PATH)
 @Controller('itineraries')
 export class BudgetSummaryController {
   constructor(private readonly summaries: ItineraryBudgetSummaryService) {}
@@ -29,15 +28,29 @@ export class BudgetSummaryController {
   @ApiOperation({
     summary:
       'Budget totals by category, day and city, converted to one currency (ITN-14, ITN-18)',
+    description:
+      'Exchange rates come from FXRatesAPI through the backend only, cached once a day; when the API is down the last cached rates are used and ratesStale is true.',
   })
-  @ApiNotFoundResponse({ type: ErrorResponseDto })
-  @ApiBadRequestResponse({ type: ErrorResponseDto })
-  @ApiServiceUnavailableResponse({ type: ErrorResponseDto })
+  @ApiOkResponse({ type: BudgetSummaryDto })
+  @ApiErrorResponse(
+    badRequestError(
+      `${SUMMARY_PATH}?currency=EURO`,
+      [
+        {
+          field: 'currency',
+          messages: ['currency must be a 3-letter currency code'],
+        },
+      ],
+      UNSUPPORTED_CURRENCY,
+    ),
+  )
+  @ApiErrorResponse(notFoundError(SUMMARY_PATH, ITINERARY_NOT_FOUND_EXAMPLE))
+  @ApiErrorResponse(EXCHANGE_RATES_UNAVAILABLE)
   budgetSummary(
-    @CurrentUserId() userId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Query() query: BudgetSummaryQueryDto,
   ) {
-    return this.summaries.forOwner(userId, id, query.currency);
+    return this.summaries.forOwner(user, id, query.currency);
   }
 }

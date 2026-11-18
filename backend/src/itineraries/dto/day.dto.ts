@@ -1,18 +1,27 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
-  IsIn,
   IsInt,
   IsMongoId,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
-import { CITY_IDS } from '../reference/reference-data';
+import { Transform } from 'class-transformer';
+import { SLUG_ID } from '../../common/reference-data/reference-data.patterns';
 
 export class CreateDayDto {
-  @ApiProperty({ example: 'paris', description: 'City id from the city list' })
-  @IsIn(CITY_IDS)
+  @ApiProperty({
+    example: 'paris',
+    description:
+      'City id from the seeded city list (GET /api/cities); unknown ids give 400 UNKNOWN_CITY',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  @IsString()
+  @Matches(SLUG_ID, { message: 'city must be a city id such as paris' })
   city: string;
 
   @ApiPropertyOptional({ example: 'Arrive and walk along the Seine' })

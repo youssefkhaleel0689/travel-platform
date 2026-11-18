@@ -4,7 +4,7 @@ import { toItinerarySummary } from './itinerary.view';
 type PublicSummaryLike = Pick<
   Itinerary,
   | '_id'
-  | 'owner'
+  | 'userId'
   | 'title'
   | 'countries'
   | 'startDate'
@@ -17,7 +17,7 @@ type PublicSummaryLike = Pick<
 export function toPublicSummary(doc: PublicSummaryLike) {
   return {
     ...toItinerarySummary(doc),
-    authorId: doc.owner.toString(),
+    authorId: doc.userId.toString(),
     cities: [...new Set(doc.days.map((d) => d.city))],
   };
 }

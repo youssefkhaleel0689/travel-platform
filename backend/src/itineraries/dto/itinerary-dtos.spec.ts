@@ -18,9 +18,9 @@ async function errorsOf<T extends object>(
 }
 
 describe('CreateDayDto', () => {
-  it('only accepts cities from the list', async () => {
+  it('only accepts a well-formed city id (existence is checked in the service)', async () => {
     expect(await errorsOf(CreateDayDto, { city: 'paris' })).toEqual([]);
-    expect(await errorsOf(CreateDayDto, { city: 'atlantis' })).toEqual([
+    expect(await errorsOf(CreateDayDto, { city: 'New York!' })).toEqual([
       'city',
     ]);
   });
@@ -66,7 +66,7 @@ describe('CreateBudgetEntryDto', () => {
       await errorsOf(CreateBudgetEntryDto, { ...body, category: 'shopping' }),
     ).toEqual(['category']);
     expect(
-      await errorsOf(CreateBudgetEntryDto, { ...body, currency: 'XYZ' }),
+      await errorsOf(CreateBudgetEntryDto, { ...body, currency: 'EURO' }),
     ).toEqual(['currency']);
     expect(
       await errorsOf(CreateBudgetEntryDto, { ...body, amount: -5 }),

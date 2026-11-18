@@ -31,7 +31,7 @@ describe('CreateItineraryDto', () => {
       await errorsOf(CreateItineraryDto, { ...ok, title: 'x'.repeat(101) }),
     ).toEqual(['title']);
     expect(
-      await errorsOf(CreateItineraryDto, { ...ok, countries: ['XX'] }),
+      await errorsOf(CreateItineraryDto, { ...ok, countries: ['FRA'] }),
     ).toEqual(['countries']);
     expect(
       await errorsOf(CreateItineraryDto, { ...ok, countries: [] }),

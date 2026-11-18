@@ -42,13 +42,13 @@ export function buildCloneData(source: Itinerary, newOwner: Types.ObjectId) {
     }));
 
   return {
-    owner: newOwner,
+    userId: newOwner,
     title: source.title,
     countries: [...source.countries],
     startDate: source.startDate,
     visibility: Visibility.PRIVATE,
     days,
     transportCosts,
-    clonedFrom: { itineraryId: source._id, authorId: source.owner },
+    clonedFrom: { itineraryId: source._id, authorId: source.userId },
   };
 }

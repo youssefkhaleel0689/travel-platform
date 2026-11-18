@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsOptional } from 'class-validator';
-import { SUPPORTED_CURRENCIES } from '../reference/reference-data';
+import { IsOptional, Matches } from 'class-validator';
+import { CURRENCY_CODE } from '../../common/reference-data/reference-data.patterns';
 
 const upper = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
@@ -9,10 +9,13 @@ const upper = ({ value }: { value: unknown }) =>
 export class BudgetSummaryQueryDto {
   @ApiProperty({
     example: 'EGP',
-    description: `Display currency. One of: ${SUPPORTED_CURRENCIES.join(', ')}`,
+    description:
+      'Display currency: one of the seeded currencies (GET /api/currencies); others give 400 UNSUPPORTED_CURRENCY',
   })
   @Transform(upper)
-  @IsIn(SUPPORTED_CURRENCIES)
+  @Matches(CURRENCY_CODE, {
+    message: 'currency must be a 3-letter currency code',
+  })
   currency: string;
 }
 
@@ -23,6 +26,8 @@ export class PublicDetailQueryDto {
   })
   @IsOptional()
   @Transform(upper)
-  @IsIn(SUPPORTED_CURRENCIES)
+  @Matches(CURRENCY_CODE, {
+    message: 'currency must be a 3-letter currency code',
+  })
   currency?: string;
 }

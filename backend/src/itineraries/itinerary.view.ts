@@ -1,3 +1,4 @@
+import { decimal128ToString } from '../common/money/money';
 import {
   Activity,
   BudgetEntry,
@@ -13,7 +14,7 @@ export function toActivityView(a: Activity) {
     name: a.name,
     description: a.description ?? null,
     time: a.time ?? null,
-    cost: a.cost ?? null,
+    cost: decimal128ToString(a.cost),
     currency: a.currency ?? null,
   };
 }
@@ -22,7 +23,7 @@ export function toBudgetEntryView(b: BudgetEntry) {
   return {
     id: b._id.toString(),
     category: b.category,
-    amount: b.amount,
+    amount: decimal128ToString(b.amount),
     currency: b.currency,
   };
 }
@@ -33,7 +34,7 @@ export function toTransportCostView(t: TransportCost) {
     mode: t.mode,
     fromCity: t.fromCity,
     toCity: t.toCity,
-    amount: t.amount,
+    amount: decimal128ToString(t.amount),
     currency: t.currency,
     dayId: t.dayId.toString(),
   };
@@ -55,7 +56,7 @@ function toDayView(day: ItineraryDay, index: number, startDate: Date) {
 type ItineraryLike = Pick<
   Itinerary,
   | '_id'
-  | 'owner'
+  | 'userId'
   | 'title'
   | 'countries'
   | 'startDate'
@@ -71,7 +72,7 @@ export function toItineraryView(doc: ItineraryLike) {
   const days = doc.days.map((d, i) => toDayView(d, i, doc.startDate));
   return {
     id: doc._id.toString(),
-    ownerId: doc.owner.toString(),
+    ownerId: doc.userId.toString(),
     title: doc.title,
     countries: doc.countries,
     startDate: doc.startDate.toISOString().slice(0, 10),

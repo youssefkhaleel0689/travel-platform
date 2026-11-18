@@ -1,11 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
-import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiServiceUnavailableResponse,
-  ApiTags,
-} from '@nestjs/swagger';
-import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../common/auth/public.decorator';
+import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import { EXCHANGE_RATES_UNAVAILABLE } from '../itineraries/itinerary-api-docs';
 import { ExchangeRatesResponseDto } from './dto/exchange-rates-response.dto';
 import { ExchangeRatesService } from './exchange-rates.service';
 
@@ -15,11 +12,14 @@ export class ExchangeRatesController {
   constructor(private readonly exchangeRates: ExchangeRatesService) {}
 
   @Get()
+  @Public()
   @ApiOperation({
     summary: 'Latest exchange rates used for budget conversion (ITN-18)',
+    description:
+      'Open to guests: rates are not private. The backend fetches FXRatesAPI at most once a day and caches the answer; the API key never leaves the server.',
   })
   @ApiOkResponse({ type: ExchangeRatesResponseDto })
-  @ApiServiceUnavailableResponse({ type: ErrorResponseDto })
+  @ApiErrorResponse(EXCHANGE_RATES_UNAVAILABLE)
   getRates() {
     return this.exchangeRates.getRates();
   }
