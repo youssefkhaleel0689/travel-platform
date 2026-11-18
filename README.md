@@ -1024,13 +1024,13 @@ A `ROUND_TRIP` fills `inbound` with the flights back from `arrivalAirportId` to 
 | A date before today at the airport the flight leaves from | 400 `DEPARTURE_DATE_IN_PAST` on `departureDate` or `returnDate` |
 | No flight matches | 200 with `items: []` ("no flights found") |
 
-Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. ITN-26 passes every airport of the itinerary's first city:
+Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. A leg can leave from and land at several airports, which is how ITN-26 searches every airport of a city (see "Flight search from an itinerary" below):
 
 ~~~
 const flights = await this.flightSearch.searchLeg({
-  departureAirportId: dto.originAirportId,
-  arrivalAirportIds: cityAirports.map((airport) => airport.id),
-  departureDate: itinerary.startDate,
+  departureAirportIds: [query.originAirportId],
+  arrivalAirportIds: await this.referenceData.listAirportIdsInCity(cityId),
+  departureDate: '2026-12-20',
   dateField: 'departureDate',
   seats: dto.adults + dto.children,
   sortBy: FlightSortBy.PRICE,
@@ -1046,6 +1046,31 @@ Rules:
 - Search never returns the seat counters, and its results are not a reservation: the hold (FLT-22) checks the seats again. For a round trip, the hold must also check that the return flight leaves after the outbound flight lands.
 
 The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
+
+## Flight search from an itinerary (ITN-26)
+
+`GET /api/itineraries/:id/flights` searches flights from an airport the user chooses to **any airport in the city of the itinerary's first day**, one way or round trip. It lives in `src/flights/itinerary-flights/` (its own `ItineraryFlightsModule`, because it needs both `FlightsModule` and `ItinerariesModule` and neither should import the other) but sits under `/itineraries` with D1's auth and ownership answers.
+
+| Parameter | Default | Rules |
+| --- | --- | --- |
+| `originAirportId` | required | A seeded airport, not in the itinerary's first city |
+| `departureDate` | the itinerary's start date | `YYYY-MM-DD` on the origin airport's calendar, not before today there |
+| `tripType` | `ONE_WAY` | `ONE_WAY` or `ROUND_TRIP` |
+| `returnDate` | the date of the itinerary's last day | `ROUND_TRIP` only, not before `departureDate` |
+| `adults`, `children`, `infants`, `cabin`, `minPrice`, `maxPrice`, `sortBy`, `sortOrder`, `page`, `returnPage` | as in search | The same fields and rules as `GET /api/flights/search` (the DTO is built from search's with `OmitType`) |
+
+- The itinerary is read with D1's `ItinerariesService.findOwnedOrThrow`, so another account's itinerary, a missing one and a malformed id all answer 404 `ITINERARY_NOT_FOUND`. Day dates come from D1's `dateOfDay(startDate, index)`.
+- The destination airports are `ReferenceDataService.listAirportIdsInCity(cityId)`. The outbound leg flies from the origin to any of them; a round trip flies back from any of them to the origin. Results, sorting, paging and `DEPARTURE_DATE_IN_PAST` are search's own (`searchLeg`), unchanged.
+- The response is search's two pages plus what the itinerary decided: `destinationCityId`, `destinationAirportIds`, `departureDate` and `returnDate` (null one way).
+
+| Case | Result |
+| --- | --- |
+| The itinerary has no day yet | 409 `ITINERARY_HAS_NO_DAYS` |
+| The first city has no seeded airport | 409 `NO_AIRPORT_IN_CITY` |
+| The origin airport is in that city | 400 `ORIGIN_IN_DESTINATION_CITY` on `originAirportId` |
+| A chosen `departureDate` after the itinerary's last day, with the default return date | 400 `RETURN_BEFORE_DEPARTURE` on `returnDate` |
+
+The unit tests are next to the code. `test/itinerary-flights.e2e-spec.ts` creates its itineraries through D1's own endpoints and checks the defaults, a round trip, chosen dates, the 404, the 400 and the 409 on the shared database. It creates one airline named "KE e2e itinerary flights" with an unused two-digit IATA code from 70 up, flights numbered `KE8xxx` in March 2099 and `test_c2_` accounts with their itineraries, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-flights`.
 
 ## Flight details (FLT-17)
 
