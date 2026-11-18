@@ -39,16 +39,18 @@ describe('buildSwaggerDocument', () => {
     });
   });
 
-  // addCookieAuth('access_token') sets the cookie name; the scheme itself is registered
-  // under @nestjs/swagger's default security name, 'cookie'.
-  it('declares the access_token cookie security scheme (under the name "cookie")', () => {
+  // @ApiCookieAuth() refers to 'cookie' and @ApiCookieAuth('access_token') to
+  // 'access_token': both keys must describe the same access_token cookie.
+  it('declares the access_token cookie under both scheme keys, cookie and access_token', () => {
     const document = buildSwaggerDocument(app);
+    const accessTokenCookie = {
+      type: 'apiKey',
+      in: 'cookie',
+      name: 'access_token',
+    };
     expect(document.components?.securitySchemes).toEqual({
-      cookie: {
-        type: 'apiKey',
-        in: 'cookie',
-        name: 'access_token',
-      },
+      cookie: accessTokenCookie,
+      access_token: accessTokenCookie,
     });
   });
 

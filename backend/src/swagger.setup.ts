@@ -15,7 +15,17 @@ export function buildSwaggerDocument(app: INestApplication): OpenAPIObject {
       'REST API for the Travel Planning & Booking Platform. Auth uses an httpOnly cookie.',
     )
     .setVersion('1.0')
+    // addCookieAuth's third argument is the scheme's key; the first is only the cookie
+    // name. The first call registers the access_token cookie under the default key
+    // 'cookie' (what @ApiCookieAuth() refers to); the second registers the same cookie
+    // under 'access_token' (what @ApiCookieAuth('access_token') refers to). Both keys are
+    // used by endpoints, so both must exist or the spec has dangling references.
     .addCookieAuth('access_token')
+    .addCookieAuth(
+      'access_token',
+      { type: 'apiKey', in: 'cookie' },
+      'access_token',
+    )
     .build();
   return SwaggerModule.createDocument(app, config);
 }

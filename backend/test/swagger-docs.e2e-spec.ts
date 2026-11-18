@@ -74,6 +74,32 @@ function errorResponses(document: OpenAPIObject): ErrorResponseEntry[] {
   return entries;
 }
 
+// Every security scheme key used by an operation, or by the whole document (top-level
+// security), as "<where>: <key>" pairs.
+function securityReferences(
+  document: OpenAPIObject,
+): { where: string; key: string }[] {
+  const references: { where: string; key: string }[] = [];
+  for (const requirement of document.security ?? []) {
+    for (const key of Object.keys(requirement)) {
+      references.push({ where: 'top-level security', key });
+    }
+  }
+  for (const [path, item] of Object.entries(document.paths)) {
+    for (const method of METHODS) {
+      const operation: OperationObject | undefined = (item as PathItemObject)[
+        method
+      ];
+      for (const requirement of operation?.security ?? []) {
+        for (const key of Object.keys(requirement)) {
+          references.push({ where: `${method.toUpperCase()} ${path}`, key });
+        }
+      }
+    }
+  }
+  return references;
+}
+
 // The example bodies of one response: the response-level example or every named example.
 function exampleBodies(media: MediaTypeObject): unknown[] {
   if (media.examples) {
@@ -142,6 +168,20 @@ describe('Swagger document (e2e)', () => {
         }
       }
     }
+    expect(problems).toEqual([]);
+  });
+
+  it('defines every security scheme an operation refers to', () => {
+    const defined = Object.keys(document.components?.securitySchemes ?? {});
+    const references = securityReferences(document);
+    expect(references.length).toBeGreaterThan(0);
+
+    const problems = references
+      .filter(({ key }) => !defined.includes(key))
+      .map(
+        ({ where, key }) =>
+          `${where}: security scheme '${key}' is not defined (see buildSwaggerDocument)`,
+      );
     expect(problems).toEqual([]);
   });
 });
