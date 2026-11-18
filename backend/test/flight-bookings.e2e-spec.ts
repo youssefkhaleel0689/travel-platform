@@ -502,6 +502,10 @@ describe('Flight bookings (e2e, shared database)', () => {
           bookingId: held.id,
           status: BookingStatus.CONFIRMED,
           bookingReference: expect.stringMatching(REFERENCE) as string,
+          // What the confirmation notice names (FLT-23), in Cairo's local time.
+          summary: expect.stringMatching(
+            /^KE6\d{3} CAI to DXB on 10 Feb 2099, 08:30; 1 passenger$/,
+          ) as string,
         });
         const after = { held: before.held - 1, booked: before.booked + 1 };
         expect(await seatCounts(portFlightId)).toEqual(after);
