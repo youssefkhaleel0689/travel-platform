@@ -354,11 +354,13 @@ Feature modules:
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
 | `blog` | Posts, comments, likes |
-| `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
+| `administration` | Moderator accounts, account suspension |
+| `media` | The shared image-upload service (GEN-08) |
+| `audit` | The append-only admin audit log (GEN-07) |
 
 Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`). Image uploads live in the feature module `src/media/` (GEN-08), because the service needs its own Mongoose collection. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Notifications were planned for `src/common/notifications/` but live in the feature module `src/notifications/` instead: GEN-01 has four endpoints, and a controller needs the guards and DTO wiring that a feature module provides. Other modules use it the normal way, through its exported `NotificationsService`.
 
@@ -1459,6 +1461,72 @@ The booking is confirmed when the webhook arrives, not when the command returns.
 | `test/refunds.e2e-spec.ts` | PAY-03 |
 
 The webhook signature verification is tested for real, because it is local crypto: a delivery signed with the right secret confirms the booking, while an unsigned one, one signed with another secret and one whose body was changed after signing are all refused. Stripe's HTTP API and the `BookingsPort` are stood in for, so these suites need no Stripe account and no booking module.
+
+## Image uploads (GEN-08)
+
+`MediaService` in `src/media/` is the one image-upload service for the whole team (playbook: D2 ships it, A2, B2 and D1 reuse it). It enforces the GEN-08 rule in one place:
+
+| Rule | How |
+| --- | --- |
+| JPG or PNG only | Decided from the file's own first bytes (`image-type.ts`), never from the name or the `Content-Type` the client sends, so `script.png` is refused |
+| At most 5 MB | Multer stops reading at 5 MB; the service checks again |
+| At most 5 per post, activity or hotel; 1 logo per airline | `MAX_IMAGES_PER_TARGET`. Each image takes a numbered slot and a unique `(targetType, targetId, slot)` index means two parallel uploads can never make a sixth |
+| Stored on the server, served by URL | Files go to `UPLOADS_DIR` (default `backend/uploads/`, git-ignored); the `mediaMetadata` collection records owner, target, URL, type and size |
+
+Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPLOAD` (wrong field name or several files), 409 `IMAGE_LIMIT_REACHED`, 404 `IMAGE_NOT_FOUND`.
+
+The module has no routes of its own: the module that owns the target checks who may upload or see the image, then calls the service. Using it from your module (D1 for ITN-12, A2 for the FLT-01 logo):
+
+~~~
+// your.module.ts
+@Module({ imports: [MediaModule] })
+
+// your.controller.ts
+@Post(':id/images')
+@ApiImageUpload('/api/activities/6720f1c2a1b2c3d4e5f60718/images', 'activity')
+addImage(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser,
+         @UploadedFile() file: UploadedImage | undefined) {
+  return this.activities.addImage(id, user, file);
+}
+
+// your.service.ts, after your own owner check
+return this.media.storeImage({
+  ownerId: user.userId,
+  targetType: MediaTargetType.ACTIVITY,
+  targetId: id,
+  file,
+  urlFor: (imageId) => `/api/activities/${id}/images/${imageId}`,
+});
+// listForTarget, openForTarget (stream it with StreamableFile), removeFromTarget, removeAllForTarget
+~~~
+
+`@ApiImageUpload` adds the multipart reader, the Swagger "Choose File" picker and the documented 400/409 errors. Import `UploadedImage` with `import type` (it is used in a decorated parameter). Hotel photos (HTL-01) were built before this service existed and keep their own storage under the same `UPLOADS_DIR`; moving them onto `MediaService` is a possible follow-up for B1.
+
+## Audit log (GEN-07)
+
+`auditLogs` has one owner, D2 (schema section 2.2), and one writer, `AuditService` in `src/audit/`. Admins read it at `GET /api/admin/audit-logs` (newest first, 10 per page, filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`).
+
+- **Append-only, enforced on the model.** Every update, replace and delete hook on the schema throws, and saving an already stored row is refused. There is no route that changes a row.
+- **Recorded today:** account suspension and reactivation (ACC-16), admin password reset (ACC-07a), moderator creation (ACC-13), and every moderation decision (GEN-10, see "Reports and moderation"). A repeated action that changed nothing writes no row. Temporary passwords are never logged.
+- **`record()` never throws**, like `notify()`: the action has already happened, so a logging failure is logged as an error rather than reported to the admin as a failed action. Call it after the action succeeded, and do not wrap it in `try`/`catch`.
+
+Recording from your module (B1 for ACC-15 provider deactivation):
+
+~~~
+// your.module.ts
+@Module({ imports: [AuditModule] })
+
+await this.audit.record({
+  actorId: admin.userId,
+  action: AuditAction.PROVIDER_DEACTIVATED,
+  entityType: AuditEntityType.HOTEL,
+  entityId: hotelId,
+  before: { status: 'ACTIVE' },
+  after: { status: 'DEACTIVATED' },
+});
+~~~
+
+`AuditAction` and `AuditEntityType` are closed lists (`src/audit/audit-action.enum.ts`); add a value there rather than inventing a string. In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`), because the model refuses deletes on purpose.
 
 ## Team workflow
 
