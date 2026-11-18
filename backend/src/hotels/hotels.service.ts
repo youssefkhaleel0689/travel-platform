@@ -16,6 +16,7 @@ import { PageDto } from '../common/pagination/dto/page.dto';
 import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { City } from '../common/reference-data/schemas/city.schema';
 import { Country } from '../common/reference-data/schemas/country.schema';
+import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CreateHotelDto, HotelResponseDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
 import { HotelModeratorAssignment } from './schemas/hotel-moderator-assignment.schema';
@@ -49,6 +50,24 @@ export interface UploadedImageFile {
 }
 
 type HotelLean = LeanDoc<Hotel>;
+
+/**
+ * The hotel fields the hotel side (rooms, availability, policies, search,
+ * reservations, reviews) reads. They get it through this service, never
+ * through the Hotel model (README module conventions).
+ */
+export interface HotelBrief {
+  _id: Types.ObjectId;
+  name: string;
+  status: HotelStatus;
+  cityId: string;
+  countryId: string;
+  address: string;
+  starClass: number;
+  photos: HotelPhoto[];
+  ratingAverage: number | null;
+  ratingCount: number;
+}
 
 const PHOTO_EXTENSION: Record<HotelPhotoMimeType, string> = {
   'image/jpeg': 'jpg',
@@ -443,6 +462,63 @@ export class HotelsService {
   // ------------------------------------------------------------------
   // Helpers for the hotel side (B2): search, booking and reviews.
   // ------------------------------------------------------------------
+
+  // An ACTIVE hotel as a HotelBrief, or 404 HOTEL_NOT_FOUND (a deactivated
+  // hotel cannot be searched, booked or reviewed, ACC-15).
+  async getActiveHotelOrThrow(hotelId: string): Promise<HotelBrief> {
+    if (!Types.ObjectId.isValid(hotelId)) throw this.hotelNotFound();
+    const hotel = await this.hotelModel
+      .findOne({ _id: hotelId, status: HotelStatus.ACTIVE })
+      .lean<HotelBrief>();
+    if (!hotel) throw this.hotelNotFound();
+    return hotel;
+  }
+
+  // Moderator routes of the hotel side: the caller must be the HOTEL_MODERATOR
+  // assigned to this hotel (same rule and codes as assertModeratorOwnsHotel).
+  // With allowAdmin, an ADMIN passes too (read-only dashboards). A deactivated
+  // hotel stays manageable. Returns the hotel so callers need no second read.
+  async assertManagesHotel(
+    user: AuthenticatedUser,
+    hotelId: string,
+    allowAdmin = false,
+  ): Promise<HotelBrief> {
+    if (!Types.ObjectId.isValid(hotelId)) throw this.hotelNotFound();
+    const hotel = await this.hotelModel.findById(hotelId).lean<HotelBrief>();
+    if (!hotel) throw this.hotelNotFound();
+    if (allowAdmin && user.role === ROLE_ADMIN) return hotel;
+    await this.assertModeratorOwnsHotel(
+      { id: user.userId, role: user.role },
+      hotelId,
+    );
+    return hotel;
+  }
+
+  // HTL-11: ACTIVE hotels in any of the searched seeded cities or countries.
+  async findActiveByCityOrCountry(
+    cityIds: string[],
+    countryIds: string[],
+  ): Promise<HotelBrief[]> {
+    if (!cityIds.length && !countryIds.length) return [];
+    return this.hotelModel
+      .find({
+        status: HotelStatus.ACTIVE,
+        $or: [
+          ...(cityIds.length ? [{ cityId: { $in: cityIds } }] : []),
+          ...(countryIds.length ? [{ countryId: { $in: countryIds } }] : []),
+        ],
+      })
+      .lean<HotelBrief[]>();
+  }
+
+  // Hotel name, address and place for lists of reservations, keyed by id.
+  async briefs(ids: Types.ObjectId[]): Promise<Map<string, HotelBrief>> {
+    if (!ids.length) return new Map();
+    const rows = await this.hotelModel
+      .find({ _id: { $in: ids } })
+      .lean<HotelBrief[]>();
+    return new Map(rows.map((row) => [String(row._id), row]));
+  }
 
   // A hotel that can be searched and booked: exists and is ACTIVE (ACC-15).
   async getBookableHotel(hotelId: string): Promise<HotelResponseDto> {
