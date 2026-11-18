@@ -33,6 +33,27 @@ const HTTP_METHODS = new Set([
   'trace',
 ]);
 
+// Top-level keys in reading order; any other top-level key follows in its original order.
+const TOP_LEVEL_ORDER = [
+  'openapi',
+  'info',
+  'servers',
+  'tags',
+  'paths',
+  'components',
+];
+
+// The same document with only its top-level keys reordered (absent keys skipped). Nothing
+// inside them is touched.
+function withTopLevelOrder(document: OpenAPIObject): Record<string, unknown> {
+  const entries: [string, unknown][] = Object.entries(document);
+  const first = TOP_LEVEL_ORDER.flatMap((key) =>
+    entries.filter(([name]) => name === key),
+  );
+  const rest = entries.filter(([name]) => !TOP_LEVEL_ORDER.includes(name));
+  return Object.fromEntries([...first, ...rest]);
+}
+
 function countOperations(document: OpenAPIObject): number {
   return Object.values(document.paths).reduce(
     (total, item) =>
@@ -61,8 +82,9 @@ async function exportOpenApi() {
       Object.values(connection.models).map((model) => model.init()),
     );
 
-    // No anchors or aliases, no line folding, the generated key order.
-    const yaml = dump(document, {
+    // Top-level keys in reading order; inside them, no anchors or aliases, no line
+    // folding, the generated key order.
+    const yaml = dump(withTopLevelOrder(document), {
       noRefs: true,
       lineWidth: -1,
       sortKeys: false,
