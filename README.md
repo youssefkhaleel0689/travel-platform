@@ -1005,6 +1005,20 @@ Rules:
 
 The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
 
+## Flight details (FLT-17)
+
+`GET /api/flights/:id` is public, like search, so a guest can open the details page from a search result. It returns:
+
+- the airline (`id`, `name`, `iataCode`), the flight number and the `status`;
+- both airports as seeded (name, city, country, time zone);
+- local departure and arrival times in each airport's own time zone (GEN-06), the UTC times and the duration;
+- every cabin with its price per seat, `seatsRemaining` (total minus booked minus held, never below 0) and its baggage allowance;
+- the airline's terms from `AirlinePoliciesService.getForAirline()`: extra-bag price and limit, and the cancellation tiers from the most days before departure to the fewest. An airline without a policy shows `null` extra bags and no tiers, the same terms a booking would get.
+
+The seat counters themselves are never returned. A flight of an airline that is not `ACTIVE` answers 404 `FLIGHT_NOT_FOUND`, the same as a missing flight or a malformed id, because search hides it too (ACC-15). A cancelled or departed flight is still shown, with its status, so an old link explains itself.
+
+`FlightDetailsController` is the last controller in `flights.module.ts` on purpose: routes match in the order they are registered, and `GET /flights/:id` registered before search would take `GET /flights/search` as a flight with the id `search`. `test/flight-details.e2e-spec.ts` checks the full response for a guest, the three 404s and that search still answers. It creates two airlines named "KE e2e details ..." with unused two-digit IATA codes from 30 up, a policy and flights numbered `KE7xxx` in March 2099, and deletes exactly those.
+
 ## Flight bookings (FLT-19, FLT-21, FLT-22)
 
 The code is in `src/flights/flight-bookings/`. Every route is for a signed-in traveller (`@Roles(Role.USER)`): a moderator or an admin gets 403.
