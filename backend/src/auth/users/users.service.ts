@@ -34,6 +34,19 @@ export interface UserProfile {
   deactivatedAt: Date | null;
 }
 
+/**
+ * The public face of an account (D2: blog authors, comment authors, audit
+ * actors). Name and join date only, plus role and status so the caller can
+ * show "Deleted user" for a deactivated account (ACC-12).
+ */
+export interface UserBrief {
+  id: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  createdAt: Date;
+}
+
 /** ACC-09: the only three fields an account may edit on itself. */
 export interface ProfileUpdateInput {
   name?: string;
@@ -168,6 +181,70 @@ export class UsersService {
     }
     const user = await this.userModel.findById(id).lean<User>().exec();
     return user ? this.toUserProfile(user) : null;
+  }
+
+  /**
+   * D2 (BLG-02, BLG-09, BLG-12, GEN-07): the public part of many accounts in
+   * one query, keyed by id, for showing author and actor names next to posts,
+   * comments and audit rows. Malformed and unknown ids are simply absent.
+   * Never returns the email, phone or anything security-related.
+   */
+  async findBriefsByIds(ids: string[]): Promise<Map<string, UserBrief>> {
+    const unique = [...new Set(ids)].filter((id) => OBJECT_ID.test(id));
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const users = await this.userModel
+      .find({ _id: { $in: unique.map((id) => new Types.ObjectId(id)) } })
+      .select('name role status createdAt')
+      .lean<Pick<User, '_id' | 'name' | 'role' | 'status' | 'createdAt'>[]>()
+      .exec();
+    return new Map(
+      users.map((user) => [
+        user._id.toString(),
+        {
+          id: user._id.toString(),
+          name: user.name,
+          role: user.role,
+          status: user.status,
+          createdAt: user.createdAt,
+        },
+      ]),
+    );
+  }
+
+  /**
+   * BLG-09: ids of the accounts whose name contains the fragment, matched
+   * literally and case-insensitively (the same escaping as the admin search),
+   * so the blog can find posts "by author name" without reading this
+   * collection itself. Capped, because the result becomes an $in list.
+   */
+  async findIdsByNameFragment(fragment: string, limit = 500): Promise<string[]> {
+    const term = fragment.trim();
+    if (term === '') {
+      return [];
+    }
+    const users = await this.userModel
+      .find({ name: new RegExp(escapeRegExp(term), 'i') })
+      .select('_id')
+      .limit(limit)
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return users.map((user) => user._id.toString());
+  }
+
+  /**
+   * ACC-12 for the blog: ids of every account in one status. A deactivated
+   * account's posts are hidden by excluding these authors in the query itself,
+   * so pages stay full and counts stay right, rather than filtering afterwards.
+   */
+  async findIdsByStatus(status: UserStatus): Promise<string[]> {
+    const users = await this.userModel
+      .find({ status })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return users.map((user) => user._id.toString());
   }
 
   async findByEmail(email: string): Promise<UserProfile | null> {
