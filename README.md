@@ -64,6 +64,8 @@ Check that it works:
 | --- | --- | --- |
 | `MONGODB_URI` | Yes | Shared MongoDB Atlas connection string, including the database name (`/travel-platform`) |
 | `PORT` | No | Server port, defaults to 3000 |
+| `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
+| `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
