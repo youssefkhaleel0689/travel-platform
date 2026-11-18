@@ -1,16 +1,21 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AirlineBookingsController } from './airline-bookings/airline-bookings.controller';
 import { AirlineBookingsService } from './airline-bookings/airline-bookings.service';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
 import { CabinsService } from './cabins/cabins.service';
+import { FlightCancellationController } from './flight-cancellation/flight-cancellation.controller';
+import { FlightCancellationService } from './flight-cancellation/flight-cancellation.service';
 import { FlightDetailsController } from './flight-details/flight-details.controller';
 import { FlightDetailsService } from './flight-details/flight-details.service';
 import { FlightSearchController } from './flight-search/flight-search.controller';
 import { FlightSearchService } from './flight-search/flight-search.service';
+import { MyFlightBookingsController } from './my-bookings/my-flight-bookings.controller';
+import { MyFlightBookingsService } from './my-bookings/my-flight-bookings.service';
 import { FlightStatusJob } from './flight-status/flight-status.job';
 import { FlightStatusService } from './flight-status/flight-status.service';
 import { FlightsController } from './flights/flights.controller';
@@ -39,6 +44,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 @Module({
   imports: [
     ReferenceDataModule,
+    // FLT-05 (time-change notices), FLT-06 and FLT-26 (cancellation notices).
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
       { name: AirlinePolicy.name, schema: AirlinePolicySchema },
@@ -55,6 +62,9 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesController,
     FlightsController,
     CabinsController,
+    // FLT-06: POST /flights/:id/cancel.
+    FlightCancellationController,
+    MyFlightBookingsController,
     AirlineBookingsController,
     FlightSearchController,
     // Last: its GET /flights/:id would otherwise take GET /flights/search (FLT-17).
@@ -65,6 +75,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
     AirlinePoliciesService,
     FlightsService,
     CabinsService,
+    FlightCancellationService,
+    MyFlightBookingsService,
     AirlineBookingsService,
     FlightSearchService,
     FlightDetailsService,

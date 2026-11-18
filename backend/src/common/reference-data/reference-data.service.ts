@@ -175,6 +175,53 @@ export class ReferenceDataService {
   }
 
   /**
+   * Every seeded currency code, sorted (ITN-18): the currencies the exchange rates are
+   * fetched for. Small fixed list, so it is read whole.
+   */
+  async listCurrencyCodes(): Promise<string[]> {
+    const rows = await this.currencyModel
+      .find({})
+      .select('_id')
+      .sort({ _id: 1 })
+      .lean<Pick<Currency, '_id'>[]>()
+      .exec();
+    return rows.map((row) => row._id);
+  }
+
+  /**
+   * Country and city ids whose id equals the keyword or whose name contains it,
+   * case-insensitively and literally (ITN-21 free-text search of public itineraries).
+   */
+  async findPlaceIdsByKeyword(
+    keyword: string,
+  ): Promise<{ countryIds: string[]; cityIds: string[] }> {
+    const text = keyword.trim();
+    if (text.length === 0) {
+      return { countryIds: [], cityIds: [] };
+    }
+    const contains = new RegExp(
+      text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      'i',
+    );
+    const [countries, cities] = await Promise.all([
+      this.countryModel
+        .find({ $or: [{ _id: text.toUpperCase() }, { name: contains }] })
+        .select('_id')
+        .lean<Pick<Country, '_id'>[]>()
+        .exec(),
+      this.cityModel
+        .find({ $or: [{ _id: text.toLowerCase() }, { name: contains }] })
+        .select('_id')
+        .lean<Pick<City, '_id'>[]>()
+        .exec(),
+    ]);
+    return {
+      countryIds: countries.map((row) => row._id),
+      cityIds: cities.map((row) => row._id),
+    };
+  }
+
+  /**
    * For itinerary budgets and preferred currency (ACC-09, ITN-14, ITN-16, ITN-18).
    * Booking prices, payments and refunds are always USD (PAY-04) and must not use this check.
    */

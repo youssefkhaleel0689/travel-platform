@@ -11,6 +11,7 @@ import { FlightsModule } from './flights/flights.module';
 import { HotelsModule } from './hotels/hotels.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ItinerariesModule } from './itineraries/itineraries.module';
 
 // B2 (Hotel side) — feature modules live flat in src/.
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
@@ -54,6 +55,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     NotificationsModule,
     AdministrationModule,
     PaymentsModule,
+    ItinerariesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

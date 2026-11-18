@@ -124,15 +124,21 @@ describe('CreateCabinDto (FLT-04)', () => {
 });
 
 describe('UpdateCabinDto (FLT-04, FLT-05)', () => {
-  it('accepts any one of the three fields, or none (the service rejects an empty body)', async () => {
+  it('accepts any one of the four fields, or none (the service rejects an empty body)', async () => {
     expect(await messages(UpdateCabinDto, { price: 179.5 })).toEqual({});
+    expect(await messages(UpdateCabinDto, { totalSeats: 180 })).toEqual({});
     expect(await messages(UpdateCabinDto, { freeBaggageCount: 2 })).toEqual({});
     expect(await messages(UpdateCabinDto, { maxBagWeightKg: 30 })).toEqual({});
     expect(await messages(UpdateCabinDto, {})).toEqual({});
   });
 
   it('rejects null instead of letting it through as "not sent"', async () => {
-    for (const field of ['price', 'freeBaggageCount', 'maxBagWeightKg']) {
+    for (const field of [
+      'price',
+      'totalSeats',
+      'freeBaggageCount',
+      'maxBagWeightKg',
+    ]) {
       const result = await messages(UpdateCabinDto, { [field]: null });
       expect(result[field]).toBeDefined();
     }
@@ -152,13 +158,14 @@ describe('UpdateCabinDto (FLT-04, FLT-05)', () => {
     ).toBeDefined();
   });
 
-  it('does not accept totalSeats, category or the counters', async () => {
-    for (const field of [
-      'totalSeats',
-      'category',
-      'bookedSeats',
-      'heldSeats',
-    ]) {
+  it.each([0, -5, 1.5, '150'])('rejects totalSeats %p', async (seats) => {
+    expect(
+      (await messages(UpdateCabinDto, { totalSeats: seats })).totalSeats,
+    ).toBeDefined();
+  });
+
+  it('does not accept the category or the counters', async () => {
+    for (const field of ['category', 'bookedSeats', 'heldSeats']) {
       const result = await messages(UpdateCabinDto, { [field]: 5 });
       expect(result[field]).toBeDefined();
     }
