@@ -977,3 +977,12 @@ On top of the upload and audit branch, implement the blog: posts as draft or pub
 How the output was used:
 I checked every rule against the requirement text. One like per user is a unique index, which I can explain under double clicks; the counters move in the same transaction as the like or comment so the ranking cannot drift. Drafts, hidden and deleted posts all answer the same 404 to people who may not see them. The author page reads itineraries through PUBLIC_ITINERARIES_PORT, so it works before D1's module is merged. The comment "edited" flag uses its own editedAt field, because an admin hiding a comment also changes updatedAt. Verified with tsc --noEmit (clean); build, lint, unit and e2e results are in the PR.
 ================================================
+Date: 2026-11-18
+Student: Fares El-Sonbaty
+Tool: Claude (chat, with push access to my fork)
+Related Requirement: GEN-09, GEN-10 (and GEN-07 rows for every decision); branch feature/GEN-09-10-content-reports-and-moderation-d2
+Prompt:
+On top of the blog branch, implement reports and moderation: a registered user reports a post, comment, review or itinerary once with a reason; admins see the open reports and dismiss, hide or delete, and can hide, restore or delete any of those items directly. Hidden content stays visible to its author and admins. Do not touch the reviews or itineraries collections from my module; go through the owners' services, and audit every decision. Add a Postman collection for the whole D2 part.
+How the output was used:
+I chose a port per content type, like BookingsPort, so moderation works for reviews through ReviewsService (two additive methods, which also recompute the hotel rating) and for itineraries as soon as D1 provides the port; until then itineraries answer 501 instead of failing. The shared applyModeration writes with the state it read in the filter, which I can explain as the guard against two admins acting at once. Deleting is a soft delete so the audit log and reports still point at something. Verified on my machine on each branch: build, lint (0 errors), unit tests, and the D2 e2e suites against Atlas; numbers are in the PR.
+================================================
