@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import {
   AIRLINE_MODERATOR_ASSIGNMENT_PORT,
@@ -33,7 +34,14 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
  * ever needs it, move it to a common/providers/providers.module.ts then.
  */
 @Module({
-  imports: [AuthModule, NotificationsModule, FlightsModule, HotelsModule],
+  imports: [
+    AuthModule,
+    NotificationsModule,
+    FlightsModule,
+    HotelsModule,
+    // GEN-07: every account action below is written to the audit log.
+    AuditModule,
+  ],
   controllers: [AdminAccountsController, AdminModeratorsController],
   providers: [
     AdminAccountsService,
