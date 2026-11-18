@@ -1,5 +1,5 @@
-// Shared by flight search (FLT-11, FLT-12) and, later, the hold (FLT-22), so a party that
-// can be searched for can also be booked.
+// Shared by flight search (FLT-11, FLT-12) and the flight booking request (FLT-19,
+// FLT-22), so a party that can be searched for can also be booked.
 
 // Most airlines take at most 9 seated passengers in one booking; larger groups book
 // separately. Infants sit on a lap and are not counted (FLT-12).

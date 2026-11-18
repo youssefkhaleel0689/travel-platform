@@ -873,6 +873,37 @@ Count the documents in payments, refunds, policyAcceptances and stripeWebhookEve
 How the output was used:
 The diagnosis showed the payment e2e suites clean up after themselves, and the leftovers came from an e2e run I had interrupted. After I approved, 18 payments, 20 policy acceptances and their two test users were deleted by owner id and email prefix; every other collection was left untouched. No repository file was changed.
 ================================================
+================================================
+Date: 2026-11-17
+Student: Khaled Elshitany
+Tool: Claude (chat)
+Related Requirement: FLT-19, FLT-21, FLT-22, FLT-23 (with PAY-01, PAY-02, ACC-11, ACC-15, GEN-11)
+Prompt:
+Design the flight booking summary and hold on the merged FLT-22 code and C2's BookingsPort: the request body, passenger type by date of birth, infant and baggage pricing, round-trip checks, the transaction, the policy snapshot for PAY-02, owner-only reads, how holds expire without a payment, how the port reaches the payments module, and the commit order.
+How the output was used:
+Kept the summary and the hold as two endpoints with one body; the hold re-reads the flights inside the transaction, so the snapshot matches the held seats. The outbound airline's policy is the booking's, because FLT-12 cancels a round trip with the outbound tier, and a bag is charged per segment. C2's sweep only expires holds with an open payment, so flights adds its own expiry job, and the port token must be global for BookingsGateway to see it.
+================================================
+================================================
+Date: 2026-11-17
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-19, FLT-21, FLT-22, FLT-23 (with PAY-01, PAY-02, ACC-11, ACC-12, GEN-11)
+Prompt:
+In steps, per the agreed design: ObjectId ids and one policy snapshot in the booking schema; the request DTO and the rules between its fields; pricing as pure functions; the summary and the 10-minute hold in one transaction; the owner-only GET; the BookingsPort adapter (confirm with a booking reference, release once, ACC-12); a job that expires unpaid holds; README; after merging develop, the real airline policy and the shared search and FLT-03 helpers.
+How the output was used:
+Reviewed each step before committing. Claude ran Prettier, the compiler, lint and the tests; I ran build, lint, all unit tests (1269 passed) and the e2e suites (386 passed) myself. A rule between fields stays silent while a value it reads is invalid, so each mistake gives one error. Confirming is idempotent and refuses an expired hold, and a release only matches PENDING_PAYMENT, so the two expiry jobs never return seats twice; parallel holds never oversell.
+================================================
+================================================
+Date: 2026-11-18
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-17 (with GEN-06, ACC-15, FLT-08, FLT-09)
+Prompt:
+Add the flight details page to the flight bookings PR: GET /api/flights/:id for guests with the airline, airports, local times, duration, each cabin's price, seats remaining and baggage, and the airline's cancellation policy, reusing the search DTOs and Marawan's policy service.
+How the output was used:
+Kept it public and hid flights of inactive airlines with the same 404 as search. Claude found that the route must be registered after search, or /flights/search would be read as a flight id; the e2e test now checks search still answers. Seat counters stay hidden, only seats remaining. I ran build, lint and the unit and e2e tests myself.
+================================================
+================================================
 Date: 2026-11-18
 Student: Youssef Khaleel
 Tool: Claude Code
