@@ -175,6 +175,24 @@ export class ReferenceDataService {
   }
 
   /**
+   * The ids of every seeded airport in a city, sorted (ITN-26: flights to "any airport
+   * in the city"). A malformed or unknown city id gives an empty list, without a query
+   * for the malformed one.
+   */
+  async listAirportIdsInCity(cityId: string): Promise<string[]> {
+    if (!isWellFormed(cityId, SLUG_ID)) {
+      return [];
+    }
+    const rows = await this.airportModel
+      .find({ cityId })
+      .select('_id')
+      .sort({ _id: 1 })
+      .lean<Pick<Airport, '_id'>[]>()
+      .exec();
+    return rows.map((row) => row._id);
+  }
+
+  /**
    * Every seeded currency code, sorted (ITN-18): the currencies the exchange rates are
    * fetched for. Small fixed list, so it is read whole.
    */

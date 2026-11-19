@@ -19,10 +19,11 @@ import {
   toFlightSearchItemDto,
 } from './flight-search.mapper';
 
-/** One leg of a search: from one airport, to one or more airports, on a local date. */
+/** One leg of a search: from one or more airports, to one or more, on a local date. */
 export interface LegCriteria {
-  departureAirportId: string;
-  // One airport for GET /flights/search; every airport of a city for ITN-26.
+  // One airport each for GET /flights/search. ITN-26 flies to every airport of a city
+  // and, on a round trip, back from every one of them.
+  departureAirportIds: string[];
   arrivalAirportIds: string[];
   // On the calendar of the departure airport (GEN-06).
   departureDate: string;
@@ -74,7 +75,7 @@ export class FlightSearchService {
     // return leg is not searched for nothing.
     const outbound = await this.searchLeg({
       ...shared,
-      departureAirportId: query.departureAirportId,
+      departureAirportIds: [query.departureAirportId],
       arrivalAirportIds: [query.arrivalAirportId],
       departureDate: query.departureDate,
       dateField: 'departureDate',
@@ -86,7 +87,7 @@ export class FlightSearchService {
 
     const inbound = await this.searchLeg({
       ...shared,
-      departureAirportId: query.arrivalAirportId,
+      departureAirportIds: [query.arrivalAirportId],
       arrivalAirportIds: [query.departureAirportId],
       departureDate: query.returnDate,
       dateField: 'returnDate',
@@ -105,21 +106,21 @@ export class FlightSearchService {
    * Sorted as asked; ties go to the earlier departure, then the lower _id.
    */
   async searchLeg(criteria: LegCriteria): Promise<FlightSearchItemDto[]> {
-    // FLT-02: only seeded airports. The departure airport's zone decides what "today" is.
-    const departure = await this.referenceData.getAirportOrThrow(
-      criteria.departureAirportId,
+    // FLT-02: only seeded airports. Each airport's zone gives its local times (GEN-06).
+    const departureTimeZones = await this.timeZones(
+      criteria.departureAirportIds,
     );
-    // Each arrival airport's zone, for the local arrival times (GEN-06).
-    const arrivalTimeZones = new Map<string, string>();
-    for (const id of criteria.arrivalAirportIds) {
-      const airport = await this.referenceData.getAirportOrThrow(id);
-      arrivalTimeZones.set(id, airport.timeZone);
-    }
+    const arrivalTimeZones = await this.timeZones(criteria.arrivalAirportIds);
 
+    // "Today" is the departure airport's. With several departure airports (one city's,
+    // so in practice one zone) the date is refused only when it is past at all of them;
+    // a flight that has already left is dropped by the departure-time match anyway.
     const now = new Date();
-    const today = toAirportLocalDateKey(now, departure.timeZone);
-    if (criteria.departureDate < today) {
-      const message = `${criteria.dateField} must not be before today at ${departure.id}`;
+    const [earliest] = [...departureTimeZones]
+      .map(([id, zone]) => ({ id, today: toAirportLocalDateKey(now, zone) }))
+      .sort((a, b) => a.today.localeCompare(b.today));
+    if (criteria.departureDate < earliest.today) {
+      const message = `${criteria.dateField} must not be before today at ${earliest.id}`;
       throw new BadRequestException({
         code: 'DEPARTURE_DATE_IN_PAST',
         message,
@@ -151,10 +152,20 @@ export class FlightSearchService {
       toFlightSearchItemDto(
         flight,
         airlineById.get(flight.airlineId.toString()) as FlightSearchAirlineDto,
-        departure.timeZone,
+        departureTimeZones.get(flight.departureAirportId) as string,
         arrivalTimeZones.get(flight.arrivalAirportId) as string,
       ),
     );
+  }
+
+  // The time zone of each airport, in the given order; an unknown airport is 400
+  // UNKNOWN_AIRPORT before anything else is queried.
+  private async timeZones(ids: string[]): Promise<Map<string, string>> {
+    const zones = new Map<string, string>();
+    for (const id of ids) {
+      zones.set(id, (await this.referenceData.getAirportOrThrow(id)).timeZone);
+    }
+    return zones;
   }
 
   private legPipeline(
@@ -185,7 +196,7 @@ export class FlightSearchService {
       // The first four fields are the search index of the flight schema, in its order.
       {
         $match: {
-          departureAirportId: criteria.departureAirportId,
+          departureAirportId: { $in: criteria.departureAirportIds },
           arrivalAirportId: { $in: criteria.arrivalAirportIds },
           departureDateKey: criteria.departureDate,
           status: FlightStatus.SCHEDULED,
