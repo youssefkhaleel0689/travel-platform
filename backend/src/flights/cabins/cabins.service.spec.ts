@@ -446,6 +446,124 @@ describe('CabinsService.update (FLT-04, FLT-05)', () => {
   });
 });
 
+describe('CabinsService.update seat count (FLT-05)', () => {
+  beforeEach(() => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime());
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const currentFlight = (booked: number, held: number) => ({
+    status: FlightStatus.SCHEDULED,
+    departureAtUtc: DEPARTURE,
+    cabinInventory: [
+      { ...storedCabin(), bookedSeats: booked, heldSeats: held },
+    ],
+  });
+
+  it('writes totalSeats only, and puts the "booked + held still fit" test in the filter', async () => {
+    const { service, flightModel } = setup({
+      updated: flightDoc([{ ...storedCabin(), totalSeats: 180 }]),
+    });
+    const result = await service.update(
+      FLIGHT_ID.toString(),
+      'economy',
+      { totalSeats: 180 },
+      moderator,
+    );
+    expect(result.cabinInventory[0].totalSeats).toBe(180);
+    const [filter, update] = (
+      flightModel.findOneAndUpdate.mock.calls as unknown as UpdateCall[]
+    )[0];
+    expect(update.$set).toEqual({ 'cabinInventory.$.totalSeats': 180 });
+    expect(filter['cabinInventory.category']).toBe('ECONOMY');
+    expect(filter.$expr).toEqual({
+      $anyElementTrue: {
+        $map: {
+          input: '$cabinInventory',
+          as: 'cabin',
+          in: {
+            $and: [
+              { $eq: ['$$cabin.category', 'ECONOMY'] },
+              {
+                $lte: [
+                  { $add: ['$$cabin.bookedSeats', '$$cabin.heldSeats'] },
+                  180,
+                ],
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(Object.keys(update.$set).join(' ')).not.toMatch(
+      /bookedSeats|heldSeats/,
+    );
+  });
+
+  it('has no seat test in the filter when the seat count is not sent', async () => {
+    const { service, flightModel } = setup({
+      updated: flightDoc([storedCabin('10.00')]),
+    });
+    await service.update(
+      FLIGHT_ID.toString(),
+      'ECONOMY',
+      { price: 10 },
+      moderator,
+    );
+    const [filter] = (
+      flightModel.findOneAndUpdate.mock.calls as unknown as UpdateCall[]
+    )[0];
+    expect(filter).not.toHaveProperty('$expr');
+  });
+
+  it('is 409 SEATS_BELOW_BOOKED when booked + held do not fit the new total', async () => {
+    const { service } = setup({ updated: null, current: currentFlight(40, 5) });
+    const error = await failure(
+      service.update(
+        FLIGHT_ID.toString(),
+        'ECONOMY',
+        { totalSeats: 30 },
+        moderator,
+      ),
+    );
+    expect(error.getStatus()).toBe(409);
+    expect(codeOf(error)).toBe('SEATS_BELOW_BOOKED');
+    expect((error.getResponse() as { message: string }).message).toContain(
+      '40 booked, 5 held',
+    );
+  });
+
+  it('accepts exactly booked + held as the new total (the filter uses <=)', async () => {
+    const { service } = setup({
+      updated: flightDoc([{ ...storedCabin(), totalSeats: 45 }]),
+      current: currentFlight(40, 5),
+    });
+    await expect(
+      service.update(
+        FLIGHT_ID.toString(),
+        'ECONOMY',
+        { totalSeats: 45 },
+        moderator,
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('is 409 FLIGHT_CHANGED when the seats fit but the update still missed', async () => {
+    const { service } = setup({ updated: null, current: currentFlight(10, 0) });
+    const error = await failure(
+      service.update(
+        FLIGHT_ID.toString(),
+        'ECONOMY',
+        { totalSeats: 20 },
+        moderator,
+      ),
+    );
+    expect(codeOf(error)).toBe('FLIGHT_CHANGED');
+  });
+});
+
 describe('CabinsService with a DEACTIVATED airline (ACC-15)', () => {
   beforeEach(() => {
     jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime());

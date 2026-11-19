@@ -17,7 +17,7 @@ import {
 export const MAX_CANCELLATION_TIERS = 20;
 
 // One tier of the cancellation policy (FLT-09); also the response shape of a tier.
-export class CancellationTierDto {
+export class AirlineCancellationTierDto {
   @ApiProperty({
     example: 7,
     minimum: 0,
@@ -65,7 +65,7 @@ class UniqueThresholds implements ValidatorConstraintInterface {
 // of tiers; an empty list means no tier applies, so every refund is 0%.
 export class CancellationPolicyDto {
   @ApiProperty({
-    type: [CancellationTierDto],
+    type: [AirlineCancellationTierDto],
     example: [
       { daysBeforeDeparture: 14, refundPercentage: 100 },
       { daysBeforeDeparture: 7, refundPercentage: 50 },
@@ -79,7 +79,7 @@ export class CancellationPolicyDto {
     message: `cancellationTiers must have at most ${MAX_CANCELLATION_TIERS} tiers`,
   })
   @ValidateNested({ each: true })
-  @Type(() => CancellationTierDto)
+  @Type(() => AirlineCancellationTierDto)
   @Validate(UniqueThresholds)
-  cancellationTiers: CancellationTierDto[];
+  cancellationTiers: AirlineCancellationTierDto[];
 }
