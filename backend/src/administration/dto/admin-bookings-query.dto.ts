@@ -57,14 +57,18 @@ export class AdminBookingsQueryDto extends PaginationQueryDto {
     example: 'K7M2QX',
     description:
       'The exact booking reference, which a confirmed booking carries. Case ' +
-      'is ignored; an unpaid booking has none and can never match.',
+      'is ignored; an unpaid booking has none and can never match. Both ' +
+      'shapes in use are covered: a 6-character flight reference (K7M2QX) ' +
+      'and a hotel one (HTL-8F2A19C04B).',
   })
   @IsOptional()
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
-  @Matches(/^[A-Z0-9]{4,20}$/, {
-    message: 'reference must be 4 to 20 letters or digits',
+  // Letters, digits and the hyphen the hotel references carry - nothing a
+  // regular expression could act on ever reaches a query.
+  @Matches(/^[A-Z0-9][A-Z0-9-]{3,29}$/, {
+    message: 'reference must be 4 to 30 letters, digits or hyphens',
   })
   reference?: string;
 }

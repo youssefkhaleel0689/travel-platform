@@ -61,6 +61,15 @@ describe('AdminBookingsQueryDto (ACC-17)', () => {
     },
   );
 
+  // The two shapes in use: a flight reference and a hotel one, which carries
+  // a hyphen.
+  it.each(['K7M2QX', 'HTL-8F2A19C04B'])(
+    'accepts the reference %s',
+    async (reference) => {
+      expect(await errorFields({ reference })).toEqual([]);
+    },
+  );
+
   it('upper-cases the reference and trims it', () => {
     const dto = plainToInstance(AdminBookingsQueryDto, {
       reference: '  k7m2qx ',
@@ -69,9 +78,10 @@ describe('AdminBookingsQueryDto (ACC-17)', () => {
     expect(dto.reference).toBe('K7M2QX');
   });
 
-  // The reference goes into a query, so only letters and digits are allowed:
-  // nothing a regular expression could act on ever reaches the database.
-  it.each(['K7M', '.*', 'K7M2QX;drop', 'A'.repeat(21)])(
+  // The reference goes into a query, so only letters, digits and an inner
+  // hyphen are allowed: nothing a regular expression could act on ever
+  // reaches the database.
+  it.each(['K7M', '.*', 'K7M2QX;drop', '-HTL-1234', 'A'.repeat(31)])(
     'rejects the reference %j',
     async (reference) => {
       expect(await errorFields({ reference })).toEqual(['reference']);
