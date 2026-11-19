@@ -987,3 +987,23 @@ Read the team chat, the playbook, the reviewed requirements and the schema PDF, 
 How the output was used:
 I chose to start again from develop because my nine old branches were 160 commits behind and built before sessions, ownership helpers and HotelsService existed. The upload type is decided from the file's signature, not its name; the per-target limit is guaranteed by numbered slots under a unique index, which I can explain as the answer to two uploads at once. The audit log is append-only through schema hooks, and record() never throws, like notify(). Three read-only methods were added to UsersService (author names, name search, ids by status) so D2 never reads the users collection; the admin services now write audit rows after suspend, reactivate, reset and moderator creation. Verified with tsc --noEmit (clean) on every branch; build, lint, unit and e2e results are in the PR.
 ================================================
+================================================
+Date: 2026-11-19
+Student: Abdelrahman khaled
+Tool: Claude (chat)
+Related Requirement: ITN-01, ITN-03, ITN-05, ITN-07, ITN-08, ITN-09, ITN-10, ITN-14, ITN-16, ITN-18, ITN-20, ITN-21
+Prompt:
+Write the itinerary backend for my part of the project: itineraries (create, list, view, edit, delete, public/private), days (add, edit, delete, reorder, city groups, 60-day limit), activities, budget entries and intercity transport costs, a budget summary converted to one currency using FXRatesAPI (rates fetched once a day and cached in the database, last saved rates used if the API fails), public search by keyword, country, city and duration, and cloning a public itinerary into a private copy that credits the author. Give me the files, tests and step-by-step instructions.
+How the output was used:
+I extracted the generated files into the repo, installed the dependencies, created my .env, and ran the build and the tests. Claude's own tests ran against a local MongoDB, not the shared Atlas database, and against a fake FXRatesAPI server, so I still check the endpoints in Swagger myself. The design stores days, activities and budget entries inside the itinerary document, and a day's number and date are calculated from its position and the start date, so reordering and deleting days cannot leave them inconsistent. Someone else's itinerary answers 404, so ids cannot be probed. The code used a temporary x-dev-user-id header and a small copy of the mock countries and cities until the team's auth and seeded reference data were merged; these are being replaced with the real ones.
+================================================
+================================================
+Date: 2026-11-19
+Student: Abdelrahman khaled 
+Tool: Claude (chat)
+Related Requirement: None (Git workflow, no single requirement ID)
+Prompt:
+Explain how to create a feature branch, make the commits, pull develop, resolve the merge conflicts in README.md, backend/.env.example and backend/src/app.module.ts, and open the pull request.
+How the output was used:
+I followed the commands for the branch, commits and pull. When the pull reported conflicts I did not guess: a teammate and I resolved them, keeping both my lines and my teammates' lines, and I checked that the project still builds.
+================================================
