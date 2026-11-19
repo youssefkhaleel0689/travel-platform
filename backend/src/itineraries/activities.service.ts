@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { MediaTargetType } from '../media/media.constants';
+import { ImageFile, MediaService, UploadedImage } from '../media/media.service';
+import { removeActivityImages } from './activity-images.cleanup';
 import { toDecimal128 } from '../common/money/money';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
 import { CreateActivityDto, UpdateActivityDto } from './dto/activity.dto';
@@ -11,8 +18,16 @@ import {
   findOwnedByChildOrThrow,
   NotFoundError,
 } from './itinerary-lookup';
-import { toActivityView } from './itinerary.view';
-import { Activity, Itinerary } from './schemas/itinerary.schema';
+import { toActivityImageView, toActivityView } from './itinerary.view';
+import {
+  Activity,
+  Itinerary,
+  NOT_DELETED,
+  PUBLICLY_VISIBLE,
+  Visibility,
+} from './schemas/itinerary.schema';
+
+const OBJECT_ID = /^[0-9a-f]{24}$/i;
 
 export const ACTIVITY_NOT_FOUND: NotFoundError = {
   code: 'ACTIVITY_NOT_FOUND',
@@ -26,6 +41,7 @@ export class ActivitiesService {
     private readonly referenceData: ReferenceDataService,
     @InjectModel(Itinerary.name)
     private readonly itineraryModel: Model<Itinerary>,
+    private readonly media: MediaService,
   ) {}
 
   private findOwnedByActivity(user: AuthenticatedUser, activityId: string) {
@@ -102,5 +118,118 @@ export class ActivitiesService {
       day.activities = day.activities.filter((a) => !a._id.equals(oid));
     }
     await doc.save();
+    await removeActivityImages(this.media, [activityId]);
+  }
+
+  // ---------- images (ITN-12, under the shared upload rule GEN-08) ----------
+
+  /**
+   * Stores the file through the shared media store, which checks the type (on
+   * the bytes), the 5 MB size and the 5-image limit, then lists it on the
+   * activity. If the activity was deleted in between, the file is removed again.
+   */
+  async addImage(
+    user: AuthenticatedUser,
+    activityId: string,
+    file: UploadedImage | undefined,
+  ) {
+    const doc = await this.findOwnedByActivity(user, activityId);
+    const stored = await this.media.storeImage({
+      ownerId: user.userId,
+      targetType: MediaTargetType.ACTIVITY,
+      targetId: activityId,
+      file,
+      urlFor: (imageId) => `/api/activities/${activityId}/images/${imageId}`,
+    });
+    const image = {
+      _id: new Types.ObjectId(stored.id),
+      url: stored.url,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      uploadedAt: stored.uploadedAt,
+    };
+    const aid = new Types.ObjectId(activityId);
+    const result = await this.itineraryModel
+      .updateOne(
+        { _id: doc._id, 'days.activities._id': aid },
+        { $push: { 'days.$[].activities.$[a].images': image } },
+        { arrayFilters: [{ 'a._id': aid }] },
+      )
+      .exec();
+    if (result.matchedCount === 0) {
+      await this.media.removeFromTarget(
+        MediaTargetType.ACTIVITY,
+        activityId,
+        stored.id,
+      );
+      throw new NotFoundException(ACTIVITY_NOT_FOUND);
+    }
+    return toActivityImageView(image);
+  }
+
+  async removeImage(
+    user: AuthenticatedUser,
+    activityId: string,
+    imageId: string,
+  ): Promise<void> {
+    const doc = await this.findOwnedByActivity(user, activityId);
+    // 404 IMAGE_NOT_FOUND when this activity has no such image.
+    await this.media.removeFromTarget(
+      MediaTargetType.ACTIVITY,
+      activityId,
+      imageId,
+    );
+    const aid = new Types.ObjectId(activityId);
+    await this.itineraryModel
+      .updateOne(
+        { _id: doc._id },
+        {
+          $pull: {
+            'days.$[].activities.$[a].images': {
+              _id: new Types.ObjectId(imageId),
+            },
+          },
+        },
+        { arrayFilters: [{ 'a._id': aid }] },
+      )
+      .exec();
+  }
+
+  /**
+   * The image file, for whoever may see the itinerary: its owner, or anyone
+   * when it is public and not hidden by moderation. Anything else is the same
+   * 404, so a private itinerary's images cannot be probed.
+   */
+  async openImage(
+    viewer: AuthenticatedUser | undefined,
+    activityId: string,
+    imageId: string,
+  ): Promise<ImageFile> {
+    if (!OBJECT_ID.test(activityId)) {
+      throw new NotFoundException(ACTIVITY_NOT_FOUND);
+    }
+    const mayView: Record<string, unknown>[] = [
+      { visibility: Visibility.PUBLIC, ...PUBLICLY_VISIBLE },
+    ];
+    if (viewer && OBJECT_ID.test(viewer.userId)) {
+      mayView.push({
+        userId: new Types.ObjectId(viewer.userId),
+        ...NOT_DELETED,
+      });
+    }
+    const visible = await this.itineraryModel
+      .exists({
+        'days.activities._id': new Types.ObjectId(activityId),
+        $or: mayView,
+      })
+      .exec();
+    if (!visible) {
+      throw new NotFoundException(ACTIVITY_NOT_FOUND);
+    }
+    return this.media.openForTarget(
+      MediaTargetType.ACTIVITY,
+      activityId,
+      imageId,
+    );
   }
 }

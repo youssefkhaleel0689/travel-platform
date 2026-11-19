@@ -26,6 +26,27 @@ export enum TransportMode {
   OTHER = 'other',
 }
 
+// ITN-12: an image attached to an activity. The file and its metadata live in the
+// shared media store (GEN-08, MediaService); this copy of its id and URL lets every
+// itinerary view list the images without another query. _id is the media id.
+@Schema({ _id: true })
+export class ActivityImage {
+  _id: Types.ObjectId;
+
+  @Prop({ required: true })
+  url: string;
+
+  @Prop({ required: true })
+  mimeType: string;
+
+  @Prop({ required: true, min: 0 })
+  sizeBytes: number;
+
+  @Prop({ type: Date, required: true })
+  uploadedAt: Date;
+}
+export const ActivityImageSchema = SchemaFactory.createForClass(ActivityImage);
+
 @Schema({ _id: true })
 export class Activity {
   _id: Types.ObjectId;
@@ -46,6 +67,10 @@ export class Activity {
 
   @Prop({ uppercase: true, length: 3 })
   currency?: string;
+
+  // ITN-12: at most 5 (GEN-08); the media store enforces the limit.
+  @Prop({ type: [ActivityImageSchema], default: [] })
+  images: ActivityImage[];
 }
 export const ActivitySchema = SchemaFactory.createForClass(Activity);
 
