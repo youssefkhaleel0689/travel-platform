@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { CancellationTierDto } from './cancellation-policy.dto';
+import { AirlineCancellationTierDto } from './cancellation-policy.dto';
 
 // Response of the policy endpoints (FLT-08, FLT-09). A part that has not been defined yet
 // is null (baggage) or an empty list (tiers).
@@ -26,10 +26,10 @@ export class AirlinePolicyDto {
   maxExtraBagsPerPassenger: number | null;
 
   @ApiProperty({
-    type: [CancellationTierDto],
+    type: [AirlineCancellationTierDto],
     description: 'Sorted by daysBeforeDeparture, highest first.',
   })
-  cancellationTiers: CancellationTierDto[];
+  cancellationTiers: AirlineCancellationTierDto[];
 
   @ApiProperty({ example: 1, description: 'Goes up by 1 on every change.' })
   version: number;
