@@ -11,6 +11,12 @@ import { oid, rethrowDuplicate } from '../common/mongo';
 import { PageDto, PageMetaDto } from '../common/pagination/dto/page.dto';
 import { PAGE_SIZE } from '../common/pagination/pagination.constants';
 import { todayUtc } from '../common/dates';
+import {
+  applyModeration,
+  ModeratedContent,
+  ModerationResult,
+} from '../common/moderation/content-moderation.port';
+import { ModerationState } from '../common/moderation/moderation-state';
 
 @Injectable()
 export class ReviewsService {
@@ -136,6 +142,37 @@ export class ReviewsService {
       ])
       .exec();
     return { ratingAverage: row ? Math.round(row.avg * 100) / 100 : 0, ratingCount: row ? row.count : 0 };
+  }
+
+  /**
+   * GEN-09, GEN-10 (D2): a review as moderation sees it, in any state. Added
+   * so the moderation module never reads the reviews collection itself.
+   */
+  async findForModeration(id: string): Promise<ModeratedContent | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const review = await this.reviewModel.findById(id).lean().exec();
+    if (!review) return null;
+    return {
+      id,
+      ownerId: String(review.userId),
+      moderationState: review.moderationState as unknown as ModerationState,
+      reportable: review.moderationState === ReviewModerationState.VISIBLE,
+      preview: review.comment?.slice(0, 120) || `Rating ${review.rating}/5`,
+    };
+  }
+
+  /**
+   * GEN-10 (D2): hide, restore or delete a review on an admin's decision, then
+   * recompute the hotel's rating, because only VISIBLE reviews count (HTL-24).
+   * Deleting is soft: the row keeps moderationState DELETED.
+   */
+  async moderate(id: string, to: ModerationState, actorId: string): Promise<ModerationResult | null> {
+    const result = await applyModeration(this.reviewModel as never, id, to, actorId);
+    if (result?.changed) {
+      const review = await this.reviewModel.findById(id).select('hotelId').lean().exec();
+      if (review) await this.recalculateHotelRating(review.hotelId);
+    }
+    return result;
   }
 
   /**

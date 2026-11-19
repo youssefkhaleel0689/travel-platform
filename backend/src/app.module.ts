@@ -4,6 +4,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AdministrationModule } from './administration/administration.module';
+import { AuditModule } from './audit/audit.module';
+import { BlogModule } from './blog/blog.module';
+import { ModerationModule } from './moderation/moderation.module';
 import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
@@ -56,6 +59,10 @@ import { ReviewsModule } from './reviews/reviews.module';
     AdministrationModule,
     PaymentsModule,
     ItinerariesModule,
+    AuditModule,
+    BlogModule,
+    // D2: reports and admin moderation (GEN-09, GEN-10).
+    ModerationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

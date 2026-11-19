@@ -8,6 +8,8 @@ import {
   NotificationType,
 } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditAction, AuditEntityType } from '../audit/audit-action.enum';
+import { AuditService } from '../audit/audit.service';
 import { AdminAccountDto } from './dto/admin-account.dto';
 import { TemporaryPasswordDto } from './dto/temporary-password.dto';
 
@@ -26,6 +28,7 @@ export class AdminAccountsService {
     private readonly users: UsersService,
     private readonly sessions: SessionsService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   /** ACC-14: paginated, searchable, filterable list of every account. */
@@ -81,6 +84,14 @@ export class AdminAccountsService {
         resourceType: NotificationResourceType.ACCOUNT,
         resourceId: updated.id,
       });
+      await this.audit.record({
+        actorId,
+        action: AuditAction.ACCOUNT_SUSPENDED,
+        entityType: AuditEntityType.ACCOUNT,
+        entityId: updated.id,
+        before: { status: target.status },
+        after: { status: updated.status },
+      });
       return AdminAccountDto.from(updated);
     }
 
@@ -112,6 +123,16 @@ export class AdminAccountsService {
     }
 
     const updated = await this.users.setStatus(targetUserId, UserStatus.ACTIVE);
+    if (updated) {
+      await this.audit.record({
+        actorId,
+        action: AuditAction.ACCOUNT_REACTIVATED,
+        entityType: AuditEntityType.ACCOUNT,
+        entityId: updated.id,
+        before: { status: target.status },
+        after: { status: updated.status },
+      });
+    }
 
     return AdminAccountDto.from(updated ?? target);
   }
@@ -134,6 +155,13 @@ export class AdminAccountsService {
     // tokens issued before the reset, and the temporary password would not be
     // the only way back in.
     await this.sessions.revokeAllSessions(profile.id);
+    await this.audit.record({
+      actorId,
+      action: AuditAction.ACCOUNT_PASSWORD_RESET,
+      entityType: AuditEntityType.ACCOUNT,
+      entityId: profile.id,
+      after: { mustChangePassword: true },
+    });
 
     const dto = new TemporaryPasswordDto();
     dto.userId = profile.id;

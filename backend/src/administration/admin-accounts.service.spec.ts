@@ -9,6 +9,8 @@ import { SessionsService } from '../auth/sessions/sessions.service';
 import { UsersService } from '../auth/users/users.service';
 import { NotificationType } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditAction, AuditEntityType } from '../audit/audit-action.enum';
+import { AuditService } from '../audit/audit.service';
 import { AdminAccountsService } from './admin-accounts.service';
 
 describe('AdminAccountsService', () => {
@@ -26,6 +28,7 @@ describe('AdminAccountsService', () => {
   >;
   let sessions: jest.Mocked<Pick<SessionsService, 'revokeAllSessions'>>;
   let notifications: jest.Mocked<Pick<NotificationsService, 'notify'>>;
+  let audit: jest.Mocked<Pick<AuditService, 'record'>>;
   let service: AdminAccountsService;
 
   function account(overrides: Record<string, unknown> = {}) {
@@ -57,11 +60,13 @@ describe('AdminAccountsService', () => {
     };
     sessions = { revokeAllSessions: jest.fn().mockResolvedValue(1) };
     notifications = { notify: jest.fn().mockResolvedValue(undefined) };
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
 
     service = new AdminAccountsService(
       users as unknown as UsersService,
       sessions as unknown as SessionsService,
       notifications as unknown as NotificationsService,
+      audit as unknown as AuditService,
     );
   });
 
@@ -116,6 +121,23 @@ describe('AdminAccountsService', () => {
       expect(result.status).toBe(UserStatus.SUSPENDED);
     });
 
+    it('writes the suspension to the audit log (GEN-07)', async () => {
+      users.setStatus.mockResolvedValue(
+        account({ status: UserStatus.SUSPENDED }) as never,
+      );
+
+      await service.suspend(ADMIN_ID, TARGET_ID);
+
+      expect(audit.record).toHaveBeenCalledWith({
+        actorId: ADMIN_ID,
+        action: AuditAction.ACCOUNT_SUSPENDED,
+        entityType: AuditEntityType.ACCOUNT,
+        entityId: TARGET_ID,
+        before: { status: UserStatus.ACTIVE },
+        after: { status: UserStatus.SUSPENDED },
+      });
+    });
+
     it('ends every session of the suspended account (ACC-06)', async () => {
       users.setStatus.mockResolvedValue(
         account({ status: UserStatus.SUSPENDED }) as never,
@@ -139,6 +161,7 @@ describe('AdminAccountsService', () => {
 
       expect(result.status).toBe(UserStatus.SUSPENDED);
       expect(notifications.notify).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
       // Sessions are still revoked: one that somehow outlived the first
       // suspension should not outlive this one either.
       expect(sessions.revokeAllSessions).toHaveBeenCalledWith(TARGET_ID);
@@ -202,6 +225,13 @@ describe('AdminAccountsService', () => {
         UserStatus.ACTIVE,
       );
       expect(result.status).toBe(UserStatus.ACTIVE);
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.ACCOUNT_REACTIVATED,
+          before: { status: UserStatus.SUSPENDED },
+          after: { status: UserStatus.ACTIVE },
+        }),
+      );
     });
 
     // ACC-12 is the owner's decision, so an admin does not undo it.
