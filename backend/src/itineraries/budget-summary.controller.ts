@@ -3,7 +3,7 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { BudgetSummaryQueryDto } from './dto/budget-summary-query.dto';
-import { BudgetSummaryDto } from './dto/budget-summary-response.dto';
+import { OwnerBudgetSummaryDto } from './dto/booking-link.dto';
 import { ItineraryBudgetSummaryService } from './itinerary-budget-summary.service';
 import {
   ApiErrorResponse,
@@ -27,11 +27,12 @@ export class BudgetSummaryController {
   @Get(':id/budget-summary')
   @ApiOperation({
     summary:
-      'Budget totals by category, day and city, converted to one currency (ITN-14, ITN-18)',
+      'Budget totals by category, day and city, converted to one currency (ITN-14, ITN-18, ITN-27)',
     description:
-      'Exchange rates come from FXRatesAPI through the backend only, cached once a day; when the API is down the last cached rates are used and ratesStale is true.',
+      'Exchange rates come from FXRatesAPI through the backend only, cached once a day; when the API is down the last cached rates are used and ratesStale is true. ' +
+      'linkedBookings lists the bookings linked to days (ITN-27) in the platform currency, because booking prices are never converted; totalWithBookings adds them when the display currency is that same currency.',
   })
-  @ApiOkResponse({ type: BudgetSummaryDto })
+  @ApiOkResponse({ type: OwnerBudgetSummaryDto })
   @ApiErrorResponse(
     badRequestError(
       `${SUMMARY_PATH}?currency=EURO`,

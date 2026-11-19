@@ -354,7 +354,7 @@ Feature modules:
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
 | `blog` | Posts, comments, likes, tags, author pages |
-| `administration` | Moderator accounts, account suspension, provider deactivation (ACC-15) |
+| `administration` | Moderator accounts, account suspension |
 | `media` | The shared image-upload service (GEN-08) |
 | `audit` | The append-only admin audit log (GEN-07) |
 | `moderation` | Content reports and admin moderation (GEN-09, GEN-10) |
@@ -1075,6 +1075,50 @@ The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the r
 
 The unit tests are next to the code. `test/itinerary-flights.e2e-spec.ts` creates its itineraries through D1's own endpoints and checks the defaults, a round trip, chosen dates, the 404, the 400 and the 409 on the shared database. It creates one airline named "KE e2e itinerary flights" with an unused two-digit IATA code from 70 up, flights numbered `KE8xxx` in March 2099 and `test_c2_` accounts with their itineraries, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-flights`.
 
+## Itinerary extras: activity images (ITN-12), hotels for a city group (ITN-25), linked bookings (ITN-27)
+
+All three sit under the itinerary routes with D1's auth and ownership answers: another account's itinerary, activity or day is the same 404 as a missing one (ACC-11).
+
+### Activity images (ITN-12)
+
+| Method | Path | Who |
+| --- | --- | --- |
+| POST | `/api/activities/:id/images` | The itinerary's owner. Multipart, field `file` |
+| GET | `/api/activities/:id/images/:imageId` | The owner, and anyone when the itinerary is public and not hidden by moderation |
+| DELETE | `/api/activities/:id/images/:imageId` | The owner |
+
+- The file goes through the shared media store (`MediaService`, GEN-08), so the rules are the same as for blog images: JPG or PNG checked on the bytes, 5 MB, at most 5 per activity (409 `IMAGE_LIMIT_REACHED`).
+- Each activity lists its images (`id`, `url`, `mimeType`, `sizeBytes`, `uploadedAt`) in every itinerary view, public ones included.
+- Deleting an activity, a day or an itinerary also deletes the stored files. A clone starts without images, so it never shares a file with the original.
+
+### Hotels for a city group (ITN-25)
+
+`GET /api/itineraries/:id/hotels?group=1&guestCount=2` searches hotels for one city group (the `cityGroups` of the itinerary, ITN-09). It lives in `src/itineraries/itinerary-hotels/` (its own `ItineraryHotelsModule`, like ITN-26) and calls hotel search's `HotelSearchService.search` unchanged.
+
+- The stay is the group's dates: check-in on its first day, check-out the day after its last day. `group` is the group's number (1 = first).
+- `guestCount`, `roomCount`, `minPricePerNight`, `maxPricePerNight`, `minAverageRating`, `sortBy`, `sortOrder` and `page` are hotel search's own fields, with its rules and defaults.
+
+| Case | Result |
+| --- | --- |
+| The itinerary has no day yet | 409 `ITINERARY_HAS_NO_DAYS` |
+| `group` is larger than the number of city groups | 400 `INVALID_CITY_GROUP` on `group` |
+| The group's first day is in the past | 400, from hotel search |
+
+### Linked bookings (ITN-27, bonus)
+
+| Method | Path | What |
+| --- | --- | --- |
+| POST | `/api/itineraries/:id/bookings` | Link `{ bookingType, bookingId, dayId }` |
+| GET | `/api/itineraries/:id/bookings` | The links in day order, with each booking read live |
+| DELETE | `/api/itineraries/:id/bookings/:linkId` | Unlink. The booking itself is not changed |
+
+- Only your own `CONFIRMED` or `COMPLETED` bookings, each at most once per itinerary (409 `BOOKING_NOT_CONFIRMED`, 409 `BOOKING_ALREADY_LINKED`; someone else's booking is 404 `BOOKING_NOT_FOUND`).
+- Bookings are read through the shared `BookingsGateway` (GEN-11), like payments read them; only the ids are stored, so a later cancellation shows up and the booking stops counting.
+- The owner's `GET /api/itineraries/:id/budget-summary` adds `linkedBookings` (always in the platform currency, USD: booking prices are never converted, ITN-18 and PAY-04) and `totalWithBookings`, which is the budget total plus the bookings when the display currency is USD and `null` otherwise.
+- Links are private: they are not on public views or public summaries, and a clone never copies them. Deleting a day drops its links.
+
+Tests: `test/itinerary-images.e2e-spec.ts`, `test/itinerary-hotels.e2e-spec.ts` and `test/itinerary-bookings.e2e-spec.ts` write only `test_c2_` accounts, their itineraries and their images, and delete exactly those. The bookings test stubs `BookingsGateway`, so it creates no booking or payment. Run them with `npm run test:e2e -- itinerary-`.
+
 ## Flight details (FLT-17)
 
 `GET /api/flights/:id` is public, like search, so a guest can open the details page from a search result. It returns:
@@ -1307,37 +1351,6 @@ on top of the `HotelsService` that `HotelsModule` exports. A provider type whose
 module is not wired would answer **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of
 the app refusing to start.
 
-## Provider deactivation (ACC-15)
-
-ACC-15 has two halves. The moderator-account half is `PATCH /api/admin/accounts/:id/suspend` and `/reactivate` (see "Account management"). This is the provider half: an admin deactivates or reactivates a hotel or an airline.
-
-| Endpoint | Notes |
-| --- | --- |
-| `PATCH /api/admin/providers/:type/:id/deactivate` | `ACTIVE` -> `DEACTIVATED`, sets `deactivatedAt` |
-| `PATCH /api/admin/providers/:type/:id/reactivate` | `DEACTIVATED` -> `ACTIVE`, clears `deactivatedAt` |
-
-`:type` is `hotel` or `airline`. Both endpoints are admin-only and answer `{ type, id, name, status, deactivatedAt, notifiedUsers }`.
-
-| Status | `code` | When |
-| --- | --- | --- |
-| 400 | `VALIDATION_FAILED` | `:type` is not `hotel` or `airline` (field error on `type`) |
-| 404 | `HOTEL_NOT_FOUND` / `AIRLINE_NOT_FOUND` | No such provider, or a malformed id (same answer, ACC-11) |
-| 409 | `HOTEL_ALREADY_DEACTIVATED` / `AIRLINE_ALREADY_DEACTIVATED` | Deactivating twice |
-| 409 | `HOTEL_ALREADY_ACTIVE` / `AIRLINE_ALREADY_ACTIVE` | Reactivating an active provider |
-
-What happens, in this order:
-
-1. The status changes through the owner's own service (`HotelsService.deactivate` / `reactivate`, `AirlinesService.deactivate` / `reactivate`), in one conditional update, so two admins cannot both succeed. Administration never touches the `hotels` or `airlines` collection.
-2. The audit log gets `PROVIDER_DEACTIVATED` or `PROVIDER_REACTIVATED`, entity `HOTEL` or `AIRLINE`, with `before` and `after` `{ status }` (GEN-07).
-3. In-app notifications (GEN-01) go to the provider's moderators and to every user with an upcoming `CONFIRMED` booking with it: a hotel stay that has not checked out, or a flight of that airline that has not departed. Deactivation uses `PROVIDER_SUSPENDED`, reactivation `PROVIDER_REACTIVATED`. Users are told their confirmed booking remains valid. `notifiedUsers` is how many accounts were sent one.
-
-Rules:
-
-- **Confirmed bookings stay valid.** Nothing is written to a booking. The users to notify come from read-only methods: `HotelBookingsService.findUserIdsWithUpcomingConfirmedStays` and `FlightBookingsService.findUserIdsWithUpcomingConfirmedFlights` (exported by `FlightBookingsModule` for this one caller).
-- **Hiding is already done by the status.** Flight search, flight details and flight holds only use `ACTIVE` airlines; hotel search, the public hotel profile and hotel holds only use `ACTIVE` hotels (`findActiveByCityOrCountry`, `getActiveHotelOrThrow`). ACC-15 adds no new check to them.
-- **The status change is the source of truth.** If finding the users or notifying them fails, a warning is logged and the answer is still 200 (with `notifiedUsers: 0`).
-- `test/admin-providers.e2e-spec.ts` covers the whole flow on the shared database, with its own airline, hotel, moderators and bookings, and deletes them afterwards.
-
 ## Notifications (GEN-01)
 
 `GET /api/notifications` (paginated, `?unreadOnly=true`), `GET /api/notifications/unread-count`, `PATCH /api/notifications/:id/read` and `PATCH /api/notifications/read-all`. Every route works on the account in the cookie.
@@ -1551,7 +1564,7 @@ Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPL
 
 ## Audit log (GEN-07)
 
-`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation, provider deactivation and reactivation (ACC-15) and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
+`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
 
 ~~~
 await this.audit.record({

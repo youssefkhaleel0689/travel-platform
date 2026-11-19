@@ -18,6 +18,7 @@ import {
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { CreateActivityDto, UpdateActivityDto } from './dto/activity.dto';
+import { ActivityImageDto } from './dto/activity-image.dto';
 import { ActivitiesService } from './activities.service';
 import {
   ApiErrorResponse,
@@ -50,6 +51,12 @@ class ActivityDto {
   cost: string | null;
   @ApiProperty({ nullable: true, example: 'EUR', type: String })
   currency: string | null;
+  @ApiProperty({
+    type: [ActivityImageDto],
+    description:
+      'Up to 5 images (ITN-12). Add them with POST /api/activities/{id}/images',
+  })
+  images: ActivityImageDto[];
 }
 
 const CREATE_PATH = `${ITINERARY_PATH}/days/${EXAMPLE_DAY_ID}/activities`;

@@ -4,6 +4,10 @@ import {
   MODERATION_STATES,
   ModerationState,
 } from '../../common/moderation/moderation-state';
+import {
+  BOOKING_TYPES,
+  BookingType,
+} from '../../common/bookings/booking-status';
 
 export enum Visibility {
   PRIVATE = 'private',
@@ -26,6 +30,27 @@ export enum TransportMode {
   OTHER = 'other',
 }
 
+// ITN-12: an image attached to an activity. The file and its metadata live in the
+// shared media store (GEN-08, MediaService); this copy of its id and URL lets every
+// itinerary view list the images without another query. _id is the media id.
+@Schema({ _id: true })
+export class ActivityImage {
+  _id: Types.ObjectId;
+
+  @Prop({ required: true })
+  url: string;
+
+  @Prop({ required: true })
+  mimeType: string;
+
+  @Prop({ required: true, min: 0 })
+  sizeBytes: number;
+
+  @Prop({ type: Date, required: true })
+  uploadedAt: Date;
+}
+export const ActivityImageSchema = SchemaFactory.createForClass(ActivityImage);
+
 @Schema({ _id: true })
 export class Activity {
   _id: Types.ObjectId;
@@ -46,6 +71,10 @@ export class Activity {
 
   @Prop({ uppercase: true, length: 3 })
   currency?: string;
+
+  // ITN-12: at most 5 (GEN-08); the media store enforces the limit.
+  @Prop({ type: [ActivityImageSchema], default: [] })
+  images: ActivityImage[];
 }
 export const ActivitySchema = SchemaFactory.createForClass(Activity);
 
@@ -109,6 +138,27 @@ export class TransportCost {
 }
 export const TransportCostSchema = SchemaFactory.createForClass(TransportCost);
 
+// ITN-27 (bonus): one of the owner's own flight or hotel bookings, linked to a day.
+// Only the ids are kept: status, reference and price are read from the booking
+// itself, so a later cancellation or refund is never out of date here.
+@Schema({ _id: true })
+export class BookingLink {
+  _id: Types.ObjectId;
+
+  @Prop({ type: String, enum: BOOKING_TYPES, required: true })
+  bookingType: BookingType;
+
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  bookingId: Types.ObjectId;
+
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  dayId: Types.ObjectId;
+
+  @Prop({ type: Date, required: true })
+  linkedAt: Date;
+}
+export const BookingLinkSchema = SchemaFactory.createForClass(BookingLink);
+
 @Schema({ _id: false })
 export class ClonedFrom {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Itinerary', required: true })
@@ -152,6 +202,10 @@ export class Itinerary {
 
   @Prop({ type: ClonedFromSchema })
   clonedFrom?: ClonedFrom;
+
+  // ITN-27: private to the owner. Never shown on public views, never cloned.
+  @Prop({ type: [BookingLinkSchema], default: [] })
+  bookingLinks: BookingLink[];
 
   // GEN-10: set by admin moderation. Itineraries saved before this field
   // existed have no value, so queries treat a missing state as VISIBLE.

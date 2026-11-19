@@ -1043,3 +1043,13 @@ Implement ITN-25: GET /api/itineraries/:id/hotels lets a user pick a city group 
 How the output was used:
 I wrote the specification: the route, the query fields, the error codes, that the groups must come from the same groupConsecutiveDays call GET /api/itineraries/:id uses so the numbering matches what the user sees, and that a check-in in the past keeps hotel search's own 400. The AI generated ItineraryHotelsModule (controller, service, query and response DTOs, the dayAfter helper) and the tests. The query DTO is built from HotelSearchDto with OmitType, so guestCount, roomCount, the filters, the sort enums and their validation are search's own, not copies. Hotel search has no response DTO, so the AI added uniquely named ones for this route. Giza is not a seeded city, so the e2e itinerary uses cairo, cairo, dubai instead of cairo, cairo, giza. Verified: tsc --noEmit clean, lint with only the 7 warnings already in teammates' files, unit tests 109 suites and 1615 tests, the itinerary-hotels e2e (8 tests) and swagger-docs e2e pass. I read the generated report and test results, then the team leader reviewed the diff on GitHub before merging.
 ================================================
+================================================
+Date: 2026-11-19
+Student: Abdelrahman khaled
+Tool: Claude (chat)
+Related Requirement: ITN-12, ITN-25, ITN-27
+Prompt:
+Implement the remaining itinerary requirements on the current develop branch: activity images using the shared media upload (GEN-08), hotel search for an itinerary city group reusing hotel search (HTL-11), and the bonus of linking booked flights and hotels to itinerary days so they feed the budget. Include tests and step-by-step git instructions.
+How the output was used:
+Extracted the generated files into the repo and ran the build and the tests before committing. Claude found ITN-26 was already implemented by a teammate, so it was not redone. Claude ran the team's full e2e suite on a local database; the shared Atlas database and the live FXRatesAPI were not used, so I checked the new endpoints in Swagger myself. Linked booking prices stay in USD and are not converted (ITN-18, PAY-04).
+================================================

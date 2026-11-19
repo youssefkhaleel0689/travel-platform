@@ -12,11 +12,11 @@ import { ReferenceDataModule } from './common/reference-data/reference-data.modu
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
 import { FlightsModule } from './flights/flights.module';
 import { ItineraryFlightsModule } from './flights/itinerary-flights/itinerary-flights.module';
+import { ItineraryHotelsModule } from './itineraries/itinerary-hotels/itinerary-hotels.module';
 import { HotelsModule } from './hotels/hotels.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ItinerariesModule } from './itineraries/itineraries.module';
-import { ItineraryHotelsModule } from './itineraries/itinerary-hotels/itinerary-hotels.module';
 
 // B2 (Hotel side) — feature modules live flat in src/.
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
@@ -63,7 +63,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     ItinerariesModule,
     // ITN-26: flight search from an itinerary (needs FlightsModule and ItinerariesModule).
     ItineraryFlightsModule,
-    // ITN-25: hotel search from an itinerary's city group (needs HotelSearchModule and ItinerariesModule).
+    // ITN-25: hotel search for a city group (needs HotelSearchModule and ItinerariesModule).
     ItineraryHotelsModule,
     AuditModule,
     BlogModule,

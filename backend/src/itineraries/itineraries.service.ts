@@ -10,6 +10,8 @@ import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { paginateQuery } from '../common/pagination/paginate';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
+import { MediaService } from '../media/media.service';
+import { removeActivityImages } from './activity-images.cleanup';
 import { CreateItineraryDto } from './dto/create-itinerary.dto';
 import { UpdateItineraryDto } from './dto/update-itinerary.dto';
 import { SetVisibilityDto } from './dto/set-visibility.dto';
@@ -33,6 +35,7 @@ export class ItinerariesService {
     @InjectModel(Itinerary.name)
     private readonly itineraryModel: Model<Itinerary>,
     private readonly referenceData: ReferenceDataService,
+    private readonly media: MediaService,
   ) {}
 
   /** True for a 24-hex id; anything else can never match a document. */
@@ -117,7 +120,13 @@ export class ItinerariesService {
   // so they stay untouched.
   async remove(user: AuthenticatedUser, id: string): Promise<void> {
     const doc = await this.findOwnedOrThrow(user, id);
+    const activityIds = doc.days.flatMap((d) =>
+      d.activities.map((a) => a._id.toString()),
+    );
     await doc.deleteOne();
+    // ITN-12: the activities' stored images go too. A clone has its own
+    // activities (and starts without images), so it is not affected.
+    await removeActivityImages(this.media, activityIds);
   }
 
   // ITN-20
