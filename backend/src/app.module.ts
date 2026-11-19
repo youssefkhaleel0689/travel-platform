@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AdministrationModule } from './administration/administration.module';
+import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
@@ -59,6 +60,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     ItinerariesModule,
     // ITN-26: flight search from an itinerary (needs FlightsModule and ItinerariesModule).
     ItineraryFlightsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [AppService],

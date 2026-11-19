@@ -978,3 +978,12 @@ Build ITN-26 on top of D1's merged itineraries and my flight search: flights fro
 How the output was used:
 I kept it a flights endpoint under /itineraries, in its own module so flights and itineraries do not import each other, and reused D1's findOwnedOrThrow and dateOfDay instead of reading itineraries myself. Search legs now take several departure airports so the return flies back from any airport of the city; I added listAirportIdsInCity to the reference data. An origin inside the destination city is refused. Verified: tsc, build and lint clean; 1346 unit and 402 e2e tests pass.
 ================================================
+Date: 2026-11-18
+Student: Fares El-Sonbaty
+Tool: Claude (chat, with push access to my fork)
+Related Requirement: GEN-08 (image uploads), GEN-07 (audit log); branch feature/GEN-07-08-image-uploads-and-audit-log-d2
+Prompt:
+Read the team chat, the playbook, the reviewed requirements and the schema PDF, and implement my D2 part on my fork. Rebuild it on the latest develop instead of my old branches, reuse teammates' services (UsersService, the admin services) instead of re-implementing them, follow the README conventions (SchemaTypes.ObjectId, pinned collection names, ApiErrorResponse, pagination, ownership) and split the work into a few branches with meaningful commits. Start with the shared pieces others wait for: the image-upload service and the audit log.
+How the output was used:
+I chose to start again from develop because my nine old branches were 160 commits behind and built before sessions, ownership helpers and HotelsService existed. The upload type is decided from the file's signature, not its name; the per-target limit is guaranteed by numbered slots under a unique index, which I can explain as the answer to two uploads at once. The audit log is append-only through schema hooks, and record() never throws, like notify(). Three read-only methods were added to UsersService (author names, name search, ids by status) so D2 never reads the users collection; the admin services now write audit rows after suspend, reactivate, reset and moderator creation. Verified with tsc --noEmit (clean) on every branch; build, lint, unit and e2e results are in the PR.
+================================================
