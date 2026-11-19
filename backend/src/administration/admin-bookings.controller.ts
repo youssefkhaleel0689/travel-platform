@@ -37,7 +37,10 @@ export class AdminBookingsController {
     description:
       'Pages of 10, newest booking first (GEN-05). Flight bookings and hotel ' +
       'reservations live in two collections owned by two modules; both are ' +
-      'read through the shared BookingsPort and merged into one page. type, ' +
+      'read through the shared BookingsPort and merged into one page. A ' +
+      'booking type appears here once the module that owns it implements the ' +
+      'optional listForAdmin on that port; until then its bookings are simply ' +
+      'absent and this route still answers a page, never a 501. type, ' +
       'status, the from/to day range (the day each booking was made, in UTC) ' +
       'and the exact booking reference narrow the list. Read-only: a booking ' +
       'is cancelled through the module that owns it.',

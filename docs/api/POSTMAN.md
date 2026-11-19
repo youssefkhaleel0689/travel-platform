@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 91 requests in 12 folders, 208 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 91 requests in 12 folders, 210 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -183,22 +183,25 @@ That is deliberate — a clear 501 rather than a 500 that looks like a bug in
 payments. The collection asserts the 501 so a run stays green; each request's
 description says what to change when A1 or B2 wires its port in.
 
-### Folder 65 on a database with no bookings
+### Folder 65 and the optional port method
 
 The admin list is the one C2 endpoint whose rows come from somebody else's
 collections: flight bookings (A1) and hotel reservations (B2), read through
 `BookingsPort` and merged into one page, newest first.
 
-Unlike folders 70 to 90 it never answers 501. A booking module that is not
-wired in has no bookings to report, so it is skipped: an admin list must not
-break because a module is still being built. That means the folder's
-assertions are about the shape and the filters, not about particular rows, and
-it runs green on an empty database - request 05 logs a line to the Postman
-console when it finds no bookings at all.
+`listForAdmin` is **optional** on that port, and neither shipped adapter
+implements it yet, so **today every request in folder 65 returns an empty
+page** - and that is what the folder asserts. The route still answers `200`
+with the GEN-05 `meta`, never a 501: a module that cannot list yet has no
+bookings to report, and an admin list must not break because a module is still
+being built.
 
-To see real rows, make a booking first (the A1 or B2 collections do it end to
-end), then run folder 65 again, or put that booking's reference into request
-10. The rows this folder reads are never changed by it: ACC-17 is read-only,
+Rows appear as soon as A1 or B2 implements `listForAdmin` (the contract is in
+the README under "Booking lifecycle and the BookingsPort"). The folder is
+written for that day too: its shape and filter assertions run over whatever
+rows come back, so nothing in it needs changing then - only the "empty today"
+assertion in request 05 will start failing, and that is the signal to delete
+it. The rows this folder reads are never changed by it: ACC-17 is read-only,
 and a booking is cancelled through the module that owns it.
 
 ## 6. Driving the webhook for real

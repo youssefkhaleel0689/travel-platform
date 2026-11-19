@@ -2670,7 +2670,7 @@
     },
     {
       "name": "65 Admin bookings (ACC-17)",
-      "description": "The admin's read-only list of every flight booking and hotel reservation, filterable by type, status, the days the bookings were made and the booking reference.\n\nThe rows come from two collections owned by two other modules, read through the shared BookingsPort and merged into one page. The folder asserts the row shape and the filters rather than particular bookings, so it runs green on an empty database and shows real rows once A1 or B2 bookings exist.\n\nRequest 04 signs in as the admin, so the jar now holds the admin cookie: sign in again with folder 20 request 02 before going back to folders 20 to 40.",
+      "description": "The admin's read-only list of every flight booking and hotel reservation, filterable by type, status, the days the bookings were made and the booking reference.\n\nThe rows come from two collections owned by two other modules, read through the shared BookingsPort and merged into one page. listForAdmin is OPTIONAL on that port and neither shipped adapter implements it yet, so every request here returns an empty page today - with 200 and the GEN-05 meta, never a 501. That is what request 05 asserts. Rows appear as soon as A1 or B2 implements listForAdmin; the shape and filter assertions are written to run over whatever comes back, so only the \"empty today\" check needs deleting then.\n\nRequest 04 signs in as the admin, so the jar now holds the admin cookie: sign in again with folder 20 request 02 before going back to folders 20 to 40.",
       "item": [
         {
           "name": "01 Register the traveller this folder uses",
@@ -2854,7 +2854,7 @@
                 "bookings"
               ]
             },
-            "description": "Every flight booking and hotel reservation on the platform, newest first, 10 per page. The two collections belong to other modules and are read through the shared BookingsPort, then merged here."
+            "description": "Every flight booking and hotel reservation on the platform, newest first, 10 per page. Both collections belong to other modules and are read through the shared BookingsPort. While no shipped port implements the optional listForAdmin the page is empty, which is the first assertion below; the shape assertions after it are what will check the rows once A1 or B2 implements it."
           },
           "event": [
             {
@@ -2863,6 +2863,16 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "// A module that cannot list yet is skipped, not an error: this route",
+                  "// answers a page whatever the booking modules have implemented.",
+                  "pm.test('a page, never 501', () => {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.json()).to.have.property('items');",
+                  "});",
+                  "// Delete this one when A1 or B2 implements listForAdmin: its failing is",
+                  "// the signal that real bookings now reach the list.",
+                  "pm.test('empty while no port implements listForAdmin', () =>",
+                  "  pm.expect(pm.response.json().meta.totalItems).to.eql(0));",
                   "const page = pm.response.json();",
                   "pm.test('a page of 10 with the GEN-05 meta', () => {",
                   "  pm.expect(page.meta.pageSize).to.eql(10);",
@@ -2896,12 +2906,7 @@
                   "pm.test('newest booking first', () => {",
                   "  const times = page.items.map((row) => Date.parse(row.bookedAt));",
                   "  pm.expect(times).to.eql([...times].sort((a, b) => b - a));",
-                  "});",
-                  "if (page.items.length === 0) {",
-                  "  console.log(",
-                  "    'No bookings on this database yet: the shape assertions above passed trivially. Make a booking (A1 or B2 folders) to see rows here.',",
-                  "  );",
-                  "}"
+                  "});"
                 ]
               }
             }
@@ -2928,7 +2933,7 @@
                 }
               ]
             },
-            "description": "The flights module is asked on its own; the hotels module is not called at all."
+            "description": "The flights module is asked on its own; the hotels module is not called at all. Empty until A1 implements listForAdmin."
           },
           "event": [
             {
@@ -2966,7 +2971,7 @@
                 }
               ]
             },
-            "description": "The same list from the other module, in the same row shape."
+            "description": "The same list from the other module, in the same row shape. Empty until B2 implements listForAdmin."
           },
           "event": [
             {
