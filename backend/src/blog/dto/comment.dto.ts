@@ -6,7 +6,6 @@ import { trimText } from '../../common/validation/text-transforms';
 import { COMMENT_MAX_LENGTH } from '../blog.constants';
 import { AuthorBriefDto } from './author-brief.dto';
 
-/** BLG-05 and BLG-07: the same rule for writing and editing. */
 export class CommentBodyDto {
   @ApiProperty({
     example: 'Great tips! Did you need a guide inside the tombs?',

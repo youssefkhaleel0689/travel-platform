@@ -23,7 +23,6 @@ export class PostImageDto {
   sizeBytes: number;
 }
 
-/** One row of the public list, search, tag page and author page (BLG-02, BLG-09). */
 export class PostSummaryDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   id: string;
@@ -56,7 +55,6 @@ export class PostSummaryDto {
   publishedAt: string;
 }
 
-/** BLG-03: one of your own posts, drafts and hidden ones included. */
 export class MyPostDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   id: string;
@@ -102,7 +100,6 @@ export class CommentPageDto {
   meta: PageMetaDto;
 }
 
-/** BLG-02: the post page. */
 export class PostDetailDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   id: string;
@@ -161,7 +158,6 @@ export class PostDetailDto {
   comments: CommentPageDto;
 }
 
-/** BLG-06: the like state after a like or unlike. */
 export class LikeStatusDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   postId: string;

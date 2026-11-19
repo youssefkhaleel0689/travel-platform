@@ -86,11 +86,6 @@ const VIEW_RULE =
   'Drafts and posts an admin hid are visible only to their author and to ' +
   'admins; anyone else gets the same 404 as for a post that does not exist.';
 
-/**
- * Blog posts (BLG-01 to BLG-04, BLG-06, BLG-08 to BLG-10). Reading is public;
- * writing needs a login, and a post can only be changed by its author
- * (ACC-11).
- */
 @ApiTags('Blog')
 @Controller('posts')
 export class PostsController {
@@ -140,7 +135,6 @@ export class PostsController {
     return this.posts.listPublic(query);
   }
 
-  // Before ':id', or Express would read "mine" as a post id.
   @Get('mine')
   @ApiCookieAuth()
   @ApiOperation({

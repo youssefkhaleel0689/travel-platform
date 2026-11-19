@@ -59,7 +59,6 @@ import { ReviewsModule } from './reviews/reviews.module';
     PaymentsModule,
     ItinerariesModule,
     AuditModule,
-    // D2: posts, comments, likes, tags and author pages (BLG-01 to BLG-12).
     BlogModule,
   ],
   controllers: [AppController],

@@ -10,7 +10,6 @@ import { PostSummaryDto } from './dto/post-response.dto';
 import { PostsService } from './posts.service';
 import { normalizeTag } from './tags';
 
-/** BLG-08: a clickable tag lists the published posts that carry it. */
 @ApiTags('Blog')
 @Controller('tags')
 export class TagsController {

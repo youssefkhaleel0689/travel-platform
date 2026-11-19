@@ -21,17 +21,11 @@ function commentNotFound(): NotFoundException {
   });
 }
 
-/** The change to likeCount/commentCount and the score that sums them. */
+// Likes and comments change the post's counters in the same transaction.
 export function counterChange(field: 'likeCount' | 'commentCount', by: 1 | -1) {
   return { $inc: { [field]: by, interactionScore: by } };
 }
 
-/**
- * BLG-05 and BLG-07: comments on public posts, edited and deleted by their
- * author only (ACC-11). Each change that adds or removes a visible comment
- * moves the post's commentCount and interactionScore in the same transaction,
- * so the BLG-09 ranking is never out of step with what readers see.
- */
 @Injectable()
 export class CommentsService {
   constructor(
@@ -41,7 +35,6 @@ export class CommentsService {
     private readonly access: BlogAccessService,
   ) {}
 
-  /** BLG-05: only on a post everyone can see. */
   async create(
     postId: string,
     user: AuthenticatedUser,
@@ -65,7 +58,6 @@ export class CommentsService {
     return (await this.toDtos([comment.toObject() as LeanComment]))[0];
   }
 
-  /** BLG-07: the author edits the text. 404 for anyone else's comment. */
   async update(
     commentId: string,
     user: AuthenticatedUser,
@@ -92,10 +84,6 @@ export class CommentsService {
     return (await this.toDtos([updated]))[0];
   }
 
-  /**
-   * BLG-07: the author removes the comment for good. A visible comment also
-   * leaves the post's count; a hidden one had already stopped counting.
-   */
   async remove(commentId: string, user: AuthenticatedUser): Promise<void> {
     if (!OBJECT_ID.test(commentId)) {
       throw commentNotFound();
@@ -127,11 +115,6 @@ export class CommentsService {
     });
   }
 
-  /**
-   * BLG-02, BLG-05: one page of a post's comments, oldest first. Hidden
-   * comments are included only for their author and for admins (GEN-10).
-   * The caller has already checked that the viewer may see the post.
-   */
   async listForPost(
     postId: Types.ObjectId,
     viewer: AuthenticatedUser | undefined,
@@ -158,7 +141,6 @@ export class CommentsService {
     return new PageDto(await this.toDtos(result.items), result.meta);
   }
 
-  /** Removes every comment of a post (the author deleted the post, BLG-04). */
   async removeAllForPost(
     postId: Types.ObjectId,
     session: ClientSession,

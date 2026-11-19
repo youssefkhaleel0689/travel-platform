@@ -12,8 +12,6 @@ import { Post } from './schemas/post.schema';
 
 export type LeanPost = LeanDoc<Post>;
 
-// A route id is 24 hex characters; anything else is a 404 without a query
-// (same rule as findOwnedOrThrow, ACC-11).
 export const OBJECT_ID = /^[0-9a-f]{24}$/i;
 
 export function postNotFound(): NotFoundException {
@@ -23,21 +21,9 @@ export function postNotFound(): NotFoundException {
   });
 }
 
-/**
- * Who may see a post, in one place, so the post page, its images, its
- * comments, likes and the author page can never disagree:
- *
- * | Post                                   | Guest / other user | Author | Admin |
- * | -------------------------------------- | ------------------ | ------ | ----- |
- * | PUBLISHED, VISIBLE, author active      | yes                | yes    | yes   |
- * | DRAFT                                  | no                 | yes    | yes   |
- * | HIDDEN by an admin (GEN-10)            | no                 | yes    | yes   |
- * | DELETED by an admin (GEN-10)           | no                 | no     | yes   |
- * | author deactivated the account (ACC-12)| no                 | -      | yes   |
- *
- * "No" is always the same 404 POST_NOT_FOUND, so nobody can tell a draft or a
- * hidden post from one that does not exist.
- */
+// Who may see a post. Public: PUBLISHED, VISIBLE and the author is not
+// deactivated. Drafts and hidden posts: the author and admins. Deleted:
+// admins only. Everyone else gets the same 404 as for a missing post.
 @Injectable()
 export class BlogAccessService {
   constructor(
@@ -45,12 +31,6 @@ export class BlogAccessService {
     private readonly users: UsersService,
   ) {}
 
-  /**
-   * The filter every public list starts from (BLG-02, BLG-08, BLG-09,
-   * BLG-12): published, visible, and not written by a deactivated account.
-   * The author condition is part of the query so pages stay full and the
-   * total stays right.
-   */
   async publicPostFilter(): Promise<QueryFilter<Post>> {
     const deactivated = await this.users.findIdsByStatus(UserStatus.DEACTIVATED);
     return {
@@ -64,7 +44,6 @@ export class BlogAccessService {
     };
   }
 
-  /** The post if this viewer may see it (table above), otherwise 404. */
   async findViewablePost(
     id: string,
     viewer: AuthenticatedUser | undefined,
@@ -79,11 +58,6 @@ export class BlogAccessService {
     return post;
   }
 
-  /**
-   * The post only if it is public: liking, commenting and reporting need a
-   * post everyone can see. A draft or hidden post answers 404 even to its
-   * author, because nobody else could see the like or the comment.
-   */
   async findPublicPost(id: string): Promise<LeanPost> {
     if (!OBJECT_ID.test(id)) {
       throw postNotFound();
@@ -102,7 +76,6 @@ export class BlogAccessService {
     return post;
   }
 
-  /** Whether everyone can see this post. */
   async isPublic(post: LeanPost): Promise<boolean> {
     return (
       post.status === PostStatus.PUBLISHED &&
@@ -127,11 +100,6 @@ export class BlogAccessService {
     return this.isPublic(post);
   }
 
-  /**
-   * Author names for many ids in one query. An account its owner deactivated
-   * reads as "Deleted user" with no id (ACC-12): the status decides, nothing
-   * is copied onto the content.
-   */
   async authorBriefs(
     ids: Types.ObjectId[],
   ): Promise<Map<string, AuthorBriefDto>> {

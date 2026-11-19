@@ -21,9 +21,6 @@ import {
 } from '../blog.constants';
 import { normalizeTag, normalizeTags, TAG_PATTERN, TAG_RULES } from '../tags';
 
-// Strings are normalised before validation, so the count and length rules
-// apply to the stored form ("Egypt" and "egypt" are one tag). Anything that
-// is not an array of strings is left alone for the validators to reject.
 const toTags = ({ value }: { value: unknown }): unknown =>
   Array.isArray(value) && value.every((tag) => typeof tag === 'string')
     ? normalizeTags(value as string[])
@@ -32,7 +29,6 @@ const toTags = ({ value }: { value: unknown }): unknown =>
 const TAG_MESSAGE =
   'each tag may contain only letters, digits, spaces, hyphens and underscores';
 
-/** BLG-01: title and body required, tags optional, saved as DRAFT or PUBLISHED. */
 export class CreatePostDto {
   @ApiProperty({ example: 'Three days in Luxor', maxLength: POST_TITLE_MAX_LENGTH })
   @Transform(trimText)
@@ -78,10 +74,6 @@ export class CreatePostDto {
   status: PostStatus;
 }
 
-/**
- * BLG-04, BLG-08: change any of the fields. Send only what changes; tags
- * replace the whole list ([] removes them all).
- */
 export class UpdatePostDto {
   @ApiPropertyOptional({ example: 'Four days in Luxor' })
   @IsOptional()
@@ -122,7 +114,6 @@ export class UpdatePostDto {
   status?: PostStatus;
 }
 
-/** BLG-02 browse and BLG-09 search. */
 export class PostsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     example: 'luxor',

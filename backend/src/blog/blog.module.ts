@@ -15,12 +15,6 @@ import { Like, LikeSchema } from './schemas/like.schema';
 import { Post, PostSchema } from './schemas/post.schema';
 import { TagsController } from './tags.controller';
 
-/**
- * The blog (BLG-01 to BLG-10, BLG-12), owned by D2. Owns posts, comments and
- * likes. Uses the auth module's UsersService for author names, the media
- * module for images (GEN-08) and, when D1 provides it, the
- * PUBLIC_ITINERARIES_PORT for the author page.
- */
 @Module({
   imports: [
     MongooseModule.forFeature([

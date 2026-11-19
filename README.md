@@ -1500,32 +1500,24 @@ In e2e tests, remove your own audit rows with the driver (`connection.collection
 
 ## Blog (BLG-01 to BLG-10, BLG-12)
 
-`src/blog/` owns `posts`, `comments` and `likes`. Reading is public; writing needs a login, and a post or comment can only be changed by its author (ACC-11: anyone else gets the same 404 as for a missing one).
+`src/blog/` owns `posts`, `comments` and `likes`. Reading is public; only the author can change a post or comment (ACC-11).
 
 | Endpoint | Requirement |
 | --- | --- |
-| `POST /api/posts` | BLG-01, BLG-08 (draft or published, up to 5 tags) |
-| `GET /api/posts` | BLG-02 browse, BLG-09 search (`keyword`, `tag`, `page`) |
-| `GET /api/posts/mine` | BLG-03 (drafts and hidden posts included) |
-| `GET /api/posts/:id` | BLG-02 (post page with images, counts and the first comments) |
-| `PATCH /api/posts/:id`, `DELETE /api/posts/:id` | BLG-04, BLG-08 |
-| `GET /api/posts/:id/comments`, `POST /api/posts/:id/comments` | BLG-02, BLG-05 |
-| `PATCH /api/comments/:id`, `DELETE /api/comments/:id` | BLG-07 |
-| `POST /api/posts/:id/like`, `DELETE /api/posts/:id/like` | BLG-06 |
-| `POST /api/posts/:id/images`, `GET` and `DELETE /api/posts/:id/images/:imageId` | BLG-10, GEN-08 |
+| `POST /api/posts`, `PATCH` / `DELETE /api/posts/:id` | BLG-01, BLG-04, BLG-08 |
+| `GET /api/posts` (`keyword`, `tag`, `page`) | BLG-02, BLG-09 |
+| `GET /api/posts/mine` | BLG-03 |
+| `GET /api/posts/:id`, `GET /api/posts/:id/comments` | BLG-02 |
+| `POST /api/posts/:id/comments`, `PATCH` / `DELETE /api/comments/:id` | BLG-05, BLG-07 |
+| `POST` / `DELETE /api/posts/:id/like` | BLG-06 |
+| `POST /api/posts/:id/images`, `GET` / `DELETE /api/posts/:id/images/:imageId` | BLG-10 |
 | `GET /api/tags/:tag/posts` | BLG-08 |
 | `GET /api/authors/:id` | BLG-12 |
 
-Rules worth knowing:
-
-- **Who sees a post** is decided in one place, `BlogAccessService`: public means PUBLISHED, VISIBLE (GEN-10) and an author who has not deactivated the account (ACC-12). Drafts and hidden posts are visible to their author and admins only, deleted ones to admins only. Everything else is the same 404, so drafts cannot be probed. Images are served under the same rule.
-- **One like per user** is a unique `(postId, userId)` index, not a read-then-insert check: a double click sends two requests, only one insert can win, and liking again returns the same answer without counting twice.
-- **Ranking (BLG-09)**: `likeCount`, `commentCount` and `interactionScore` (their sum) live on the post and change in the same transaction as the like or comment, so search sorts on an index (`interactionScore` desc, then `publishedAt` desc). Only VISIBLE comments count. A keyword matches the title, a tag or the author's name, literally and case-insensitively (regex characters are escaped).
-- **Tags** are stored in one spelling: trimmed, lower case, single spaces, without duplicates, at most 5 of at most 30 characters.
-- **Deleting a post** (the author) removes its comments, likes and images too. An admin's delete (GEN-10) is a soft delete instead.
-- **Deactivated authors** (ACC-12): their posts disappear from every public list and they have no author page; their comments read as "Deleted user". Nothing is copied: it is derived from the account status through `UsersService`.
-
-**Public itineraries on the author page (D1).** The blog never reads the itineraries collection. It asks through `PUBLIC_ITINERARIES_PORT` (`src/common/itineraries/public-itineraries.port.ts`), the same pattern as `BookingsPort`. Until D1 provides it from a `@Global()` module, `GET /api/authors/:id` answers `publicItineraries: null, itinerariesAvailable: false` instead of failing. The file shows the five lines D1 needs.
+- Drafts and hidden posts are visible only to the author and admins; anyone else gets 404. Posts of a deactivated account are hidden and its comments show "Deleted user".
+- A unique `(postId, userId)` index allows one like per user. Like and comment counters change in the same transaction, and search sorts on their sum.
+- Tags are stored lower case without duplicates, at most 5 of 30 characters.
+- The author page reads public itineraries through `PublicItinerariesService.listByAuthor`.
 
 Tests: `test/blog.e2e-spec.ts`.
 

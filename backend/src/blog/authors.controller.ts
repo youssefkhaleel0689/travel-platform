@@ -9,7 +9,6 @@ import { AuthorPageDto, AuthorPageQueryDto } from './dto/author-page.dto';
 const AUTHOR_ID = '6720f1c2a1b2c3d4e5f60701';
 const PATH = `/api/authors/${AUTHOR_ID}`;
 
-/** BLG-12: the public author page. */
 @ApiTags('Blog')
 @Controller('authors')
 export class AuthorsController {

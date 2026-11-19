@@ -3,8 +3,6 @@ import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 export type LikeDocument = HydratedDocument<Like>;
 
-// One user's like of one post (schema section 2.7, BLG-06). Unliking deletes
-// the row.
 @Schema({
   collection: 'likes',
   versionKey: false,
@@ -22,7 +20,5 @@ export class Like {
 
 export const LikeSchema = SchemaFactory.createForClass(Like);
 
-// "Once per user" is this index, not a check in code: a double click sends two
-// requests that would both pass a read-then-insert check, but only one insert
-// can succeed against a unique index.
+// One like per user per post (BLG-06), even on a double click.
 LikeSchema.index({ postId: 1, userId: 1 }, { unique: true });

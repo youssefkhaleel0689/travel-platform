@@ -52,11 +52,6 @@ const COMMENT_NOT_FOUND: ApiErrorResponseOptions = {
   ],
 };
 
-/**
- * BLG-05, BLG-07: write a comment on a published post, then edit or delete
- * your own. Reading comments is on the post (GET /api/posts/{id} and
- * GET /api/posts/{id}/comments).
- */
 @ApiTags('Blog')
 @ApiCookieAuth()
 @Controller()

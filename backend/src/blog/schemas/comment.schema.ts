@@ -8,8 +8,6 @@ import { COMMENT_MAX_LENGTH } from '../blog.constants';
 
 export type CommentDocument = HydratedDocument<Comment>;
 
-// A comment on a post (schema section 2.7, BLG-05, BLG-07). Non-empty, at
-// most 500 characters, listed in chronological order.
 @Schema({ collection: 'comments', timestamps: true })
 export class Comment {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Post', required: true })
@@ -27,7 +25,6 @@ export class Comment {
   })
   body: string;
 
-  /** Set when the author edits the text (BLG-07); moderation does not touch it. */
   @Prop({ type: Date, default: null })
   editedAt: Date | null;
 
@@ -57,5 +54,4 @@ export class Comment {
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
 
-// The post page lists a post's comments oldest first.
 CommentSchema.index({ postId: 1, createdAt: 1 });

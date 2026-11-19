@@ -42,7 +42,6 @@ const OWNED_POST = {
   ownerField: 'authorId',
 } as const;
 
-/** BLG-09: the first 200 characters, cut at a word boundary. */
 export function excerptOf(body: string): string {
   if (body.length <= EXCERPT_LENGTH) {
     return body;
@@ -52,11 +51,6 @@ export function excerptOf(body: string): string {
   return `${(lastSpace > EXCERPT_LENGTH / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
-/**
- * Posts (BLG-01 to BLG-04), tags (BLG-08), search (BLG-09), images (BLG-10)
- * and likes (BLG-06). Who may see a post is decided by BlogAccessService;
- * changes are owner-only through ownerFilter (ACC-11).
- */
 @Injectable()
 export class PostsService {
   constructor(
@@ -68,10 +62,6 @@ export class PostsService {
     private readonly media: MediaService,
     private readonly users: UsersService,
   ) {}
-
-  // ---------------------------------------------------------------------
-  // Writing (BLG-01, BLG-04, BLG-08)
-  // ---------------------------------------------------------------------
 
   async create(user: AuthenticatedUser, dto: CreatePostDto): Promise<PostDetailDto> {
     const post = await this.postModel.create({
@@ -103,8 +93,6 @@ export class PostsService {
     }
 
     const post = await this.findOwnedPost(id, user);
-    // publishedAt is the first publication; moving back to DRAFT and
-    // publishing again keeps the original date.
     if (changes.status === PostStatus.PUBLISHED && !post.publishedAt) {
       changes.publishedAt = new Date();
     }
@@ -125,10 +113,6 @@ export class PostsService {
     return this.getPost(id, user);
   }
 
-  /**
-   * BLG-04: the author deletes the post for good, with its comments, likes
-   * and images. The rows go in one transaction; the image files afterwards.
-   */
   async remove(id: string, user: AuthenticatedUser): Promise<void> {
     const post = await this.findOwnedPost(id, user);
     await this.connection.transaction(async (session: ClientSession) => {
@@ -151,14 +135,6 @@ export class PostsService {
     await this.media.removeAllForTarget(MediaTargetType.POST, id);
   }
 
-  // ---------------------------------------------------------------------
-  // Reading (BLG-02, BLG-03, BLG-08, BLG-09)
-  // ---------------------------------------------------------------------
-
-  /**
-   * BLG-02 browse (newest first) and BLG-09 search (keyword in the title, a
-   * tag or the author's name; by interaction score, newest first on a tie).
-   */
   async listPublic(query: PostsQueryDto): Promise<PageDto<PostSummaryDto>> {
     const filter: QueryFilter<Post> = await this.access.publicPostFilter();
     if (query.tag) {
@@ -181,12 +157,10 @@ export class PostsService {
     return this.summaries(filter, query.page, sort);
   }
 
-  /** BLG-08: the posts of one tag, newest first. */
   listByTag(tag: string, page: number): Promise<PageDto<PostSummaryDto>> {
     return this.listPublic({ tag, page });
   }
 
-  /** BLG-12: one author's public posts, newest first. */
   async listPublicByAuthor(
     authorId: Types.ObjectId,
     page: number,
@@ -194,13 +168,10 @@ export class PostsService {
     const filter: QueryFilter<Post> = {
       ...(await this.access.publicPostFilter()),
     };
-    // Overrides the $nin of deactivated authors: the author page itself is
-    // a 404 for a deactivated author, so this author is known to be active.
     filter.authorId = authorId;
     return this.summaries(filter, page, { publishedAt: -1, _id: -1 });
   }
 
-  /** BLG-03: your posts, drafts and hidden ones included, newest first. */
   async listMine(
     user: AuthenticatedUser,
     page: number,
@@ -231,7 +202,6 @@ export class PostsService {
     );
   }
 
-  /** BLG-02: the post page, with images, counts and the first comments. */
   async getPost(
     id: string,
     viewer: AuthenticatedUser | undefined,
@@ -270,7 +240,6 @@ export class PostsService {
     return dto;
   }
 
-  /** Further pages of the comments shown on the post page. */
   async listComments(
     id: string,
     viewer: AuthenticatedUser | undefined,
@@ -279,10 +248,6 @@ export class PostsService {
     const post = await this.access.findViewablePost(id, viewer);
     return this.comments.listForPost(post._id, viewer, page);
   }
-
-  // ---------------------------------------------------------------------
-  // Images (BLG-10, GEN-08)
-  // ---------------------------------------------------------------------
 
   async addImage(
     id: string,
@@ -309,7 +274,6 @@ export class PostsService {
     await this.media.removeFromTarget(MediaTargetType.POST, id, imageId);
   }
 
-  /** Serves an image to whoever may see its post (a draft's images are private). */
   async openImage(
     id: string,
     imageId: string,
@@ -319,15 +283,6 @@ export class PostsService {
     return this.media.openForTarget(MediaTargetType.POST, id, imageId);
   }
 
-  // ---------------------------------------------------------------------
-  // Likes (BLG-06)
-  // ---------------------------------------------------------------------
-
-  /**
-   * Likes a public post once. Liking again is harmless: the unique
-   * (postId, userId) index refuses the second row, nothing is counted twice
-   * and the answer is the same, so a double click cannot inflate the count.
-   */
   async like(id: string, user: AuthenticatedUser): Promise<LikeStatusDto> {
     const post = await this.access.findPublicPost(id);
     try {
@@ -344,12 +299,10 @@ export class PostsService {
       if ((error as { code?: number }).code !== DUPLICATE_KEY) {
         throw error;
       }
-      // Already liked: the transaction rolled back, nothing changed.
     }
     return this.likeStatus(post._id, true);
   }
 
-  /** Removes your like. Unliking a post you do not like changes nothing. */
   async unlike(id: string, user: AuthenticatedUser): Promise<LikeStatusDto> {
     const post = await this.access.findViewablePost(id, user);
     await this.connection.transaction(async (session: ClientSession) => {
@@ -370,9 +323,6 @@ export class PostsService {
     return this.likeStatus(post._id, false);
   }
 
-  // ---------------------------------------------------------------------
-
-  /** ACC-11: your own post that an admin has not deleted, otherwise 404. */
   private async findOwnedPost(
     id: string,
     user: AuthenticatedUser,

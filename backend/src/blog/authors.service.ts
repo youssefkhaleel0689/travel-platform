@@ -7,7 +7,6 @@ import { OBJECT_ID } from './blog-access.service';
 import { AuthorPageDto } from './dto/author-page.dto';
 import { PostsService } from './posts.service';
 
-// BLG-12: name, join date, published posts and public itineraries of one author.
 @Injectable()
 export class AuthorsService {
   constructor(
@@ -24,7 +23,6 @@ export class AuthorsService {
     const author = OBJECT_ID.test(authorId)
       ? (await this.users.findBriefsByIds([authorId])).get(authorId)
       : undefined;
-    // A deactivated account has no public page (ACC-12).
     if (!author || author.status === UserStatus.DEACTIVATED) {
       throw new NotFoundException({
         code: 'AUTHOR_NOT_FOUND',
