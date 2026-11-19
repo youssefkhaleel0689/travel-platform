@@ -8,6 +8,7 @@ import {
 import { HoldReleaseReason } from '../../common/bookings/bookings.port';
 import { BookingStatus, FlightBooking } from '../schemas/flight-booking.schema';
 import { CabinCategory } from '../schemas/flight.schema';
+import type { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import type { SeatInventoryService } from '../seat-inventory/seat-inventory.service';
 import {
   FlightBookingsPortAdapter,
@@ -22,6 +23,13 @@ const OUTBOUND_ID = new Types.ObjectId();
 const INBOUND_ID = new Types.ObjectId();
 const PAYMENT_ID = new Types.ObjectId().toString();
 const SESSION = { id: 'test-session' } as unknown as ClientSession;
+const ZONES: Record<string, string> = {
+  CAI: 'Africa/Cairo',
+  DXB: 'Asia/Dubai',
+};
+// What the confirmation notice names for the round trip below (FLT-23).
+const SUMMARY =
+  'KD100 CAI to DXB on 20 Dec 2026, 08:30 and KD101 DXB to CAI on 27 Dec 2026, 16:00; 3 passengers';
 
 // No 0, O, 1 or I: they are easy to misread on a ticket.
 const REFERENCE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
@@ -36,15 +44,27 @@ function booking(overrides: Partial<FlightBooking> = {}): FlightBooking {
     segments: [
       {
         flightId: OUTBOUND_ID,
+        flightNumber: 'KD100',
+        departureAirportId: 'CAI',
+        arrivalAirportId: 'DXB',
+        // 08:30 in Cairo (UTC+2).
+        departureAtUtc: new Date('2026-12-20T06:30:00.000Z'),
         cabinCategory: CabinCategory.ECONOMY,
         seatsRequired: 2,
       },
       {
         flightId: INBOUND_ID,
+        flightNumber: 'KD101',
+        departureAirportId: 'DXB',
+        arrivalAirportId: 'CAI',
+        // 16:00 in Dubai (UTC+4).
+        departureAtUtc: new Date('2026-12-27T12:00:00.000Z'),
         cabinCategory: CabinCategory.BUSINESS,
         seatsRequired: 2,
       },
     ],
+    // Two adults and an infant on a lap.
+    passengers: [{}, {}, {}],
     priceSnapshot: {
       subtotal: Types.Decimal128.fromString('400.00'),
       baggageTotal: Types.Decimal128.fromString('20.00'),
@@ -108,13 +128,19 @@ function setup(found: FlightBooking | null = booking()) {
     convertHeldToBooked: jest.fn(() => Promise.resolve()),
     releaseHeld: jest.fn(() => Promise.resolve()),
   };
+  const referenceData = {
+    getAirportOrThrow: jest.fn((id: string) =>
+      Promise.resolve({ id, timeZone: ZONES[id] }),
+    ),
+  };
   sessions.length = 0;
   const adapter = new FlightBookingsPortAdapter(
     bookingModel as unknown as Model<FlightBooking>,
     connection as unknown as Connection,
     seatInventory as unknown as SeatInventoryService,
+    referenceData as unknown as ReferenceDataService,
   );
-  return { adapter, bookingModel, connection, seatInventory };
+  return { adapter, bookingModel, connection, seatInventory, referenceData };
 }
 
 async function failure(promise: Promise<unknown>): Promise<HttpException> {
@@ -231,6 +257,7 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
         bookingId: BOOKING_ID.toString(),
         status: BookingStatus.CONFIRMED,
         bookingReference: expect.stringMatching(REFERENCE) as string,
+        summary: SUMMARY,
       });
       expect(connection.transaction).toHaveBeenCalledTimes(1);
       expect(sessions).toEqual([SESSION]);
@@ -280,9 +307,46 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
         bookingId: BOOKING_ID.toString(),
         status: BookingStatus.CONFIRMED,
         bookingReference: 'K7Q2PX',
+        summary: SUMMARY,
       });
       expect(bookingModel.updateOne).not.toHaveBeenCalled();
       expect(seatInventory.convertHeldToBooked).not.toHaveBeenCalled();
+    });
+
+    it('names a single passenger without a plural', async () => {
+      const { adapter } = setup(
+        booking({
+          segments: [booking().segments[0]],
+          passengers: [booking().passengers[0]],
+        }),
+      );
+
+      const confirmation = await adapter.confirmAfterPayment(
+        BOOKING_ID.toString(),
+        PAYMENT_ID,
+      );
+
+      expect(confirmation.summary).toBe(
+        'KD100 CAI to DXB on 20 Dec 2026, 08:30; 1 passenger',
+      );
+    });
+
+    it('still confirms when the summary cannot be built: the notice just has less in it', async () => {
+      const { adapter, referenceData } = setup();
+      referenceData.getAirportOrThrow.mockImplementation(() =>
+        Promise.reject(new Error('reference data unavailable')),
+      );
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      const confirmation = await adapter.confirmAfterPayment(
+        BOOKING_ID.toString(),
+        PAYMENT_ID,
+      );
+
+      expect(confirmation).toMatchObject({
+        status: BookingStatus.CONFIRMED,
+        summary: undefined,
+      });
     });
 
     it('refuses once the hold has expired, because its seats have gone back', async () => {

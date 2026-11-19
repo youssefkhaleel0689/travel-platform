@@ -1061,7 +1061,7 @@ The seat counters themselves are never returned. A flight of an airline that is 
 
 `FlightDetailsController` is the last controller in `flights.module.ts` on purpose: routes match in the order they are registered, and `GET /flights/:id` registered before search would take `GET /flights/search` as a flight with the id `search`. `test/flight-details.e2e-spec.ts` checks the full response for a guest, the three 404s and that search still answers. It creates two airlines named "KE e2e details ..." with unused two-digit IATA codes from 30 up, a policy and flights numbered `KE7xxx` in March 2099, and deletes exactly those.
 
-## Flight bookings (FLT-19, FLT-21, FLT-22)
+## Flight bookings (FLT-19, FLT-21, FLT-22, FLT-23)
 
 The code is in `src/flights/flight-bookings/`. Every route is for a signed-in traveller (`@Roles(Role.USER)`): a moderator or an admin gets 403.
 
@@ -1070,6 +1070,7 @@ The code is in `src/flights/flight-bookings/`. Every route is for a signed-in tr
 | `POST /api/flight-bookings` | FLT-19, FLT-21 | The summary: checks and prices the request and stores nothing (200) |
 | `POST /api/flight-bookings/hold` | FLT-22 | The same body: holds the seats for 10 minutes and creates the `PENDING_PAYMENT` booking (201) |
 | `GET /api/flight-bookings/:id` | FLT-22, ACC-11 | One of your bookings, with its status, `holdExpiresAt` and, once paid, its `bookingReference` |
+| `GET /api/flight-bookings/:id/e-ticket` | FLT-23, ACC-11 | The e-ticket of one of your CONFIRMED (or COMPLETED) bookings, as a PDF download |
 
 The body of both POST routes:
 
@@ -1124,9 +1125,19 @@ The booking takes the **outbound** airline's policy, because FLT-12 cancels a ro
 | `releaseHold` | In one transaction: `PENDING_PAYMENT` -> `EXPIRED` with `expiredAt`, and the held seats go back. It only matches a `PENDING_PAYMENT` booking, so a second call changes nothing |
 | `hasUpcomingConfirmedBookings` | A `CONFIRMED` booking with a segment that has not departed (ACC-12) |
 
-The booking reference is 6 random characters (`crypto.randomInt`) from A to Z and 2 to 9 without 0, O, 1 and I, which are easy to misread: about a billion values. The unique index on `bookingReference` refuses a clash, and the confirmation is retried with a new reference, up to three times. Payments sends the `BOOKING_CONFIRMED` notification (GEN-01) itself; the e-ticket PDF (FLT-23) is not generated yet.
+The booking reference is 6 random characters (`crypto.randomInt`) from A to Z and 2 to 9 without 0, O, 1 and I, which are easy to misread: about a billion values. The unique index on `bookingReference` refuses a clash, and the confirmation is retried with a new reference, up to three times. Payments sends the `BOOKING_CONFIRMED` notification (GEN-01) itself; `confirmAfterPayment` also returns an optional one-line `summary` of what was booked, which the notice adds after the reference (see "E-ticket and the confirmation notice" below).
 
 `FlightBookingsModule` is `@Global()` and exports only `FLIGHT_BOOKINGS_PORT`. `BookingsGateway` is created inside `BookingsModule` (`common/`), and a provider is only visible to the modules that import the module exporting it. `common/` must never import a feature module, so `BookingsModule` cannot import this one; a global module's exports are visible everywhere, `BookingsModule` included. Exported from an ordinary module instead, the gateway's optional port stays undefined and every flight payment answers 501. `test/flight-bookings.e2e-spec.ts` checks that `gateway.supports(BookingType.FLIGHT)` is true and that `GET /api/bookings/flight/:id/policies` returns the snapshot.
+
+### E-ticket and the confirmation notice (FLT-23)
+
+After the verified Stripe webhook, `confirmAfterPayment` does the first three parts of FLT-23 in one transaction: CONFIRMED, held seats become booked seats, and a unique booking reference. The rest:
+
+- **The notice.** `BookingConfirmation` has an optional `summary` that payments' webhook adds to the `BOOKING_CONFIRMED` message: "Your flight booking K7Q2PX is confirmed: KD100 CAI to DXB on 20 Dec 2026, 08:30; 3 passengers. 434.98 USD was paid." Times are local to each departure airport. It is built after the transaction commits, and a failure there only leaves the summary out: a paid booking is never un-confirmed by a notice. Hotels need not set it; without it the notice is the reference and the amount.
+- **The e-ticket.** `GET /api/flight-bookings/:id/e-ticket` answers `application/pdf` with `Content-Disposition: attachment; filename="e-ticket-<reference>.pdf"`. It is built on every download from the booking response itself (`e-ticket/e-ticket.view.ts` turns it into printable lines, `e-ticket/e-ticket.pdf.ts` draws them with [pdfkit](https://pdfkit.org)), so it is never out of date and nothing is stored: `ticketFileUrl` stays null. It shows the reference, each flight with its airline and airport names and local times, the duration, cabin and baggage, the passengers with their document numbers masked, the price and the cancellation tiers.
+- **Who gets it.** Only the owner (`findOwnedOrThrow`, the same 404 for anyone else), and only once the booking is CONFIRMED or COMPLETED. Before payment, or after a cancellation or expiry, it is 409 `TICKET_NOT_AVAILABLE`.
+- **Fonts.** The PDF uses the built-in Helvetica, which only covers Windows-1252 characters (Latin letters, accents, `•`). Anything else, such as Arabic letters in a name, is printed as `?` rather than as broken glyphs. Passport names are in Latin letters, so this is rare.
+- **The confirmation page** is the frontend's: `GET /api/flight-bookings/:id` already returns the CONFIRMED status and the reference.
 
 ### Hold expiry
 
@@ -1136,9 +1147,9 @@ Payments' own sweep only looks at bookings with an open payment, so without this
 
 ### Tests
 
-Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
+Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `e-ticket/e-ticket.view.spec.ts`, `e-ticket/e-ticket.pdf.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
 
-`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
+`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent, the notice summary), the e-ticket (409 before payment, the PDF after it, 404 for another account), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
 
 ## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
