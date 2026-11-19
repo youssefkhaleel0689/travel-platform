@@ -353,7 +353,7 @@ Feature modules:
 | `hotels` | Hotels, rooms, availability, room holds, reviews |
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
-| `blog` | Posts, comments, likes |
+| `blog` | Posts, comments, likes, tags, author pages |
 | `administration` | Moderator accounts, account suspension |
 | `media` | The shared image-upload service (GEN-08) |
 | `audit` | The append-only admin audit log (GEN-07) |
@@ -1533,6 +1533,29 @@ await this.audit.record({
 ~~~
 
 In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`).
+
+## Blog (BLG-01 to BLG-10, BLG-12)
+
+`src/blog/` owns `posts`, `comments` and `likes`. Reading is public; only the author can change a post or comment (ACC-11).
+
+| Endpoint | Requirement |
+| --- | --- |
+| `POST /api/posts`, `PATCH` / `DELETE /api/posts/:id` | BLG-01, BLG-04, BLG-08 |
+| `GET /api/posts` (`keyword`, `tag`, `page`) | BLG-02, BLG-09 |
+| `GET /api/posts/mine` | BLG-03 |
+| `GET /api/posts/:id`, `GET /api/posts/:id/comments` | BLG-02 |
+| `POST /api/posts/:id/comments`, `PATCH` / `DELETE /api/comments/:id` | BLG-05, BLG-07 |
+| `POST` / `DELETE /api/posts/:id/like` | BLG-06 |
+| `POST /api/posts/:id/images`, `GET` / `DELETE /api/posts/:id/images/:imageId` | BLG-10 |
+| `GET /api/tags/:tag/posts` | BLG-08 |
+| `GET /api/authors/:id` | BLG-12 |
+
+- Drafts and hidden posts are visible only to the author and admins; anyone else gets 404. Posts of a deactivated account are hidden and its comments show "Deleted user".
+- A unique `(postId, userId)` index allows one like per user. Like and comment counters change in the same transaction, and search sorts on their sum.
+- Tags are stored lower case without duplicates, at most 5 of 30 characters.
+- The author page reads public itineraries through `PublicItinerariesService.listByAuthor`.
+
+Tests: `test/blog.e2e-spec.ts`.
 
 ## Team workflow
 

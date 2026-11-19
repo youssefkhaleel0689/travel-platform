@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, QueryFilter } from 'mongoose';
+import { Model, QueryFilter, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { paginateQuery } from '../common/pagination/paginate';
@@ -79,6 +79,19 @@ export class PublicItinerariesService {
     const result = await paginateQuery(
       this.itineraryModel,
       { $and: and } as QueryFilter<Itinerary>,
+      { page, sort: { updatedAt: -1 } },
+    );
+    return new PageDto(result.items.map(toPublicSummary), result.meta);
+  }
+
+  // BLG-12: the public itineraries shown on an author's blog page.
+  async listByAuthor(authorId: string, page: number) {
+    const result = await paginateQuery(
+      this.itineraryModel,
+      {
+        userId: new Types.ObjectId(authorId),
+        visibility: Visibility.PUBLIC,
+      } as QueryFilter<Itinerary>,
       { page, sort: { updatedAt: -1 } },
     );
     return new PageDto(result.items.map(toPublicSummary), result.meta);
