@@ -154,7 +154,7 @@ export class MyFlightBookingsDto {
   bookings: MyFlightBookingsPageDto;
 }
 
-export class CancellationTierDto {
+export class BookingCancellationTierDto {
   @ApiProperty({ example: 7 })
   daysBeforeDeparture: number;
 
@@ -217,11 +217,11 @@ export class CancellationQuoteDto {
   currency: string;
 
   @ApiProperty({
-    type: [CancellationTierDto],
+    type: [BookingCancellationTierDto],
     description:
       'The airline terms this booking was made under, highest threshold first.',
   })
-  tiers: CancellationTierDto[];
+  tiers: BookingCancellationTierDto[];
 }
 
 export class CancelFlightBookingDto {
