@@ -965,6 +965,44 @@ Build the airline moderator's view of one flight's bookings: GET /api/flights/:i
 How the output was used:
 I read the merged booking schema first and decided what the endpoints show: the sheet lists CONFIRMED and CANCELLED, and I added COMPLETED to the view because a booking of a flight that already left becomes COMPLETED and the moderator would otherwise lose sight of those passengers; the CSV lists CONFIRMED and COMPLETED passengers only. The schema says document numbers are never returned in lists or the export, and I checked that with a test. Claude added a defence I had not asked for: CSV cells that start with = + - or @ get a leading apostrophe, because a passenger name is typed by the buyer and would otherwise run as a spreadsheet formula. I ran build, lint (no new warnings), the unit tests (81 suites, 1321 tests) and the fake-service e2e tests (7 suites, 66 tests) myself. Not tested yet on Atlas or in Swagger with a real moderator and CONFIRMED bookings; that needs Khaled's FLT-23 data.
 ================================================
+================================================
+Date: 2026-11-19
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-23 (with GEN-01, ACC-11, PAY-01)
+Prompt:
+Finish FLT-23 on top of the merged flight bookings: an e-ticket PDF the owner can download once the booking is confirmed, and the booking details in the confirmation notice that payments sends, without moving the notice out of payments.
+How the output was used:
+I chose to build the PDF with pdfkit on every download instead of storing files, so it is never out of date, with document numbers masked as in the API. The notice gets an optional summary on the BookingsPort confirmation that payments adds to its message, so hotels need no change, and a failure building it never undoes a paid confirmation. Verified: tsc, build and lint clean; 1351 unit and 398 e2e tests pass.
+================================================
+Date: 2026-11-19
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: ITN-26 (with FLT-11, FLT-12, FLT-15, ACC-11, GEN-12)
+Prompt:
+Build ITN-26 on top of D1's merged itineraries and my flight search: flights from an origin airport to any airport in the city of the itinerary's first day, one way or round trip, with the dates defaulting to the itinerary's first and last days, reusing FLT-11 and FLT-12.
+How the output was used:
+I kept it a flights endpoint under /itineraries, in its own module so flights and itineraries do not import each other, and reused D1's findOwnedOrThrow and dateOfDay instead of reading itineraries myself. Search legs now take several departure airports so the return flies back from any airport of the city; I added listAirportIdsInCity to the reference data. An origin inside the destination city is refused. Verified: tsc, build and lint clean; 1346 unit and 402 e2e tests pass.
+================================================
+Date: 2026-11-18
+Student: Fares El-Sonbaty
+Tool: Claude (chat, with push access to my fork)
+Related Requirement: GEN-08 (image uploads), GEN-07 (audit log); branch feature/GEN-07-08-image-uploads-and-audit-log-d2
+Prompt:
+Read the team chat, the playbook, the reviewed requirements and the schema PDF, and implement my D2 part on my fork. Rebuild it on the latest develop instead of my old branches, reuse teammates' services (UsersService, the admin services) instead of re-implementing them, follow the README conventions (SchemaTypes.ObjectId, pinned collection names, ApiErrorResponse, pagination, ownership) and split the work into a few branches with meaningful commits. Start with the shared pieces others wait for: the image-upload service and the audit log.
+How the output was used:
+I chose to start again from develop because my nine old branches were 160 commits behind and built before sessions, ownership helpers and HotelsService existed. The upload type is decided from the file's signature, not its name; the per-target limit is guaranteed by numbered slots under a unique index, which I can explain as the answer to two uploads at once. The audit log is append-only through schema hooks, and record() never throws, like notify(). Three read-only methods were added to UsersService (author names, name search, ids by status) so D2 never reads the users collection; the admin services now write audit rows after suspend, reactivate, reset and moderator creation. Verified with tsc --noEmit (clean) on every branch; build, lint, unit and e2e results are in the PR.
+================================================
+Date: 2026-11-18
+Student: Fares El-Sonbaty
+Tool: Claude (chat, with push access to my fork)
+Related Requirement: BLG-01 to BLG-10, BLG-12; branch feature/BLG-01-12-blog-posts-and-interactions-d2
+Prompt:
+On top of the upload and audit branch, implement the blog: posts as draft or published with tags, browse and keyword search ranked by likes plus comments, my posts, edit and delete by the author only, comments, one like per user, images through the shared upload service, tag pages and the public author page. Keep visibility rules in one place, hide deactivated authors' content, and leave the public itineraries to D1 through a port instead of reading their collection.
+How the output was used:
+I checked every rule against the requirement text. One like per user is a unique index, which I can explain under double clicks; the counters move in the same transaction as the like or comment so the ranking cannot drift. Drafts, hidden and deleted posts all answer the same 404 to people who may not see them. The author page reads itineraries through PUBLIC_ITINERARIES_PORT, so it works before D1's module is merged. The comment "edited" flag uses its own editedAt field, because an admin hiding a comment also changes updatedAt. Verified with tsc --noEmit (clean); build, lint, unit and e2e results are in the PR.
+================================================
+================================================
 Date: 2026-11-19
 Student: Taher Khalaf
 Tool: Claude Code

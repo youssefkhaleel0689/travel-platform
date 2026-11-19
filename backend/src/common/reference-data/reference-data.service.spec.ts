@@ -302,6 +302,35 @@ describe('ReferenceDataService', () => {
     });
   });
 
+  describe('listAirportIdsInCity', () => {
+    it("lists the city's airports, sorted by code", async () => {
+      const { service, airports } = buildService();
+
+      await expect(service.listAirportIdsInCity('cairo')).resolves.toEqual([
+        'CAI',
+      ]);
+      expect(airports.calls.find).toEqual([{ cityId: 'cairo' }]);
+      expect(airports.calls.sort).toEqual([{ _id: 1 }]);
+    });
+
+    it('gives an empty list for a city without airports', async () => {
+      const { service } = buildService();
+
+      await expect(service.listAirportIdsInCity('nowhere')).resolves.toEqual(
+        [],
+      );
+    });
+
+    it('gives an empty list for a malformed id, without a query', async () => {
+      const { service, airports } = buildService();
+
+      await expect(service.listAirportIdsInCity('New York')).resolves.toEqual(
+        [],
+      );
+      expect(airports.calls.queries).toBe(0);
+    });
+  });
+
   describe('assertCountriesExist', () => {
     it('passes when every country exists, using one query', async () => {
       const { service, countries } = buildService();
