@@ -34,11 +34,6 @@ export interface UserProfile {
   deactivatedAt: Date | null;
 }
 
-/**
- * The public face of an account (D2: blog authors, comment authors, audit
- * actors). Name and join date only, plus role and status so the caller can
- * show "Deleted user" for a deactivated account (ACC-12).
- */
 export interface UserBrief {
   id: string;
   name: string;
@@ -183,12 +178,7 @@ export class UsersService {
     return user ? this.toUserProfile(user) : null;
   }
 
-  /**
-   * D2 (BLG-02, BLG-09, BLG-12, GEN-07): the public part of many accounts in
-   * one query, keyed by id, for showing author and actor names next to posts,
-   * comments and audit rows. Malformed and unknown ids are simply absent.
-   * Never returns the email, phone or anything security-related.
-   */
+  // D2: names of many accounts in one query (post authors, audit actors).
   async findBriefsByIds(ids: string[]): Promise<Map<string, UserBrief>> {
     const unique = [...new Set(ids)].filter((id) => OBJECT_ID.test(id));
     if (unique.length === 0) {
@@ -213,12 +203,7 @@ export class UsersService {
     );
   }
 
-  /**
-   * BLG-09: ids of the accounts whose name contains the fragment, matched
-   * literally and case-insensitively (the same escaping as the admin search),
-   * so the blog can find posts "by author name" without reading this
-   * collection itself. Capped, because the result becomes an $in list.
-   */
+  // BLG-09: ids of accounts whose name contains the text (search by author).
   async findIdsByNameFragment(fragment: string, limit = 500): Promise<string[]> {
     const term = fragment.trim();
     if (term === '') {
@@ -233,11 +218,7 @@ export class UsersService {
     return users.map((user) => user._id.toString());
   }
 
-  /**
-   * ACC-12 for the blog: ids of every account in one status. A deactivated
-   * account's posts are hidden by excluding these authors in the query itself,
-   * so pages stay full and counts stay right, rather than filtering afterwards.
-   */
+  // ACC-12: the blog hides posts of deactivated accounts with these ids.
   async findIdsByStatus(status: UserStatus): Promise<string[]> {
     const users = await this.userModel
       .find({ status })

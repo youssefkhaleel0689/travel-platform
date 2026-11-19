@@ -39,7 +39,6 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
     NotificationsModule,
     FlightsModule,
     HotelsModule,
-    // GEN-07: every account action below is written to the audit log.
     AuditModule,
   ],
   controllers: [AdminAccountsController, AdminModeratorsController],

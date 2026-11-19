@@ -1464,58 +1464,28 @@ The webhook signature verification is tested for real, because it is local crypt
 
 ## Image uploads (GEN-08)
 
-`MediaService` in `src/media/` is the one image-upload service for the whole team (playbook: D2 ships it, A2, B2 and D1 reuse it). It enforces the GEN-08 rule in one place:
-
-| Rule | How |
-| --- | --- |
-| JPG or PNG only | Decided from the file's own first bytes (`image-type.ts`), never from the name or the `Content-Type` the client sends, so `script.png` is refused |
-| At most 5 MB | Multer stops reading at 5 MB; the service checks again |
-| At most 5 per post, activity or hotel; 1 logo per airline | `MAX_IMAGES_PER_TARGET`. Each image takes a numbered slot and a unique `(targetType, targetId, slot)` index means two parallel uploads can never make a sixth |
-| Stored on the server, served by URL | Files go to `UPLOADS_DIR` (default `backend/uploads/`, git-ignored); the `mediaMetadata` collection records owner, target, URL, type and size |
-
-Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPLOAD` (wrong field name or several files), 409 `IMAGE_LIMIT_REACHED`, 404 `IMAGE_NOT_FOUND`.
-
-The module has no routes of its own: the module that owns the target checks who may upload or see the image, then calls the service. Using it from your module (D1 for ITN-12, A2 for the FLT-01 logo):
+`MediaService` (`src/media/`) is the shared upload service. It accepts one JPG or PNG of at most 5 MB (the type is read from the file's first bytes, not its name), allows 5 images per post, activity or hotel and 1 logo per airline, stores the file under `UPLOADS_DIR` and records it in `mediaMetadata`. The owning module checks access and serves the image from its own route.
 
 ~~~
-// your.module.ts
 @Module({ imports: [MediaModule] })
 
-// your.controller.ts
 @Post(':id/images')
 @ApiImageUpload('/api/activities/6720f1c2a1b2c3d4e5f60718/images', 'activity')
 addImage(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser,
-         @UploadedFile() file: UploadedImage | undefined) {
-  return this.activities.addImage(id, user, file);
-}
+         @UploadedFile() file: UploadedImage | undefined) { ... }
 
-// your.service.ts, after your own owner check
-return this.media.storeImage({
-  ownerId: user.userId,
-  targetType: MediaTargetType.ACTIVITY,
-  targetId: id,
-  file,
-  urlFor: (imageId) => `/api/activities/${id}/images/${imageId}`,
-});
-// listForTarget, openForTarget (stream it with StreamableFile), removeFromTarget, removeAllForTarget
+// in the service, after your own owner check
+this.media.storeImage({ ownerId: user.userId, targetType: MediaTargetType.ACTIVITY,
+  targetId: id, file, urlFor: (imageId) => `/api/activities/${id}/images/${imageId}` });
 ~~~
 
-`@ApiImageUpload` adds the multipart reader, the Swagger "Choose File" picker and the documented 400/409 errors. Import `UploadedImage` with `import type` (it is used in a decorated parameter). Hotel photos (HTL-01) were built before this service existed and keep their own storage under the same `UPLOADS_DIR`; moving them onto `MediaService` is a possible follow-up for B1.
+Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPLOAD`; 409 `IMAGE_LIMIT_REACHED`; 404 `IMAGE_NOT_FOUND`.
 
 ## Audit log (GEN-07)
 
-`auditLogs` has one owner, D2 (schema section 2.2), and one writer, `AuditService` in `src/audit/`. Admins read it at `GET /api/admin/audit-logs` (newest first, 10 per page, filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`).
-
-- **Append-only, enforced on the model.** Every update, replace and delete hook on the schema throws, and saving an already stored row is refused. There is no route that changes a row.
-- **Recorded today:** account suspension and reactivation (ACC-16), admin password reset (ACC-07a), moderator creation (ACC-13), and every moderation decision (GEN-10, see "Reports and moderation"). A repeated action that changed nothing writes no row. Temporary passwords are never logged.
-- **`record()` never throws**, like `notify()`: the action has already happened, so a logging failure is logged as an error rather than reported to the admin as a failed action. Call it after the action succeeded, and do not wrap it in `try`/`catch`.
-
-Recording from your module (B1 for ACC-15 provider deactivation):
+`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
 
 ~~~
-// your.module.ts
-@Module({ imports: [AuditModule] })
-
 await this.audit.record({
   actorId: admin.userId,
   action: AuditAction.PROVIDER_DEACTIVATED,
@@ -1526,7 +1496,7 @@ await this.audit.record({
 });
 ~~~
 
-`AuditAction` and `AuditEntityType` are closed lists (`src/audit/audit-action.enum.ts`); add a value there rather than inventing a string. In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`), because the model refuses deletes on purpose.
+In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`).
 
 ## Team workflow
 

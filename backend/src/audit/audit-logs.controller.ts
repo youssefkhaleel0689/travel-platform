@@ -16,10 +16,6 @@ import { AuditLogsQueryDto } from './dto/audit-logs-query.dto';
 
 const PATH = '/api/admin/audit-logs';
 
-/**
- * GEN-07: admins read the audit log. There is deliberately no route that
- * creates, edits or deletes a row: rows come only from the actions themselves.
- */
 @ApiTags('Administration')
 @ApiCookieAuth()
 @ApiErrorResponse(unauthenticated(PATH))

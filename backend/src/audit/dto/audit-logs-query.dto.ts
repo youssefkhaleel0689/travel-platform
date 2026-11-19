@@ -4,7 +4,6 @@ import { IsDate, IsEnum, IsMongoId, IsOptional } from 'class-validator';
 import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
 import { AuditAction, AuditEntityType } from '../audit-action.enum';
 
-// GEN-07: narrow the audit log by what was done, to what, by whom and when.
 export class AuditLogsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: AuditAction })
   @IsOptional()

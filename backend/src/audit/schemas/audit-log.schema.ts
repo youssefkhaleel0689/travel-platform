@@ -9,20 +9,12 @@ import {
 
 export type AuditLogDocument = HydratedDocument<AuditLog>;
 
-/**
- * One admin action (GEN-07, schema section 2.2: auditLogs, owned by D2).
- *
- * Append-only: rows are inserted and read, never changed or removed. The
- * hooks below make that a property of the model rather than a promise, so
- * even a later bug elsewhere in the code cannot rewrite history through it.
- */
 @Schema({
   collection: 'auditLogs',
   versionKey: false,
   timestamps: { createdAt: true, updatedAt: false },
 })
 export class AuditLog {
-  /** The admin who acted. */
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   actorId: Types.ObjectId;
 
@@ -35,11 +27,9 @@ export class AuditLog {
   @Prop({ type: SchemaTypes.ObjectId, required: true })
   entityId: Types.ObjectId;
 
-  /** The relevant fields before the action, e.g. { status: 'ACTIVE' }. */
   @Prop({ type: SchemaTypes.Mixed, default: null })
   before: Record<string, unknown> | null;
 
-  /** The same fields after it, plus context such as the report it resolved. */
   @Prop({ type: SchemaTypes.Mixed, default: null })
   after: Record<string, unknown> | null;
 
@@ -52,6 +42,7 @@ function appendOnly(): never {
   throw new Error('auditLogs is append-only: rows cannot be changed or removed');
 }
 
+// GEN-07: rows can be added and read, never changed or removed.
 AuditLogSchema.pre(
   [
     'updateOne',
@@ -65,14 +56,12 @@ AuditLogSchema.pre(
   ],
   appendOnly,
 );
-// A loaded row saved again would be an update too.
 AuditLogSchema.pre('save', function () {
   if (!this.isNew) {
     appendOnly();
   }
 });
 
-// The admin list: newest first, optionally narrowed by action or by entity.
 AuditLogSchema.index({ createdAt: -1 });
 AuditLogSchema.index({ action: 1, createdAt: -1 });
 AuditLogSchema.index({ entityType: 1, entityId: 1, createdAt: -1 });

@@ -5,17 +5,6 @@ import { ImageUploadInterceptor } from './image-upload.interceptor';
 import { IMAGE_UPLOAD_FIELD } from './media.constants';
 import { imageLimitMessage } from './media.service';
 
-/**
- * Everything an image-upload route needs (GEN-08): the multipart reader, the
- * Swagger file picker ("Choose File" in Swagger UI) and the documented 400 and
- * 409 answers. `path` is the route's real path with an example id.
- *
- * ```ts
- * @Post(':id/images')
- * @ApiImageUpload('/api/posts/6720f1c2a1b2c3d4e5f60718/images', 'post')
- * addImage(@UploadedFile() file: UploadedImage) {}
- * ```
- */
 export function ApiImageUpload(path: string, targetLabel: string, limit = 5) {
   return applyDecorators(
     UseInterceptors(ImageUploadInterceptor),

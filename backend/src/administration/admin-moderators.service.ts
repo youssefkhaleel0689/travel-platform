@@ -79,7 +79,6 @@ export class AdminModeratorsService {
       throw error;
     }
 
-    // GEN-07. The temporary password is never logged.
     await this.audit.record({
       actorId: actingAdminId,
       action: AuditAction.MODERATOR_CREATED,

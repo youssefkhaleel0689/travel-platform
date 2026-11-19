@@ -21,7 +21,6 @@ import {
 } from './media.constants';
 import { MediaMetadata } from './schemas/media-metadata.schema';
 
-/** The parts of a multer memory-storage file this service reads. */
 export interface UploadedImage {
   originalname: string;
   mimetype: string;
@@ -29,7 +28,6 @@ export interface UploadedImage {
   buffer: Buffer;
 }
 
-/** An image as other modules and their responses see it. */
 export interface StoredImage {
   id: string;
   url: string;
@@ -43,15 +41,9 @@ export interface StoreImageInput {
   targetType: MediaTargetType;
   targetId: string;
   file: UploadedImage | undefined;
-  /**
-   * Builds the public URL from the new image's id. The owning module decides
-   * the route, because it is also the module that checks who may see the
-   * image before serving it (a draft post's images are not public).
-   */
   urlFor: (imageId: string) => string;
 }
 
-/** A stored file, ready to stream. */
 export interface ImageFile {
   path: string;
   mimeType: ImageMimeType;
@@ -61,14 +53,6 @@ export interface ImageFile {
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
 const DUPLICATE_KEY = 11000;
 
-/**
- * GEN-08: the shared image-upload service. Validates type, size and count,
- * stores the bytes on the server and keeps the mediaMetadata registry.
- *
- * It does not decide who may upload or see an image: the module that owns the
- * target (blog, itineraries, hotels, airlines) checks that first, then calls
- * this service. That keeps every access rule next to the data it protects.
- */
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
@@ -79,17 +63,9 @@ export class MediaService {
     private readonly mediaModel: Model<MediaMetadata>,
     config: ConfigService,
   ) {
-    // Same variable and default as the hotel photos, so all uploads share one
-    // folder on the server.
     this.uploadsRoot = resolve(config.get<string>('UPLOADS_DIR') || 'uploads');
   }
 
-  /**
-   * Validates and stores one image for a target.
-   *
-   * 400 FILE_REQUIRED, INVALID_FILE_TYPE or FILE_TOO_LARGE for a bad file;
-   * 409 IMAGE_LIMIT_REACHED when the target already holds its maximum.
-   */
   async storeImage(input: StoreImageInput): Promise<StoredImage> {
     const { file } = input;
     if (!file || !file.buffer || file.buffer.length === 0) {
@@ -113,8 +89,6 @@ export class MediaService {
 
     const limit = MAX_IMAGES_PER_TARGET[input.targetType];
     const targetId = new Types.ObjectId(input.targetId);
-    // Cheap early answer for the common case; the unique slot index below is
-    // what actually guarantees the limit under concurrent uploads.
     const current = await this.mediaModel
       .countDocuments({ targetType: input.targetType, targetId })
       .exec();
@@ -122,8 +96,6 @@ export class MediaService {
       throw imageLimitReached(input.targetType, limit);
     }
 
-    // Bytes first, row second: a crash in between leaves an orphan file on
-    // disk (harmless), never a row pointing at a file that does not exist.
     const imageId = new Types.ObjectId();
     const storageKey = [
       input.targetType.toLowerCase(),
@@ -135,6 +107,7 @@ export class MediaService {
     await writeFile(path, file.buffer);
 
     const url = input.urlFor(imageId.toHexString());
+    // Take the first free slot; a duplicate key means another upload got it first.
     for (let slot = 0; slot < limit; slot += 1) {
       try {
         const row = await this.mediaModel.create({
@@ -155,15 +128,12 @@ export class MediaService {
           await this.deleteFile(storageKey);
           throw error;
         }
-        // That slot was taken (possibly a moment ago by a parallel upload):
-        // try the next one.
       }
     }
     await this.deleteFile(storageKey);
     throw imageLimitReached(input.targetType, limit);
   }
 
-  /** Every image of one target, oldest upload first. */
   async listForTarget(
     targetType: MediaTargetType,
     targetId: string,
@@ -179,10 +149,6 @@ export class MediaService {
     return rows.map(toStoredImage);
   }
 
-  /**
-   * The file of one image of one target, for streaming. 404 IMAGE_NOT_FOUND
-   * when the id is malformed, belongs to another target, or the file is gone.
-   */
   async openForTarget(
     targetType: MediaTargetType,
     targetId: string,
@@ -198,7 +164,6 @@ export class MediaService {
     return { path, mimeType: row.mimeType, sizeBytes: row.sizeBytes };
   }
 
-  /** Removes one image (row and file) from its target. 404 when it is not there. */
   async removeFromTarget(
     targetType: MediaTargetType,
     targetId: string,
@@ -207,13 +172,11 @@ export class MediaService {
     const row = await this.findForTarget(targetType, targetId, imageId);
     const result = await this.mediaModel.deleteOne({ _id: row._id }).exec();
     if (result.deletedCount === 0) {
-      // Removed by a parallel request between the read and the delete.
       throw imageNotFound();
     }
     await this.deleteFile(row.storageKey);
   }
 
-  /** Removes every image of a target, e.g. when its post is deleted. */
   async removeAllForTarget(
     targetType: MediaTargetType,
     targetId: string,
@@ -253,9 +216,7 @@ export class MediaService {
     return row;
   }
 
-  // A storage key is built by this service, but resolving it against the root
-  // and checking the result stays inside it means a tampered row can never
-  // make the server read or delete a file elsewhere.
+  // Never let a stored key point outside the uploads folder.
   private resolveStoragePath(storageKey: string): string {
     const path = resolve(this.uploadsRoot, storageKey);
     if (!path.startsWith(this.uploadsRoot + sep)) {
@@ -268,8 +229,6 @@ export class MediaService {
     try {
       await unlink(this.resolveStoragePath(storageKey));
     } catch (error) {
-      // Already gone is fine; anything else is logged, never thrown, because
-      // the row is what clients see and it has already been removed.
       if ((error as { code?: string }).code !== 'ENOENT') {
         this.logger.warn(`Could not delete stored image ${storageKey}`);
       }
@@ -317,7 +276,6 @@ function imageNotFound(): NotFoundException {
   });
 }
 
-/** "A post can have at most 5 images", "An airline can have only 1 image". */
 export function imageLimitMessage(label: string, limit: number): string {
   const article = /^[aeiou]/i.test(label) ? 'An' : 'A';
   return limit === 1

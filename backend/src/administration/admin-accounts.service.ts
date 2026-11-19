@@ -84,7 +84,6 @@ export class AdminAccountsService {
         resourceType: NotificationResourceType.ACCOUNT,
         resourceId: updated.id,
       });
-      // GEN-07: only a real change is logged; a repeated click changes nothing.
       await this.audit.record({
         actorId,
         action: AuditAction.ACCOUNT_SUSPENDED,
@@ -125,7 +124,6 @@ export class AdminAccountsService {
 
     const updated = await this.users.setStatus(targetUserId, UserStatus.ACTIVE);
     if (updated) {
-      // GEN-07
       await this.audit.record({
         actorId,
         action: AuditAction.ACCOUNT_REACTIVATED,
@@ -157,7 +155,6 @@ export class AdminAccountsService {
     // tokens issued before the reset, and the temporary password would not be
     // the only way back in.
     await this.sessions.revokeAllSessions(profile.id);
-    // GEN-07. The temporary password itself is never logged.
     await this.audit.record({
       actorId,
       action: AuditAction.ACCOUNT_PASSWORD_RESET,
