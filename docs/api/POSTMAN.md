@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, 174 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 79 requests in 11 folders |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -133,7 +133,7 @@ Run the folders in order. Each row says what the folder proves.
 | 30 Change password | ACC-08 | The current password is required; the rules are enforced; the caller stays signed in while other sessions do not |
 | 40 Notifications | GEN-01 | Pages of 10, the unread filter, marking read twice is harmless, another account's notification is a 404 |
 | 50 Admin accounts | ACC-07a, ACC-14, ACC-16 | Role enforcement, search and filters, a regex matched literally, suspension revoking sessions, the self and admin refusals, a one-time temporary password |
-| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
+| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; a hotel moderator for a hotel that does not exist is a 404, and signing in afterwards proves the account it had already created was undone |
 | 60 Account deactivation | ACC-12 | `confirm: true` is required; the row survives with a date; the cookie dies |
 | 70 Policies | PAY-02 | The booking's own terms and the version the user must echo back |
 | 80 Payments | PAY-01 | The amount is never taken from the client; the webhook refuses anything Stripe did not sign |
@@ -165,20 +165,27 @@ Run the folders in order. Each row says what the folder proves.
   browsers, or Postman plus Swagger), change the password in one, and the other
   cookie stops working while yours keeps going.
 
-## 5. What needs a booking module
+## 5. The booking-backed requests
 
-Folders 70 to 90 reach bookings through `BookingsPort`, which neither the
-flights nor the hotels module provides yet. Once you can sign in, they answer:
+Folders 70 to 90 reach bookings through `BookingsPort`. Flights and hotels both
+provide one now, so these requests no longer answer the
 
 ~~~
-501  { "code": "BOOKING_TYPE_UNAVAILABLE",
-       "message": "HOTEL bookings are not available yet: the module that owns
-                   them has not been connected to payments" }
+501  { "code": "BOOKING_TYPE_UNAVAILABLE", ... }
 ~~~
 
-That is deliberate — a clear 501 rather than a 500 that looks like a bug in
-payments. The collection asserts the 501 so a run stays green; each request's
-description says what to change when A1 or B2 wires its port in.
+they did before those modules landed. They still use a booking id that does not
+exist, so the answer is 404 `NOT_FOUND` — the same one a booking belonging to
+somebody else gets, because ids are never probeable (ACC-11).
+
+Each of them also asserts that the status is **not** 501, which is the point of
+keeping them: a module that provides a port must be `@Global()`, and the day one
+stops being, `BookingsGateway` can no longer see its port and these go back to
+501. That turns a silent regression into a failing request.
+
+Driving a payment end to end needs a real reservation on hold — a hotel, a
+room, availability and a hold, all of them B2's endpoints. That belongs in its
+own folder and is not here yet.
 
 ## 6. Driving the webhook for real
 
@@ -219,7 +226,7 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
-A clean full run is **77 requests, 174 assertions, 0 failures** and exits 0.
+A clean full run is **79 requests, 0 failures** and exits 0.
 One assertion skips itself and says so: folder 40 request 06 needs a
 notification to mark as read, and the test user has none until an admin
 suspends it in folder 50, which runs later. Marking one read is covered by
@@ -238,8 +245,8 @@ above fixed.
 | `403 FORBIDDEN` | A `USER` cookie on an admin route. Sign in as the seeded admin |
 | `403 PASSWORD_CHANGE_REQUIRED` | The account is on a temporary password. Call `PATCH /api/auth/change-password` first |
 | `403 ACCOUNT_SUSPENDED` / `ACCOUNT_DEACTIVATED` on login | Exactly what it says; a deactivated account cannot be brought back by an admin |
-| `501 BOOKING_TYPE_UNAVAILABLE` | No booking module is wired in. Expected until A1 or B2 lands |
-| `501 PROVIDER_TYPE_UNAVAILABLE` | Folder 55 asked for a `HOTEL_MODERATOR`. Expected until the hotels module lands (HTL-01) |
+| `501 BOOKING_TYPE_UNAVAILABLE` | A booking type whose module provides no port. Both provide one now, so this means that module stopped being `@Global()` |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a provider type whose port is unwired. Both are wired now, so this means `AdministrationModule` stopped providing one |
 | `409` on folder 55 request 02 | The random two-character IATA code was already taken. Send the request again |
 | `400` on `providerId` | Correct since the role-specific body landed: name the provider with `airlineId` or `hotelId` instead, matching `role` |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Expected unless you are working on payments |
