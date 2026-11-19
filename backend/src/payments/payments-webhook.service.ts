@@ -171,10 +171,12 @@ export class PaymentsWebhookService {
       userId: payment.userId,
       type: NotificationType.BOOKING_CONFIRMED,
       title: 'Booking confirmed',
+      // The booking module may add what was booked (FLT-23: "with the booking
+      // details"); the reference and the amount are always there.
       message:
         `Your ${label(payment.bookingType)} ${confirmation.bookingReference} ` +
-        `is confirmed. ${decimal128ToString(payment.amount)} ` +
-        `${payment.currency} was paid.`,
+        `is confirmed${confirmation.summary ? `: ${confirmation.summary}` : ''}. ` +
+        `${decimal128ToString(payment.amount)} ${payment.currency} was paid.`,
       resourceType:
         payment.bookingType === BookingType.FLIGHT
           ? NotificationResourceType.FLIGHT_BOOKING
