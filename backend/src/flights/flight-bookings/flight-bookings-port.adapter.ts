@@ -26,6 +26,9 @@ import {
   SeatChange,
   SeatInventoryService,
 } from '../seat-inventory/seat-inventory.service';
+import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
+import { toAirportLocalIso } from '../../common/time/airport-time';
+import { formatLocalTime } from './e-ticket/e-ticket.view';
 import { moneyString, toPolicyDto } from './flight-booking.mapper';
 
 // A booking reference like an airline PNR: 6 characters without 0/O and 1/I, which are
@@ -78,6 +81,7 @@ export class FlightBookingsPortAdapter implements BookingsPort {
     private readonly bookingModel: Model<FlightBooking>,
     @InjectConnection() private readonly connection: Connection,
     private readonly seatInventory: SeatInventoryService,
+    private readonly referenceData: ReferenceDataService,
   ) {}
 
   /** PAY-01, PAY-02: the facts payments needs. Not filtered by user: payments checks. */
@@ -138,9 +142,19 @@ export class FlightBookingsPortAdapter implements BookingsPort {
   ): Promise<BookingConfirmation> {
     for (let attempt = 1; ; attempt++) {
       try {
-        return await this.connection.transaction((session) =>
-          this.confirm(bookingId, paymentId, session),
+        const { confirmation, booking } = await this.connection.transaction(
+          (session) => this.confirm(bookingId, paymentId, session),
         );
+        // After the commit, and never fatal: the booking is paid and confirmed
+        // whatever happens here, so a failed airport lookup only shortens the
+        // notice to the reference and the amount.
+        const summary = await this.summary(booking).catch((error: unknown) => {
+          this.logger.warn(
+            `No summary for flight booking ${bookingId}: ${String(error)}`,
+          );
+          return undefined;
+        });
+        return { ...confirmation, summary };
       } catch (error) {
         // Two bookings drew the same reference: the unique index refused the second.
         if (attempt < REFERENCE_ATTEMPTS && isDuplicateReference(error)) {
@@ -196,15 +210,40 @@ export class FlightBookingsPortAdapter implements BookingsPort {
     return found !== null;
   }
 
+  /**
+   * FLT-23: what the confirmation notice names, e.g. "KD100 CAI to DXB on 20 Dec
+   * 2026, 08:30 and KD101 DXB to CAI on 27 Dec 2026, 16:00; 3 passengers". Times
+   * are local to each departure airport (GEN-06).
+   */
+  private async summary(booking: FlightBooking): Promise<string> {
+    const flights: string[] = [];
+    for (const segment of booking.segments) {
+      const { timeZone } = await this.referenceData.getAirportOrThrow(
+        segment.departureAirportId,
+      );
+      const departure = formatLocalTime(
+        toAirportLocalIso(segment.departureAtUtc, timeZone),
+        false,
+      );
+      flights.push(
+        `${segment.flightNumber} ${segment.departureAirportId} to ` +
+          `${segment.arrivalAirportId} on ${departure}`,
+      );
+    }
+    const count = booking.passengers.length;
+    return `${flights.join(' and ')}; ${count} passenger${count === 1 ? '' : 's'}`;
+  }
+
   private find(bookingId: string): Promise<FlightBooking | null> {
     return this.bookingModel.findById(bookingId).lean<FlightBooking>().exec();
   }
 
+  // The confirmation, and the booking it was made from, for the summary.
   private async confirm(
     bookingId: string,
     paymentId: string,
     session: ClientSession,
-  ): Promise<BookingConfirmation> {
+  ): Promise<{ confirmation: BookingConfirmation; booking: FlightBooking }> {
     const now = new Date();
     const booking = await this.bookingModel
       .findById(bookingId)
@@ -223,9 +262,12 @@ export class FlightBookingsPortAdapter implements BookingsPort {
       booking.bookingReference
     ) {
       return {
-        bookingId,
-        status: BookingStatus.CONFIRMED,
-        bookingReference: booking.bookingReference,
+        confirmation: {
+          bookingId,
+          status: BookingStatus.CONFIRMED,
+          bookingReference: booking.bookingReference,
+        },
+        booking,
       };
     }
     // 409 INVALID_BOOKING_STATE for anything but PENDING_PAYMENT (GEN-11).
@@ -261,6 +303,13 @@ export class FlightBookingsPortAdapter implements BookingsPort {
     for (const segment of booking.segments) {
       await this.seatInventory.convertHeldToBooked(seatsOf(segment), session);
     }
-    return { bookingId, status: BookingStatus.CONFIRMED, bookingReference };
+    return {
+      confirmation: {
+        bookingId,
+        status: BookingStatus.CONFIRMED,
+        bookingReference,
+      },
+      booking,
+    };
   }
 }
