@@ -353,12 +353,14 @@ Feature modules:
 | `hotels` | Hotels, rooms, availability, room holds, reviews |
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
-| `blog` | Posts, comments, likes |
-| `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
+| `blog` | Posts, comments, likes, tags, author pages |
+| `administration` | Moderator accounts, account suspension |
+| `media` | The shared image-upload service (GEN-08) |
+| `audit` | The append-only admin audit log (GEN-07) |
 
 Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`). Image uploads live in the feature module `src/media/` (GEN-08), because the service needs its own Mongoose collection. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Notifications were planned for `src/common/notifications/` but live in the feature module `src/notifications/` instead: GEN-01 has four endpoints, and a controller needs the guards and DTO wiring that a feature module provides. Other modules use it the normal way, through its exported `NotificationsService`.
 
@@ -1459,6 +1461,65 @@ The booking is confirmed when the webhook arrives, not when the command returns.
 | `test/refunds.e2e-spec.ts` | PAY-03 |
 
 The webhook signature verification is tested for real, because it is local crypto: a delivery signed with the right secret confirms the booking, while an unsigned one, one signed with another secret and one whose body was changed after signing are all refused. Stripe's HTTP API and the `BookingsPort` are stood in for, so these suites need no Stripe account and no booking module.
+
+## Image uploads (GEN-08)
+
+`MediaService` (`src/media/`) is the shared upload service. It accepts one JPG or PNG of at most 5 MB (the type is read from the file's first bytes, not its name), allows 5 images per post, activity or hotel and 1 logo per airline, stores the file under `UPLOADS_DIR` and records it in `mediaMetadata`. The owning module checks access and serves the image from its own route.
+
+~~~
+@Module({ imports: [MediaModule] })
+
+@Post(':id/images')
+@ApiImageUpload('/api/activities/6720f1c2a1b2c3d4e5f60718/images', 'activity')
+addImage(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser,
+         @UploadedFile() file: UploadedImage | undefined) { ... }
+
+// in the service, after your own owner check
+this.media.storeImage({ ownerId: user.userId, targetType: MediaTargetType.ACTIVITY,
+  targetId: id, file, urlFor: (imageId) => `/api/activities/${id}/images/${imageId}` });
+~~~
+
+Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPLOAD`; 409 `IMAGE_LIMIT_REACHED`; 404 `IMAGE_NOT_FOUND`.
+
+## Audit log (GEN-07)
+
+`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
+
+~~~
+await this.audit.record({
+  actorId: admin.userId,
+  action: AuditAction.PROVIDER_DEACTIVATED,
+  entityType: AuditEntityType.HOTEL,
+  entityId: hotelId,
+  before: { status: 'ACTIVE' },
+  after: { status: 'DEACTIVATED' },
+});
+~~~
+
+In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`).
+
+## Blog (BLG-01 to BLG-10, BLG-12)
+
+`src/blog/` owns `posts`, `comments` and `likes`. Reading is public; only the author can change a post or comment (ACC-11).
+
+| Endpoint | Requirement |
+| --- | --- |
+| `POST /api/posts`, `PATCH` / `DELETE /api/posts/:id` | BLG-01, BLG-04, BLG-08 |
+| `GET /api/posts` (`keyword`, `tag`, `page`) | BLG-02, BLG-09 |
+| `GET /api/posts/mine` | BLG-03 |
+| `GET /api/posts/:id`, `GET /api/posts/:id/comments` | BLG-02 |
+| `POST /api/posts/:id/comments`, `PATCH` / `DELETE /api/comments/:id` | BLG-05, BLG-07 |
+| `POST` / `DELETE /api/posts/:id/like` | BLG-06 |
+| `POST /api/posts/:id/images`, `GET` / `DELETE /api/posts/:id/images/:imageId` | BLG-10 |
+| `GET /api/tags/:tag/posts` | BLG-08 |
+| `GET /api/authors/:id` | BLG-12 |
+
+- Drafts and hidden posts are visible only to the author and admins; anyone else gets 404. Posts of a deactivated account are hidden and its comments show "Deleted user".
+- A unique `(postId, userId)` index allows one like per user. Like and comment counters change in the same transaction, and search sorts on their sum.
+- Tags are stored lower case without duplicates, at most 5 of 30 characters.
+- The author page reads public itineraries through `PublicItinerariesService.listByAuthor`.
+
+Tests: `test/blog.e2e-spec.ts`.
 
 ## Team workflow
 
