@@ -2514,8 +2514,10 @@
                   "  pm.response.to.have.status(401));",
                   "pm.test('code INVALID_CREDENTIALS', () =>",
                   "  pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));",
-                  "pm.test('no cookie was set', () =>",
-                  "  pm.expect(pm.cookies.has('access_token')).to.be.false);"
+                  "// Not pm.cookies: the jar still holds the cookie request 13 got, and a",
+                  "// failed login neither replaces nor clears it. The 401 is the proof -",
+                  "// an account that survived would answer 403 PASSWORD_CHANGE_REQUIRED",
+                  "// on its temporary password instead."
                 ]
               }
             }
@@ -2557,8 +2559,10 @@
                   "  pm.response.to.have.status(401));",
                   "pm.test('code INVALID_CREDENTIALS', () =>",
                   "  pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));",
-                  "pm.test('no cookie was set', () =>",
-                  "  pm.expect(pm.cookies.has('access_token')).to.be.false);"
+                  "// Not pm.cookies: the jar still holds the cookie request 13 got, and a",
+                  "// failed login neither replaces nor clears it. The 401 is the proof -",
+                  "// an account that survived would answer 403 PASSWORD_CHANGE_REQUIRED",
+                  "// on its temporary password instead."
                 ]
               }
             }

@@ -226,7 +226,7 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
-A clean full run is **79 requests, 0 failures** and exits 0.
+A clean full run is **79 requests, 182 assertions, 0 failures** and exits 0.
 One assertion skips itself and says so: folder 40 request 06 needs a
 notification to mark as read, and the test user has none until an admin
 suspends it in folder 50, which runs later. Marking one read is covered by
