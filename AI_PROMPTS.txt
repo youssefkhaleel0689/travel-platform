@@ -628,6 +628,8 @@ Prompt:
 Decide the lockout response (423 Locked with lockedUntil and a Retry-After header, chosen over 429, 403 and 401) and the rules: 5 consecutive failures lock the account for 15 minutes, the counter resets when the lock starts, the lock is checked before the password, and existing sessions are not affected. Extend the shared error format with an optional details object and retryAfterSeconds (sent as the Retry-After header, never in the body). Implement the lockout with an atomic database update, and write unit and e2e tests. Follow-up prompts: redesign the check after the review below, make a stuck last ticket heal itself, fix an e2e warning, and document the lockout in the README.
 How the output was used:
 Several problems were found and fixed before any commit. The first implementation checked the lock before bcrypt but counted the failure after it; reading the diff showed a time-of-check/time-of-use flaw, because parallel requests could all have their password checked. It was redesigned so each attempt reserves a "ticket" with one atomic update before bcrypt, so at most 5 passwords are checked per lock period. Claude Code then pointed out that a request dying while holding the last ticket would lock the account forever, so a self-healing conditional lock was added. A MaxListenersExceededWarning in the new e2e test (supertest starting the server for every request) was fixed by starting the server once. I reviewed every diff and ran lint, the unit tests (477) and the e2e tests (102) myself, repeating the runs that include a 10-request parallel race. I tested by hand in Swagger UI with a throwaway account: the 401 to 423 sequence, the Retry-After header and the automatic unlock. Commits: c03b0fd, e9f354b, 679bb17; this entry is committed separately.
+================================================
+================================================
 Date: 2026-11-09
 Student: Taher Khalaf
 Tool: Claude Code
@@ -788,6 +790,8 @@ Prompt:
 Build PUT /api/airlines/:id/baggage-policy and PUT /api/airlines/:id/cancellation-policy on feature/FLT-08-FLT-09-airline-policies, from the latest develop: the airlinePolicies schema (one document per airline, Decimal128 extraBagPrice > 0, maxExtraBagsPerPassenger >= 0, embedded cancellationTiers[] with unique whole thresholds >= 0 and percentages 0-100, version, updatedBy), DTOs with field-level errors, an AirlinePoliciesService that only lets the moderator assigned to the airline in the path write (airlineModeratorAssignment), a getForAirline() method for Khaled's search and booking code, the refund-tier rule as a pure function, Swagger errors, unit tests and a fake-service e2e test. Do not touch files owned by Khaled, do not run the Atlas-backed e2e tests and do not commit.
 How the output was used:
 I decided that both PUTs create or update the same airlinePolicies document with one conditional upsert and bump version on every change, that a part that was never defined stays null (baggage) or empty (tiers) so the first PUT can come in either order, and that the maximum weight of an extra bag is not stored because it equals the cabin's maxBagWeightKg (FLT-08). I decided that a moderator of a DEACTIVATED airline cannot change the policy, the same team-leader rule as for flights and cabins (ACC-15). I checked the DTO limits (at most 20 tiers, extra bag price up to 10000, up to 20 extra bags) are only sanity ceilings, read the generated files against FLT-08, FLT-09 and the schema, and ran prettier, the build, the linter, the unit tests and the filtered e2e tests (results in the PR). I tested nothing against Atlas because no moderator account exists yet (ACC-13). Using the policy in bookings (FLT-19/21) and in the refund quote (FLT-26) is left to those PRs.
+================================================
+================================================
 Date: 2026-11-12
 Student: Marawan Elgendy
 Tool: Claude Code
@@ -806,6 +810,8 @@ Prompt:
 Youssef reviewed PR #25 and asked that a moderator of a DEACTIVATED airline cannot create flights (403 with a clear code, a unit test and a Swagger example), and that the "How to test" text be updated because ACC-18 is already merged. I asked Claude Code to add the check.
 How the output was used:
 I added a check right after the assignment lookup in FlightsService.create: it reads the airline status and returns 403 AIRLINE_DEACTIVATED before any other lookup or insert. I added unit tests for a DEACTIVATED and an ACTIVE airline, added the example to the 403 ApiErrorResponse, and ran build, lint, unit and the filtered e2e tests. I updated the PR description myself. Cabins (FLT-04) get the same rule in their own PR.
+================================================
+================================================
 Date: 2026-11-17
 Student: Marawan Elgendy
 Tool: Claude Code
