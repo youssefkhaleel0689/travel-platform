@@ -271,7 +271,7 @@ describe('Blog (e2e)', () => {
       const ids = res.body.posts.items.map((p: { id: string }) => p.id);
       expect(ids).toContain(published);
       expect(ids).not.toContain(draft);
-      expect(typeof res.body.itinerariesAvailable).toBe('boolean');
+      expect(Array.isArray(res.body.publicItineraries.items)).toBe(true);
     });
 
     it('answers 404 for an unknown author', async () => {

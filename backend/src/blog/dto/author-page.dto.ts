@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Min } from 'class-validator';
 import { PageMetaDto } from '../../common/pagination/dto/page.dto';
 import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
+import { PublicItinerarySummaryDto } from '../../itineraries/dto/public-itinerary-response.dto';
 import { PostSummaryDto } from './post-response.dto';
 
 export class AuthorPageQueryDto extends PaginationQueryDto {
@@ -10,7 +11,7 @@ export class AuthorPageQueryDto extends PaginationQueryDto {
     type: 'integer',
     minimum: 1,
     default: 1,
-    description: 'Page of the public itineraries (page applies to the posts)',
+    description: 'Page of the public itineraries (page is for the posts)',
   })
   @Type(() => Number)
   @IsOptional()
@@ -27,26 +28,14 @@ export class AuthorPostPageDto {
   meta: PageMetaDto;
 }
 
-export class PublicItinerarySummaryDto {
-  @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60770' })
-  id: string;
-
-  @ApiProperty({ example: 'Cairo and Luxor in a week' })
-  title: string;
-}
-
-export class PublicItineraryPageDto {
-  @ApiProperty({
-    type: [PublicItinerarySummaryDto],
-    description: 'The itinerary module may add fields such as the destination',
-  })
+export class AuthorItineraryPageDto {
+  @ApiProperty({ type: [PublicItinerarySummaryDto] })
   items: PublicItinerarySummaryDto[];
 
   @ApiProperty({ type: PageMetaDto })
   meta: PageMetaDto;
 }
 
-/** BLG-12: the public author page. */
 export class AuthorPageDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60701' })
   id: string;
@@ -54,24 +43,18 @@ export class AuthorPageDto {
   @ApiProperty({ example: 'Mona Adel' })
   name: string;
 
-  @ApiProperty({ example: '2026-11-02T08:30:00.000Z', description: 'Registration date' })
+  @ApiProperty({ example: '2026-11-02T08:30:00.000Z' })
   joinedAt: string;
 
   @ApiProperty({
     type: AuthorPostPageDto,
-    description: 'Published, visible posts, newest first, 10 per page',
+    description: 'Published posts, newest first',
   })
   posts: AuthorPostPageDto;
 
   @ApiProperty({
-    type: PublicItineraryPageDto,
-    nullable: true,
-    description:
-      'Public itineraries (ITN-20), 10 per page; null while the itineraries ' +
-      'module is not connected (see itinerariesAvailable)',
+    type: AuthorItineraryPageDto,
+    description: 'Public itineraries (ITN-20), newest first',
   })
-  publicItineraries: PublicItineraryPageDto | null;
-
-  @ApiProperty({ example: true })
-  itinerariesAvailable: boolean;
+  publicItineraries: AuthorItineraryPageDto;
 }

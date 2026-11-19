@@ -20,8 +20,8 @@ export class AuthorsController {
   @ApiOperation({
     summary: 'Public author page: name, join date, posts, itineraries (BLG-12)',
     description:
-      'Public. page pages the published posts, itinerariesPage the public ' +
-      'itineraries (ITN-20). An account its owner deactivated has no page.',
+      'Public. page pages the posts, itinerariesPage the public itineraries ' +
+      '(ITN-20). A deactivated account has no page.',
   })
   @ApiParam({ name: 'id', description: 'Account id of the author', example: AUTHOR_ID })
   @ApiOkResponse({ type: AuthorPageDto })

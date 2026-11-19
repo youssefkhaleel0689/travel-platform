@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { ItinerariesModule } from '../itineraries/itineraries.module';
 import { MediaModule } from '../media/media.module';
 import { AuthorsController } from './authors.controller';
 import { AuthorsService } from './authors.service';
@@ -29,6 +30,7 @@ import { TagsController } from './tags.controller';
     ]),
     AuthModule,
     MediaModule,
+    ItinerariesModule,
   ],
   controllers: [
     PostsController,
