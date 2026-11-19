@@ -1,5 +1,4 @@
-// GEN-09: why a user reports content. A closed list so the admin queue can
-// be filtered and counted; OTHER needs a written explanation in `details`.
+// GEN-09: OTHER needs a written explanation in `details`.
 export enum ReportReason {
   SPAM = 'SPAM',
   HARASSMENT = 'HARASSMENT',
@@ -11,8 +10,7 @@ export enum ReportReason {
 
 export const REPORT_REASONS = Object.values(ReportReason);
 
-// Schema section 6: reports.status. OPEN until an admin decides; the closed
-// states say what was decided (GEN-10).
+// OPEN until an admin decides; the other states record the decision.
 export enum ReportStatus {
   OPEN = 'OPEN',
   DISMISSED = 'DISMISSED',

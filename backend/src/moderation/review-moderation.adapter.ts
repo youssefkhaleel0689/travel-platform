@@ -7,11 +7,7 @@ import type {
 import { ModerationState } from '../common/moderation/moderation-state';
 import { ReviewsService } from '../reviews/reviews.service';
 
-/**
- * Hotel reviews (B2) as moderation content. Thin on purpose: the reviews
- * module does the work through its own exported service, which also
- * recomputes the hotel rating after a review is hidden or restored (HTL-24).
- */
+/** Hotel reviews (B2) as moderation content, through B2's own service. */
 @Injectable()
 export class ReviewModerationAdapter implements ContentModerationPort {
   constructor(private readonly reviews: ReviewsService) {}

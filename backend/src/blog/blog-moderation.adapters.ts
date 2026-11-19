@@ -39,8 +39,7 @@ export class PostModerationAdapter implements ContentModerationPort {
     };
   }
 
-  // A hidden or deleted post drops out of every public list, search and the
-  // author page by itself, because those all filter on moderationState.
+  // Public lists already filter on moderationState, so nothing else to update.
   moderate(
     id: string,
     to: ModerationState,
@@ -50,11 +49,8 @@ export class PostModerationAdapter implements ContentModerationPort {
   }
 }
 
-/**
- * GEN-09, GEN-10 for comments. commentCount counts visible comments, so
- * hiding or deleting a visible comment takes it off the post's count, and
- * restoring puts it back, in the same transaction as the state change.
- */
+// commentCount only counts visible comments, so the count changes in the
+// same transaction as the comment's state.
 @Injectable()
 export class CommentModerationAdapter implements ContentModerationPort {
   constructor(

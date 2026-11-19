@@ -14,8 +14,7 @@ import {
 
 export type ReportDocument = HydratedDocument<Report>;
 
-// One user's report of one post, comment, review or itinerary (schema
-// section 2.7, GEN-09). Resolved by an admin (GEN-10).
+// One user's report of a post, comment, review or itinerary (GEN-09).
 @Schema({ collection: 'reports', timestamps: true })
 export class Report {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
@@ -59,8 +58,7 @@ export class Report {
 
 export const ReportSchema = SchemaFactory.createForClass(Report);
 
-// "At most once per item" (GEN-09) is this index: a double click cannot
-// create two reports, because only one insert can win.
+// At most one report per user per item (GEN-09).
 ReportSchema.index(
   { reporterId: 1, targetType: 1, targetId: 1 },
   { unique: true },
