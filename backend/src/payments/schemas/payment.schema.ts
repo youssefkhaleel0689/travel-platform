@@ -38,7 +38,7 @@ export class Payment {
   stripePaymentIntentId: string;
 
   // Decimal128, never a float (schema section 1). Returned as a string.
-  @Prop({ type: Types.Decimal128, required: true })
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
   amount: Types.Decimal128;
 
   // PAY-04: always the one platform currency; stored so a stored payment can

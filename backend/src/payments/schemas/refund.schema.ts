@@ -39,7 +39,7 @@ export class Refund {
 
   // Decimal128, never a float. Always greater than zero: a 0% tier produces no
   // refund row at all.
-  @Prop({ type: Types.Decimal128, required: true })
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
   amount: Types.Decimal128;
 
   @Prop({ type: String, required: true, default: PLATFORM_CURRENCY })
