@@ -6866,6 +6866,284 @@ paths:
       summary: Create an airline or hotel moderator account (ACC-13)
       tags:
         - Administration
+  /api/admin/providers/{type}/{id}/deactivate:
+    patch:
+      description: Its listings are hidden from search and cannot be booked; existing CONFIRMED bookings stay valid and are not changed. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_deactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_DEACTIVATED:
+                  summary: Hotel is already deactivated
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Hotel is already deactivated
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_DEACTIVATED:
+                  summary: Airline is already deactivated
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Airline is already deactivated
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Deactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
+  /api/admin/providers/{type}/{id}/reactivate:
+    patch:
+      description: Its listings can be searched and booked again. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_reactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_ACTIVE:
+                  summary: Hotel is already active
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Hotel is already active
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_ACTIVE:
+                  summary: Airline is already active
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Airline is already active
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Reactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
   /api/admin/audit-logs:
     get:
       description: 'Newest first, pages of 10 (GEN-05). Suspensions, reactivations, password resets, moderator creation, provider deactivation and every moderation decision (hide, restore, delete, dismiss) are recorded. Read-only: rows can never be changed or removed.'
@@ -9980,6 +10258,184 @@ paths:
       summary: Search flights to the itinerary's first city (ITN-26)
       tags:
         - Itineraries
+  /api/itineraries/{id}/hotels:
+    get:
+      description: Hotels in the city of the chosen city group (cityGroups in GET /api/itineraries/:id, numbered from 1), with check-in on the date of its first day and check-out the day after its last day. Guests, rooms, price and rating filters, sorting and paging work as in GET /api/hotels/search, which this reuses.
+      operationId: ItineraryHotelsController_search
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: guestCount
+          required: true
+          in: query
+          schema:
+            example: 2
+            type: number
+        - name: roomCount
+          required: false
+          in: query
+          schema:
+            default: 1
+            type: number
+        - name: minPricePerNight
+          required: false
+          in: query
+          description: Inclusive; price of the cheapest qualifying room
+          schema:
+            type: string
+        - name: maxPricePerNight
+          required: false
+          in: query
+          description: Inclusive
+          schema:
+            type: string
+        - name: minAverageRating
+          required: false
+          in: query
+          description: Unrated hotels are excluded when set
+          schema:
+            minimum: 1
+            maximum: 5
+            type: number
+        - name: sortBy
+          required: false
+          in: query
+          schema:
+            default: price
+            type: string
+            enum:
+              - price
+              - rating
+        - name: sortOrder
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+        - name: cityGroup
+          required: true
+          in: query
+          description: 1-based position of the city group in the cityGroups array of GET /api/itineraries/:id.
+          schema:
+            minimum: 1
+            example: 1
+            type: number
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryHotelSearchResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: guestCount
+                        messages:
+                          - guestCount must not be less than 1
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY_GROUP:
+                  summary: 'cityGroup must be between 1 and 2: this itinerary has 2 city groups'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY_GROUP
+                    error: Bad Request
+                    message: 'cityGroup must be between 1 and 2: this itinerary has 2 city groups'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                BAD_REQUEST:
+                  summary: checkInDate cannot be in the past
+                  value:
+                    statusCode: 400
+                    code: BAD_REQUEST
+                    error: Bad Request
+                    message: checkInDate cannot be in the past
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The itinerary has no day yet (ITINERARY_HAS_NO_DAYS)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: ITINERARY_HAS_NO_DAYS
+                error: Conflict
+                message: Add a day with a city to the itinerary before searching hotels
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Search hotels for one of the itinerary's city groups (ITN-25)
+      tags:
+        - Itineraries
   /api/posts:
     post:
       description: Title and body are required; up to 5 tags. Add images afterwards with POST /api/posts/{id}/images (BLG-10).
@@ -12620,6 +13076,7 @@ components:
             - FLIGHT_CANCELLED
             - ACCOUNT_SUSPENDED
             - PROVIDER_SUSPENDED
+            - PROVIDER_REACTIVATED
           example: BOOKING_CONFIRMED
         title:
           type: string
@@ -14330,6 +14787,43 @@ components:
         - providerId
         - temporaryPassword
         - message
+    AdminProviderStatusDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - hotel
+            - airline
+          example: hotel
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60788
+        name:
+          type: string
+          example: Nile View Hotel
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DEACTIVATED
+          example: DEACTIVATED
+        deactivatedAt:
+          type: string
+          nullable: true
+          example: '2026-11-19T10:00:00.000Z'
+          description: When it was deactivated; null while it is active
+        notifiedUsers:
+          type: number
+          example: 3
+          description: 'Accounts sent an in-app notification: the provider''s moderators and the users with an upcoming CONFIRMED booking with it. 0 if notifying failed; the status change stands either way.'
+      required:
+        - type
+        - id
+        - name
+        - status
+        - deactivatedAt
+        - notifiedUsers
     AuditLogDto:
       type: object
       properties:
@@ -15453,6 +15947,126 @@ components:
         - returnDate
         - outbound
         - inbound
+    ItineraryHotelCityGroupDto:
+      type: object
+      properties:
+        index:
+          type: number
+          example: 1
+          description: The cityGroup asked for (1-based).
+        city:
+          type: string
+          example: cairo
+          description: Seeded city id of the group.
+        fromDay:
+          type: number
+          example: 1
+          description: Day number of its first day.
+        toDay:
+          type: number
+          example: 2
+          description: Day number of its last day.
+        checkInDate:
+          type: string
+          example: '2026-12-20'
+          description: The date of its first day.
+        checkOutDate:
+          type: string
+          example: '2026-12-22'
+          description: The day after its last day.
+      required:
+        - index
+        - city
+        - fromDay
+        - toDay
+        - checkInDate
+        - checkOutDate
+    ItineraryHotelResultDto:
+      type: object
+      properties:
+        hotelId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60788
+        name:
+          type: string
+          example: Nile View Hotel
+        address:
+          type: string
+          example: 1 Corniche El Nil
+        cityId:
+          type: string
+          example: cairo
+        countryId:
+          type: string
+          example: EG
+        starClass:
+          type: number
+          example: 4
+        photo:
+          type: object
+          additionalProperties: true
+          description: The hotel's first photo, when it has one (GEN-08).
+        ratingAverage:
+          type: number
+          example: 4.5
+          nullable: true
+        ratingCount:
+          type: number
+          example: 12
+        pricePerNight:
+          type: string
+          example: '120.00'
+          description: Price per night of the cheapest qualifying room (USD).
+        freeRoomCount:
+          type: number
+          example: 3
+      required:
+        - hotelId
+        - name
+        - ratingAverage
+        - ratingCount
+        - pricePerNight
+        - freeRoomCount
+    ItineraryHotelSearchResponseDto:
+      type: object
+      properties:
+        itineraryId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        cityGroup:
+          $ref: '#/components/schemas/ItineraryHotelCityGroupDto'
+        checkInDate:
+          type: string
+          example: '2026-12-20T00:00:00.000Z'
+          description: Check-in as hotel search echoes it (UTC midnight).
+        checkOutDate:
+          type: string
+          example: '2026-12-22T00:00:00.000Z'
+        nights:
+          type: number
+          example: 2
+        guestCount:
+          type: number
+          example: 2
+        roomCount:
+          type: number
+          example: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItineraryHotelResultDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - itineraryId
+        - cityGroup
+        - checkInDate
+        - checkOutDate
+        - nights
+        - guestCount
+        - roomCount
+        - items
+        - meta
     CreatePostDto:
       type: object
       properties:
