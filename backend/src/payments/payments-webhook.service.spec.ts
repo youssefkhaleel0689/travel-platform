@@ -179,6 +179,38 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       expect(notice.message).toContain('420.00 USD');
     });
 
+    // FLT-23: the booking module can name what was booked; without it the
+    // notice keeps the reference and the amount only.
+    it("adds the booking module's summary when there is one", async () => {
+      bookings.confirmAfterPayment.mockResolvedValue({
+        bookingId: BOOKING_ID,
+        status: BookingStatus.CONFIRMED,
+        bookingReference: 'NILE-4821',
+        summary: 'KD100 CAI to DXB on 20 Dec 2026, 08:30; 3 passengers',
+      });
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const notice = notifications.notify.mock.calls[0][0] as {
+        message: string;
+      };
+      expect(notice.message).toBe(
+        'Your hotel reservation NILE-4821 is confirmed: KD100 CAI to DXB on ' +
+          '20 Dec 2026, 08:30; 3 passengers. 420.00 USD was paid.',
+      );
+    });
+
+    it('keeps the short notice when there is no summary', async () => {
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const notice = notifications.notify.mock.calls[0][0] as {
+        message: string;
+      };
+      expect(notice.message).toBe(
+        'Your hotel reservation NILE-4821 is confirmed. 420.00 USD was paid.',
+      );
+    });
+
     // Stripe retries until it gets a 2xx and can deliver twice anyway.
     it('does not confirm twice when the event is delivered again', async () => {
       const duplicate = Object.assign(new Error('E11000'), { code: 11000 });

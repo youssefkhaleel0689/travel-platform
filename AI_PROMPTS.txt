@@ -963,6 +963,15 @@ I read the merged booking schema first and decided what the endpoints show: the 
 Date: 2026-11-19
 Student: Khaled Elshitany
 Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-23 (with GEN-01, ACC-11, PAY-01)
+Prompt:
+Finish FLT-23 on top of the merged flight bookings: an e-ticket PDF the owner can download once the booking is confirmed, and the booking details in the confirmation notice that payments sends, without moving the notice out of payments.
+How the output was used:
+I chose to build the PDF with pdfkit on every download instead of storing files, so it is never out of date, with document numbers masked as in the API. The notice gets an optional summary on the BookingsPort confirmation that payments adds to its message, so hotels need no change, and a failure building it never undoes a paid confirmation. Verified: tsc, build and lint clean; 1351 unit and 398 e2e tests pass.
+================================================
+Date: 2026-11-19
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
 Related Requirement: ITN-26 (with FLT-11, FLT-12, FLT-15, ACC-11, GEN-12)
 Prompt:
 Build ITN-26 on top of D1's merged itineraries and my flight search: flights from an origin airport to any airport in the city of the itinerary's first day, one way or round trip, with the dates defaulting to the itinerary's first and last days, reusing FLT-11 and FLT-12.
