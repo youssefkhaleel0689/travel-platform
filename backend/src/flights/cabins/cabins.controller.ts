@@ -52,8 +52,7 @@ const DEPARTED = {
   message: 'This flight has already departed and can no longer be changed',
 };
 
-// FLT-04: the cabins of a flight. Seat-count edits and the time-change notices come with
-// FLT-05. The flight id is the path :id; cabins have no _id of their own (schema section 3),
+// FLT-04: the cabins of a flight; FLT-05: their price and seat count. The flight id is the path :id; cabins have no _id of their own (schema section 3),
 // so the cabin in the path is its category.
 @ApiTags('Cabins')
 @Controller('flights/:id/cabins')
@@ -147,11 +146,12 @@ export class CabinsController {
   @ApiCookieAuth('access_token')
   @ApiOperation({
     summary:
-      'Change the price or baggage of a cabin (FLT-04, FLT-05, airline moderator)',
+      'Change the price, seat count or baggage of a cabin (FLT-04, FLT-05, airline moderator)',
     description:
-      'Send any of price, freeBaggageCount, maxBagWeightKg. A price change does not affect ' +
-      'existing bookings. The seat count is changed in a later PR (FLT-05). The cabin is ' +
-      'identified by its category in the path.',
+      'Send any of price, totalSeats, freeBaggageCount, maxBagWeightKg. A price change does ' +
+      'not affect existing bookings. totalSeats cannot be lower than the seats already ' +
+      'booked or held (SEATS_BELOW_BOOKED); the booked and held counters are never sent. ' +
+      'The cabin is identified by its category in the path.',
   })
   @ApiParam({
     name: 'id',
@@ -180,13 +180,14 @@ export class CabinsController {
       },
       {
         code: 'EMPTY_UPDATE',
-        message: 'Send at least one of price, freeBaggageCount, maxBagWeightKg',
+        message:
+          'Send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg',
         path: EDIT_PATH,
         errors: [
           {
             field: 'body',
             messages: [
-              'send at least one of price, freeBaggageCount, maxBagWeightKg',
+              'send at least one of price, totalSeats, freeBaggageCount, maxBagWeightKg',
             ],
           },
         ],
@@ -223,10 +224,23 @@ export class CabinsController {
   })
   @ApiErrorResponse({
     status: 409,
-    description: 'The flight is not SCHEDULED or has already departed',
+    description:
+      'The flight is not SCHEDULED or has already departed, or the new seat count is below the seats already booked or held (SEATS_BELOW_BOOKED)',
     examples: [
       { ...NOT_SCHEDULED, path: EDIT_PATH },
       { ...DEPARTED, path: EDIT_PATH },
+      {
+        code: 'SEATS_BELOW_BOOKED',
+        message:
+          'totalSeats cannot be lower than the seats already booked or held (40 booked, 5 held)',
+        path: EDIT_PATH,
+        errors: [
+          {
+            field: 'totalSeats',
+            messages: ['must be at least 45 (seats already booked or held)'],
+          },
+        ],
+      },
     ],
   })
   update(
