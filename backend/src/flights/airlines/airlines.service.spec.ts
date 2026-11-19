@@ -284,3 +284,186 @@ describe('AirlinesService.assignModerator (ACC-13 hook)', () => {
     expect(assignmentModel.create).not.toHaveBeenCalled();
   });
 });
+
+// ACC-15: a fake airline collection that applies the conditional update the way MongoDB
+// would, so "already deactivated" and "missing" can be told apart like in the real thing.
+function statusSetup(options: {
+  stored?: Airline | null;
+  moderatorIds?: Types.ObjectId[];
+}) {
+  let stored = options.stored === undefined ? airline() : options.stored;
+  const airlineModel = {
+    findOneAndUpdate: jest.fn(
+      (
+        filter: { _id: Types.ObjectId; status: AirlineStatus },
+        update: { $set: Pick<Airline, 'status' | 'deactivatedAt'> },
+      ) => {
+        if (
+          stored &&
+          stored._id.equals(filter._id) &&
+          stored.status === filter.status
+        ) {
+          stored = Object.assign({}, stored, update.$set);
+          return query(stored);
+        }
+        return query(null);
+      },
+    ),
+    exists: jest.fn(() => query(stored ? { _id: stored._id } : null)),
+  };
+  const assignmentModel = {
+    find: jest.fn(() =>
+      query(
+        (options.moderatorIds ?? []).map((moderatorId) => ({ moderatorId })),
+      ),
+    ),
+  };
+  const service = new AirlinesService(
+    airlineModel as unknown as Model<Airline>,
+    assignmentModel as unknown as Model<AirlineModeratorAssignment>,
+  );
+  return { service, airlineModel, assignmentModel };
+}
+
+describe('AirlinesService.deactivate (ACC-15)', () => {
+  it('turns an ACTIVE airline DEACTIVATED with deactivatedAt in one conditional update', async () => {
+    const { service, airlineModel } = statusSetup({});
+
+    const result = await service.deactivate(AIRLINE_ID.toString());
+
+    expect(airlineModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(airlineModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: AIRLINE_ID, status: AirlineStatus.ACTIVE },
+      {
+        $set: {
+          status: AirlineStatus.DEACTIVATED,
+          deactivatedAt: expect.any(Date),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    expect(result).toEqual({
+      id: AIRLINE_ID.toString(),
+      name: 'EgyptAir',
+      status: AirlineStatus.DEACTIVATED,
+      deactivatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+  });
+
+  it('answers 409 AIRLINE_ALREADY_DEACTIVATED when it already is', async () => {
+    const { service } = statusSetup({
+      stored: airline({
+        status: AirlineStatus.DEACTIVATED,
+        deactivatedAt: NOW,
+      }),
+    });
+
+    const error = await failure(service.deactivate(AIRLINE_ID.toString()));
+
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toEqual({
+      code: 'AIRLINE_ALREADY_DEACTIVATED',
+      message: 'Airline is already deactivated',
+    });
+  });
+
+  it('answers 404 AIRLINE_NOT_FOUND for a missing airline', async () => {
+    const { service } = statusSetup({ stored: null });
+
+    const error = await failure(service.deactivate(AIRLINE_ID.toString()));
+
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      code: 'AIRLINE_NOT_FOUND',
+      message: 'Airline not found',
+    });
+  });
+
+  it.each(['not-an-id', '123', 'abcdefghijkl', ''])(
+    'answers 404 for the malformed id %p without querying',
+    async (id) => {
+      const { service, airlineModel } = statusSetup({});
+
+      const error = await failure(service.deactivate(id));
+
+      expect(error.getStatus()).toBe(404);
+      expect(airlineModel.findOneAndUpdate).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('AirlinesService.reactivate (ACC-15)', () => {
+  it('turns a DEACTIVATED airline ACTIVE and clears deactivatedAt', async () => {
+    const { service, airlineModel } = statusSetup({
+      stored: airline({
+        status: AirlineStatus.DEACTIVATED,
+        deactivatedAt: NOW,
+      }),
+    });
+
+    const result = await service.reactivate(AIRLINE_ID.toString());
+
+    expect(airlineModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: AIRLINE_ID, status: AirlineStatus.DEACTIVATED },
+      { $set: { status: AirlineStatus.ACTIVE, deactivatedAt: null } },
+      { returnDocument: 'after' },
+    );
+    expect(result).toEqual({
+      id: AIRLINE_ID.toString(),
+      name: 'EgyptAir',
+      status: AirlineStatus.ACTIVE,
+      deactivatedAt: null,
+    });
+  });
+
+  it('answers 409 AIRLINE_ALREADY_ACTIVE when it already is', async () => {
+    const { service } = statusSetup({});
+
+    const error = await failure(service.reactivate(AIRLINE_ID.toString()));
+
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toEqual({
+      code: 'AIRLINE_ALREADY_ACTIVE',
+      message: 'Airline is already active',
+    });
+  });
+
+  it('answers 404 AIRLINE_NOT_FOUND for a missing or malformed id', async () => {
+    const { service } = statusSetup({ stored: null });
+
+    expect(
+      (await failure(service.reactivate(AIRLINE_ID.toString()))).getStatus(),
+    ).toBe(404);
+    expect((await failure(service.reactivate('nope'))).getStatus()).toBe(404);
+  });
+});
+
+describe('AirlinesService.findModeratorIds (ACC-15)', () => {
+  it("returns the ids of the airline's moderators, querying with an ObjectId", async () => {
+    const first = new Types.ObjectId();
+    const second = new Types.ObjectId();
+    const { service, assignmentModel } = statusSetup({
+      moderatorIds: [first, second],
+    });
+
+    const ids = await service.findModeratorIds(AIRLINE_ID.toString());
+
+    expect(ids).toEqual([first.toString(), second.toString()]);
+    // The assignment paths are Mixed: a string id would match nothing.
+    expect(assignmentModel.find).toHaveBeenCalledWith(
+      { airlineId: AIRLINE_ID },
+      { moderatorId: 1 },
+    );
+  });
+
+  it('returns [] for an airline without moderators', async () => {
+    const { service } = statusSetup({});
+    expect(await service.findModeratorIds(AIRLINE_ID.toString())).toEqual([]);
+  });
+
+  it('returns [] for a malformed id without querying', async () => {
+    const { service, assignmentModel } = statusSetup({});
+    expect(await service.findModeratorIds('nope')).toEqual([]);
+    expect(assignmentModel.find).not.toHaveBeenCalled();
+  });
+});
