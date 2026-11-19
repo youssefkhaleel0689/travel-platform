@@ -13,7 +13,11 @@ import { ReferenceDataService } from '../common/reference-data/reference-data.se
 import { CreateItineraryDto } from './dto/create-itinerary.dto';
 import { UpdateItineraryDto } from './dto/update-itinerary.dto';
 import { SetVisibilityDto } from './dto/set-visibility.dto';
-import { Itinerary, ItineraryDocument } from './schemas/itinerary.schema';
+import {
+  Itinerary,
+  ItineraryDocument,
+  NOT_DELETED,
+} from './schemas/itinerary.schema';
 import { toItinerarySummary, toItineraryView } from './itinerary.view';
 
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
@@ -60,7 +64,7 @@ export class ItinerariesService {
       throw new NotFoundException(ITINERARY_NOT_FOUND);
     }
     const doc = await this.itineraryModel
-      .findOne({ _id: itineraryId, ...ownerFilter(user) })
+      .findOne({ _id: itineraryId, ...ownerFilter(user), ...NOT_DELETED })
       .exec();
     if (!doc) {
       throw new NotFoundException(ITINERARY_NOT_FOUND);
@@ -82,10 +86,11 @@ export class ItinerariesService {
 
   // ITN-03: most recently updated first; uses the team pagination helper (GEN-05)
   async list(user: AuthenticatedUser, page: number) {
-    const result = await paginateQuery(this.itineraryModel, ownerFilter(user), {
-      page,
-      sort: { updatedAt: -1 },
-    });
+    const result = await paginateQuery(
+      this.itineraryModel,
+      { ...ownerFilter(user), ...NOT_DELETED },
+      { page, sort: { updatedAt: -1 } },
+    );
     return new PageDto(result.items.map(toItinerarySummary), result.meta);
   }
 
