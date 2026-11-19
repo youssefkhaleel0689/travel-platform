@@ -1,8 +1,8 @@
 # Manual API testing with Postman (C2 endpoints)
 
 How to exercise the account, notification and payment endpoints by hand:
-ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11 and
-PAY-01 to PAY-04.
+ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, ACC-17, GEN-01,
+GEN-11 and PAY-01 to PAY-04.
 
 Swagger UI at `http://localhost:3000/api/docs` is what Milestone 1 is graded
 through and is enough for a quick look. Postman is better for a repeatable
@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, 174 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 91 requests in 12 folders, 208 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -104,13 +104,15 @@ where naming the reason is useful and safe.
 | `userEmail` / `userPassword` | Folder 20 request 01 registers it for you |
 | `targetEmail` / `targetPassword` | Folder 50 request 01 registers it, on a **generated** address; the folder suspends and resets this one, never your test user |
 | `throwawayEmail` / `throwawayPassword` | Folder 60 request 01 registers it, on a **generated** address; the folder deactivates it for good |
+| `bookingsUserEmail` / `bookingsUserPassword` | Folder 65 request 01 registers it, on a **generated** address; it only proves a traveller cannot read the admin booking list |
 | `adminEmail` / `adminPassword` | Copy them from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` after `npm run seed:admin` |
 
 Keep the `test_c2_` prefix on every address: the shared-database rules require
 test data to be prefixed, and it makes your rows easy to find and delete.
 
-`targetEmail`, `throwawayEmail` and the two moderator addresses are generated
-per run, so folders 50, 55 and 60 need no editing between runs. They have to
+`targetEmail`, `throwawayEmail`, `bookingsUserEmail` and the two moderator
+addresses are generated per run, so folders 50, 55, 60 and 65 need no editing
+between runs. They have to
 be: folder 50 leaves its target on a temporary password and folder 60
 deactivates its account permanently, so a fixed address makes each folder work
 exactly once. With a fixed one, folder 60 then fails outright with
@@ -135,6 +137,7 @@ Run the folders in order. Each row says what the folder proves.
 | 50 Admin accounts | ACC-07a, ACC-14, ACC-16 | Role enforcement, search and filters, a regex matched literally, suspension revoking sessions, the self and admin refusals, a one-time temporary password |
 | 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
 | 60 Account deactivation | ACC-12 | `confirm: true` is required; the row survives with a date; the cookie dies |
+| 65 Admin bookings | ACC-17 | One list over both booking collections: the row shape (reference, user, provider, dates, amount, status), the type, status, day-range and reference filters, and a traveller refused with 403 |
 | 70 Policies | PAY-02 | The booking's own terms and the version the user must echo back |
 | 80 Payments | PAY-01 | The amount is never taken from the client; the webhook refuses anything Stripe did not sign |
 | 90 Refunds | PAY-03 | A refund can be read but never created through the API |
@@ -179,6 +182,24 @@ flights nor the hotels module provides yet. Once you can sign in, they answer:
 That is deliberate — a clear 501 rather than a 500 that looks like a bug in
 payments. The collection asserts the 501 so a run stays green; each request's
 description says what to change when A1 or B2 wires its port in.
+
+### Folder 65 on a database with no bookings
+
+The admin list is the one C2 endpoint whose rows come from somebody else's
+collections: flight bookings (A1) and hotel reservations (B2), read through
+`BookingsPort` and merged into one page, newest first.
+
+Unlike folders 70 to 90 it never answers 501. A booking module that is not
+wired in has no bookings to report, so it is skipped: an admin list must not
+break because a module is still being built. That means the folder's
+assertions are about the shape and the filters, not about particular rows, and
+it runs green on an empty database - request 05 logs a line to the Postman
+console when it finds no bookings at all.
+
+To see real rows, make a booking first (the A1 or B2 collections do it end to
+end), then run folder 65 again, or put that booking's reference into request
+10. The rows this folder reads are never changed by it: ACC-17 is read-only,
+and a booking is cancelled through the module that owns it.
 
 ## 6. Driving the webhook for real
 
@@ -264,6 +285,9 @@ are outside the `users` collection:
   rows first, then the airline, then the accounts. The airline holds a
   two-character IATA code, and the pool is small, so leaving it behind makes
   the next run collide more often.
+
+Folder 65 creates one plain account (`test_c2_acc17_*`) and nothing else: it
+only reads bookings, so it leaves no bookings, airlines or hotels behind.
 
 **Keep the seeded admin.** `ADMIN_EMAIL` in `backend/.env` is itself a
 `test_c2_*` address, so a sweep of "every `test_c2_` account" takes the admin
