@@ -103,7 +103,7 @@ interface WithModerationState {
  * Deleting is a soft delete (moderationState DELETED): the row stays, so the
  * audit log and the reports keep pointing at something an admin can inspect.
  */
-export async function applyModeration<T extends WithModerationState>(
+export async function applyModeration<T extends Partial<WithModerationState>>(
   model: Model<T>,
   id: string,
   to: ModerationState,

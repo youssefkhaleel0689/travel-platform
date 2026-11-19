@@ -6,6 +6,12 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, QueryFilter, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import {
+  applyModeration,
+  type ModeratedContent,
+  type ModerationResult,
+} from '../common/moderation/content-moderation.port';
+import { ModerationState } from '../common/moderation/moderation-state';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { paginateQuery } from '../common/pagination/paginate';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
@@ -18,6 +24,7 @@ import { toPublicSummary } from './public-itinerary.view';
 import {
   Itinerary,
   ItineraryDocument,
+  PUBLICLY_VISIBLE,
   Visibility,
 } from './schemas/itinerary.schema';
 
@@ -54,7 +61,10 @@ export class PublicItinerariesService {
       await this.referenceData.assertCityExists(city);
     }
 
-    const and: Record<string, unknown>[] = [{ visibility: Visibility.PUBLIC }];
+    const and: Record<string, unknown>[] = [
+      { visibility: Visibility.PUBLIC },
+      PUBLICLY_VISIBLE,
+    ];
     if (q) {
       // A keyword matches the title, or a country or city by id or name.
       const { countryIds, cityIds } =
@@ -91,6 +101,7 @@ export class PublicItinerariesService {
       {
         userId: new Types.ObjectId(authorId),
         visibility: Visibility.PUBLIC,
+        ...PUBLICLY_VISIBLE,
       } as QueryFilter<Itinerary>,
       { page, sort: { updatedAt: -1 } },
     );
@@ -103,7 +114,7 @@ export class PublicItinerariesService {
       throw new NotFoundException(PUBLIC_ITINERARY_NOT_FOUND);
     }
     const doc = await this.itineraryModel
-      .findOne({ _id: id, visibility: Visibility.PUBLIC })
+      .findOne({ _id: id, visibility: Visibility.PUBLIC, ...PUBLICLY_VISIBLE })
       .exec();
     if (!doc) {
       throw new NotFoundException(PUBLIC_ITINERARY_NOT_FOUND);
@@ -130,5 +141,43 @@ export class PublicItinerariesService {
       buildCloneData(source.toObject(), newOwner),
     );
     return toItineraryView(copy);
+  }
+
+  // GEN-09/GEN-10 (D2): what admin moderation needs to know about an itinerary.
+  async findForModeration(id: string): Promise<ModeratedContent | null> {
+    if (!this.itineraries.isObjectId(id)) return null;
+    const doc = await this.itineraryModel
+      .findById(id)
+      .select('userId title visibility moderationState')
+      .lean()
+      .exec();
+    if (!doc) return null;
+    const state = doc.moderationState ?? ModerationState.VISIBLE;
+    return {
+      id,
+      ownerId: String(doc.userId),
+      moderationState: state,
+      reportable:
+        doc.visibility === Visibility.PUBLIC &&
+        state === ModerationState.VISIBLE,
+      preview: doc.title,
+    };
+  }
+
+  // GEN-10 (D2): hide, restore or delete on an admin's decision. Older
+  // itineraries have no moderationState yet, so it is filled in first.
+  async moderate(
+    id: string,
+    to: ModerationState,
+    actorId: string,
+  ): Promise<ModerationResult | null> {
+    if (!this.itineraries.isObjectId(id)) return null;
+    await this.itineraryModel
+      .updateOne(
+        { _id: id, moderationState: { $exists: false } },
+        { $set: { moderationState: ModerationState.VISIBLE } },
+      )
+      .exec();
+    return applyModeration(this.itineraryModel, id, to, actorId);
   }
 }
