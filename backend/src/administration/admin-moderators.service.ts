@@ -5,6 +5,8 @@ import { Role } from '../common/auth/auth.enums';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
 import type { ModeratorRole } from '../common/providers/moderator-assignments.gateway';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
+import { AuditAction, AuditEntityType } from '../audit/audit-action.enum';
+import { AuditService } from '../audit/audit.service';
 import { ModeratorCreatedDto } from './dto/moderator-created.dto';
 
 /**
@@ -38,6 +40,7 @@ export class AdminModeratorsService {
     private readonly users: UsersService,
     private readonly passwords: PasswordService,
     private readonly assignments: ModeratorAssignmentsGateway,
+    private readonly audit: AuditService,
   ) {}
 
   async create(
@@ -75,6 +78,14 @@ export class AdminModeratorsService {
       await this.rollback(profile.id);
       throw error;
     }
+
+    await this.audit.record({
+      actorId: actingAdminId,
+      action: AuditAction.MODERATOR_CREATED,
+      entityType: AuditEntityType.ACCOUNT,
+      entityId: profile.id,
+      after: { role, providerId },
+    });
 
     return ModeratorCreatedDto.from(profile, providerId, temporaryPassword);
   }
