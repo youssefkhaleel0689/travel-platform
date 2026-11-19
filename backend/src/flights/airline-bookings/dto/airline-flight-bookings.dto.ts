@@ -33,7 +33,7 @@ export class ListFlightBookingsQueryDto extends PaginationQueryDto {
   status?: BookingStatus;
 }
 
-export class FlightBookingPassengerDto {
+export class AirlineBookingPassengerDto {
   @ApiProperty({ example: 'Amira Hassan' })
   fullName: string;
 
@@ -73,8 +73,8 @@ export class AirlineFlightBookingDto {
   @ApiProperty({ example: 3, description: 'All passengers, infants included.' })
   passengerCount: number;
 
-  @ApiProperty({ type: [FlightBookingPassengerDto] })
-  passengers: FlightBookingPassengerDto[];
+  @ApiProperty({ type: [AirlineBookingPassengerDto] })
+  passengers: AirlineBookingPassengerDto[];
 
   @ApiProperty({
     type: String,
