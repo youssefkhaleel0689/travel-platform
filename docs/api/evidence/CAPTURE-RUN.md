@@ -5,11 +5,10 @@ sitting: every step only needs state an earlier step created, and the sign-ins
 are grouped so Swagger UI's single session cookie is never replaced in the
 middle of a group.
 
-This run covers 12 endpoints and needs nothing from another module. The seven
-payment and policy ones are listed in `README.md` under "Still to capture":
-they are no longer blocked — both booking modules provide a port now — but each
-needs a real booking on hold first, which is several requests through the
-hotels or flights endpoints before any of these can be executed.
+Sections 1 to 4 cover the 12 account and notification endpoints and need
+nothing from another module. Section 5 is the payment run, which is live:
+it needs a real Stripe test key and the Stripe CLI, and a booking on hold
+made through the hotels module first.
 
 ## 0. Before you start
 
@@ -103,7 +102,72 @@ throwaway account. `POST /api/auth/login` as `test_c2_throwaway@example.com` /
 | 15 | `DELETE /api/users/me` | ACC-12 | `{"confirm": true}` | `200`, `status: DEACTIVATED`; the id, name and email are still returned, so nothing was deleted |
 | 16 | `GET /api/users/me` | ACC-12 | — | `401`. The guard reloads the account every request, so the cookie stops working at once |
 
-## 5. Worth adding if the TA wants refusals
+## 5. Payments, live — 7 captures and a webhook log
+
+This is the one section that talks to Stripe for real, so it needs two things
+the placeholders in `.env.example` cannot provide.
+
+**A Stripe test-mode secret key.** Stripe dashboard in **Test mode** →
+Developers → API keys → Secret key (`sk_test_…`, about 100 characters). Put it in
+`backend/.env` as `STRIPE_SECRET_KEY` yourself; never paste it into a chat or a
+screenshot. Test mode moves no real money.
+
+**The Stripe CLI** (`npm install -g @stripe/cli`, Stripe's own package), to
+forward Stripe's webhook to `localhost`. It signs in with the same key, so there
+is no browser login: load the key into `STRIPE_API_KEY` for the shell, then
+
+~~~
+stripe listen --print-secret
+~~~
+
+prints the webhook signing secret: that goes in `backend/.env` as
+`STRIPE_WEBHOOK_SECRET`. Then leave this running:
+
+~~~
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled               --forward-to localhost:3000/api/payments/webhook
+~~~
+
+Newer CLIs refuse to start without `--events`. Restart the backend afterwards so
+it reads the new values.
+
+**Pick a hotel that refunds something.** A refund is created only when the
+cancellation tier gives more than 0%, and a hotel with no cancellation policy gives
+0%. On the shared cluster that is "Nile View Hotel" (100% when cancelled 7 or more
+days before check-in); the seeded "Cairo Nile View Hotel" has no policy and would
+refund nothing. Book far enough ahead to be well past that tier.
+
+Sign in as a throwaway traveller and `POST /api/hotel-bookings` (B2's endpoint,
+not captured). The booking is `PENDING_PAYMENT` on a **10-minute hold**, and every
+step down to 20 has to happen inside it.
+
+| # | Endpoint | Req | Send | Expect |
+| --- | --- | --- | --- | --- |
+| 17 | `GET /api/bookings/{type}/{id}/policies` | PAY-02 | `type: hotel`, the booking id | `200`, `accepted: false`. **Note `policyVersion`** |
+| 18 | `POST /api/bookings/{type}/{id}/accept-policies` | PAY-02 | `{"accepted": true, "policyVersion": <from 17>}` | `200`, `accepted: true` |
+| 19 | `POST /api/payments` | PAY-01 | `{"bookingType": "HOTEL", "bookingId": "<id>"}` | `201`, `REQUIRES_PAYMENT_METHOD`. **Note the payment `id` and `stripePaymentIntentId`** |
+| 20 | `POST /api/payments/{id}/retry` | PAY-01 | no body | `200`, the same intent, still attempt 1 |
+| — | charge the test card | — | `stripe payment_intents confirm <pi_…> --payment-method=pm_card_visa --return-url=https://example.com/return` | `"status": "succeeded"`, and `stripe listen` logs `[200] POST …/api/payments/webhook` |
+| 21 | `GET /api/payments/{id}` | PAY-01 | the payment id | `200`, `SUCCEEDED` |
+| — | `POST /api/hotel-bookings/{id}/cancel` | — | `{"confirm": true}` | not captured; issues the refund |
+| 22 | `GET /api/refunds/{id}` | PAY-03 | the refund's id | `200`, `REFUNDED` |
+
+The `--return-url` is required because our PaymentIntents use automatic payment
+methods; a card never actually redirects. No route returns a refund's id, so read
+it from the `refunds` collection by `paymentId` (read-only). Copy the two
+`payment_intent.succeeded` lines from the `stripe listen` output into the log file,
+with the signing secret it prints on start-up redacted.
+
+Then, as the admin:
+
+| # | Endpoint | Req | Send | Expect |
+| --- | --- | --- | --- | --- |
+| 23 | `GET /api/admin/bookings` | ACC-17 | **clear** the `from`, `to` and `reference` fields | `200`, an empty page while no module implements `listForAdmin` |
+
+Swagger UI pre-fills those optional fields with the DTO's examples, including a
+made-up reference, `K7M2QX`. Left as they are, the request filters on a booking that
+does not exist, and the empty page then proves nothing about the route.
+
+## 6. Worth adding if the TA wants refusals
 
 Not in this folder yet, and not required — one screenshot each if asked for.
 Run them as the test account from §3 unless noted.
@@ -116,7 +180,7 @@ Run them as the test account from §3 unless noted.
 | `POST /api/admin/moderators` (as admin) | `providerId` instead of `airlineId` | `400`, unknown field refused rather than ignored |
 | `PATCH /api/users/me` | `{"role":"ADMIN"}` | `400`, unknown field |
 
-## 6. Clean up afterwards
+## 7. Clean up afterwards
 
 Everything above lands on the **shared** Atlas database. Delete the accounts
 you made (`test_c2_evidence`, `test_c2_throwaway`, the moderator), the
@@ -124,3 +188,8 @@ moderator's row in `airlineModeratorAssignment`, and the airline — and **leave
 the seeded admin alone**: `ADMIN_EMAIL` is itself a `test_c2_` address, so a
 sweep of every `test_c2_` account takes it with it and the next run dies on
 sign-in. `docs/api/POSTMAN.md` §9 has the full list.
+
+Section 5 leaves a traveller account, its cancelled booking (in the hotels
+module's collection), the payment, its policy acceptance and the refund. The
+payment and refund also exist in your Stripe test dashboard, where they can stay:
+test mode is meant to accumulate them.

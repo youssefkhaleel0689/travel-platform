@@ -5,9 +5,10 @@ Screenshots of every endpoint C2 owns, taken in Swagger UI at
 Each one shows the endpoint, the request body or parameters, the **Request
 URL**, the response **code** and the response **body**.
 
-This folder grows over time. The seven payment and policy endpoints that are
-not pictured yet are listed under ["Still to capture"](#still-to-capture), with
-what each one needs before it can be.
+Every endpoint C2 owns is here. The payment shots were taken **live**: a real
+Stripe PaymentIntent in test mode, a real test-card charge, Stripe's signed
+webhook forwarded back to the local backend, and a real refund. See
+["Paying for a booking, live"](#paying-for-a-booking-live-pay-01-pay-02-pay-03).
 
 `CAPTURE-RUN.md` is the run that produced these, in the order that works: each
 step only needs state an earlier step created, and the sign-ins are grouped so
@@ -20,7 +21,9 @@ two versions of one shot.
 
 ## What is here
 
-16 screenshots covering the 12 endpoints that work end to end today.
+23 screenshots and one webhook log, covering all 20 endpoints C2 owns. The table
+lists 21 because shot 16 also calls `GET /api/users/me` (the Leader's route,
+ACC-04) to prove that a deactivated account's cookie stops working.
 
 | Requirement | Endpoint | Shows | File |
 | --- | --- | --- | --- |
@@ -40,6 +43,14 @@ two versions of one shot.
 | ACC-09 | `PATCH /api/users/me` | `200`, name, phone and currency changed | `14_ACC-09_update-profile_200.png` |
 | ACC-12 | `DELETE /api/users/me` | `200`, `status: DEACTIVATED`, the row kept | `15_ACC-12_deactivate_200.png` |
 | ACC-12 | `GET /api/users/me` after it | `401` — the cookie died with the account | `16_ACC-12_cookie-revoked_401.png` |
+| PAY-02 | `GET /api/bookings/{type}/{id}/policies` | `200`, the hotel's terms snapshot, `accepted: false` | `17_PAY-02_booking-policies_200.png` |
+| PAY-02 | `POST /api/bookings/{type}/{id}/accept-policies` | `200`, `accepted: true`, version 5 stored with its snapshot | `18_PAY-02_accept-policies_200.png` |
+| PAY-01 | `POST /api/payments` | `201`, a real Stripe PaymentIntent for `240.00` USD, `REQUIRES_PAYMENT_METHOD` | `19_PAY-01_create-payment_201.png` |
+| PAY-01 | `POST /api/payments/{id}/retry` | `200`, the still-open attempt returned as it stands — same intent, attempt 1 | `20_PAY-01_retry-payment_200.png` |
+| PAY-01 | `POST /api/payments/webhook` | Stripe's `payment_intent.succeeded`, forwarded by the Stripe CLI, answered `200` | `24_PAY-01_webhook-via-stripe-cli.txt` |
+| PAY-01 | `GET /api/payments/{id}` | `200`, `SUCCEEDED` — the webhook confirmed it seven seconds after it was opened | `21_PAY-01_get-payment_200.png` |
+| PAY-03 | `GET /api/refunds/{id}` | `200`, a real Stripe refund of `240.00` USD, `REFUNDED`, at the 100% tier | `22_PAY-03_get-refund_200.png` |
+| ACC-17 | `GET /api/admin/bookings` | `200`, an empty page — no booking module implements `listForAdmin` yet | `23_ACC-17_admin-bookings_200.png` |
 
 ## ACC-07a — admin resets an account to a temporary password
 
@@ -127,38 +138,74 @@ body by design, so the proof that they worked is the count before and after:
 
 ![None unread](13_GEN-01_unread-count_200_none-unread.png)
 
-## Still to capture
+## Paying for a booking, live (PAY-01, PAY-02, PAY-03)
 
-**These are no longer blocked.** They were waiting on a `BookingsPort`, and both
-booking modules provide one now: `FlightBookingsModule` exports
-`FLIGHT_BOOKINGS_PORT` and `HotelBookingsModule` exports `HOTEL_BOOKINGS_PORT`,
-each from a `@Global()` module so `BookingsGateway` can see it. The
-`501 BOOKING_TYPE_UNAVAILABLE` these used to answer is gone: ask for a booking
-that does not exist and the answer is now `404`, the same one a booking
-belonging to somebody else gets.
+One booking, followed from hold to refund. A throwaway traveller booked two
+nights at a seeded hotel (2 nights at $120, so `240.00`) and the booking went on
+its 10-minute hold, `PENDING_PAYMENT`. Everything below happened inside that hold.
 
-What they still need is a **real booking on hold** to act on, which is several
-requests through another module first — a hotel, a room, availability and a
-hold for the hotel side, or a flight and a seat hold for the flight side. That
-is the next addition to this folder.
+**PAY-02, the policies first.** The booking carries the hotel's terms as they
+were when it was made, so a later edit by the hotel never changes them. Payment is
+refused until these exact terms are accepted, by version.
 
-| Requirement | Endpoint | Needs |
-| --- | --- | --- |
-| PAY-02 | `GET /api/bookings/{type}/{id}/policies` | a booking on hold |
-| PAY-02 | `POST /api/bookings/{type}/{id}/accept-policies` | the same, plus its `policyVersion` |
-| PAY-01 | `POST /api/payments` | the same, with the policies accepted |
-| PAY-01 | `POST /api/payments/{id}/retry` | a payment of your own, so the one above first |
-| PAY-01 | `GET /api/payments/{id}` | the same |
-| PAY-03 | `GET /api/refunds/{id}` | a refund, so a confirmed booking that is then cancelled |
-| PAY-01 | `POST /api/payments/webhook` | nothing from Swagger: Stripe signs it and the signature is checked against the raw request bytes, so a "Try it out" can only fail. It is proved with the Stripe CLI (`docs/api/POSTMAN.md` §6) |
+![The booking's policies](17_PAY-02_booking-policies_200.png)
 
-Meanwhile the payment flow is covered by `backend/test/payments.e2e-spec.ts`,
-`refunds.e2e-spec.ts` and `booking-policies.e2e-spec.ts`, which drive it against
-a mocked port, and the Postman collection checks that the gateway really does
-see both ports — if a module ever stops being `@Global()`, those requests go
-back to answering 501 and fail.
+![Accepting them](18_PAY-02_accept-policies_200.png)
+
+**PAY-01, the payment.** The amount comes from the booking, never from the
+request. The response carries the Stripe PaymentIntent and its `clientSecret`,
+which the card form would use to send the card straight to Stripe; no card
+detail ever reaches this backend. `policyAcceptanceId` is the acceptance from 18.
+
+![A real Stripe PaymentIntent](19_PAY-01_create-payment_201.png)
+
+Retrying an attempt that is still open returns that attempt as it stands — the
+same intent, still attempt 1 — instead of opening a second one, so a double click can
+never charge twice.
+
+![Retrying an open attempt](20_PAY-01_retry-payment_200.png)
+
+**The webhook.** The test card `pm_card_visa` was charged through the Stripe CLI,
+and Stripe sent its signed `payment_intent.succeeded` back through `stripe listen`.
+This route is not in Swagger: the signature is checked against the raw request
+bytes, so a "Try it out" call could only be refused. The forwarder's own log is
+the evidence, in [`24_PAY-01_webhook-via-stripe-cli.txt`](24_PAY-01_webhook-via-stripe-cli.txt):
+
+~~~
+2026-11-19 18:25:19   --> payment_intent.succeeded [evt_3UdY96KCXO24LpU91uuCGkUx]
+2026-11-19 18:25:20  <--  [200] POST http://localhost:3000/api/payments/webhook [evt_3UdY96KCXO24LpU91uuCGkUx]
+~~~
+
+Only that verified webhook confirms a booking. 18:25:19 there is local time
+(UTC+2) — 16:25:19 UTC, the `succeededAt` below.
+
+![The payment, succeeded](21_PAY-01_get-payment_200.png)
+
+**PAY-03, the refund.** The traveller then cancelled the confirmed booking. The
+hotel refunds 100% when a booking is cancelled at least 7 days before check-in, and
+check-in was 60 days away, so the whole `240.00` went back through Stripe: a real
+refund, `re_3UdY96…`, completed about a second after it was requested. The tier
+that applied and the terms it came from are stored on the refund.
+
+![The refund](22_PAY-03_get-refund_200.png)
+
+## ACC-17 — the admin's list of every booking
+
+The request has no filter at all, and the page is empty on purpose. The bookings
+live in the flights and hotels modules, and each appears here once that module
+implements the optional `listForAdmin` on `BookingsPort`; neither has yet. Until
+then the route still answers a page, never a 501, so an admin list does not break
+while a module is still being built. This shows the route, the admin guard and the
+paging working; it will fill up as those two modules land.
+
+![The admin booking list](23_ACC-17_admin-bookings_200.png)
 
 ## Note on the screenshots
+
+Shots 19 and 20 show a `clientSecret`. That is a PaymentIntent client secret, not
+an API key: Stripe designs it to be handed to the customer's browser, it belongs to
+a test-mode intent that has since succeeded and been refunded, and it cannot be used
+without the account's own keys, which appear nowhere in this folder.
 
 The `curl` preview is cropped out of every shot. It repeats the request body,
 which after an admin sign-in contains `ADMIN_PASSWORD` in plain text. The

@@ -1,0 +1,19 @@
+PAY-01 - the Stripe webhook, live: `stripe listen` output from the evidence run
+================================================================================
+
+POST /api/payments/webhook is not in Swagger: Stripe signs every delivery and the
+backend checks the signature against the raw request bytes, so a "Try it out" call
+could only ever be refused. This is the proof instead - the Stripe CLI forwarding a
+real event from Stripe to the local backend, and the backend's answer.
+
+Command (the API key is read from backend/.env, never typed):
+  stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled \
+                --forward-to localhost:3000/api/payments/webhook
+
+The event below is for pi_3UdY96KCXO24LpU91lvXuw38, the PaymentIntent in shots 19-22.
+Times are local (UTC+2): 18:25:19 here is 16:25:19 UTC, the `succeededAt` in shot 21.
+The webhook signing secret the CLI prints on start-up is redacted.
+
+Ready! You are using Stripe API Version [2026-10-28.endive]. Your webhook signing secret is whsec_[REDACTED] (^C to quit)
+2026-11-19 18:25:19   --> payment_intent.succeeded [evt_3UdY96KCXO24LpU91uuCGkUx]
+2026-11-19 18:25:20  <--  [200] POST http://localhost:3000/api/payments/webhook [evt_3UdY96KCXO24LpU91uuCGkUx]
