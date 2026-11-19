@@ -60,18 +60,6 @@ export class ReportsController {
       { code: 'ALREADY_REPORTED', message: 'You have already reported this item', path: PATH },
     ],
   })
-  @ApiErrorResponse({
-    status: 501,
-    description: 'Itineraries cannot be reported until the itinerary module is connected',
-    examples: [
-      {
-        code: 'CONTENT_TYPE_UNAVAILABLE',
-        message:
-          'ITINERARY moderation is not available yet: the module that owns it has not been connected',
-        path: PATH,
-      },
-    ],
-  })
   report(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateReportDto,

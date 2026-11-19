@@ -73,18 +73,6 @@ function contentErrors(path: string): ApiErrorResponseOptions[] {
         },
       ],
     },
-    {
-      status: 501,
-      description: 'Itinerary moderation needs the itinerary module (D1)',
-      examples: [
-        {
-          code: 'CONTENT_TYPE_UNAVAILABLE',
-          message:
-            'ITINERARY moderation is not available yet: the module that owns it has not been connected',
-          path,
-        },
-      ],
-    },
   ];
 }
 

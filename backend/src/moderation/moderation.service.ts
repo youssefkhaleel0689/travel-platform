@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, QueryFilter, Types } from 'mongoose';
@@ -65,13 +64,8 @@ function alreadyResolved(): ConflictException {
   });
 }
 
-/**
- * GEN-09: users report content, once per item. GEN-10: admins work through
- * the open reports (dismiss, hide, delete) or act on any item directly
- * (hide, restore, delete). Every decision is written to the audit log
- * (GEN-07). The content itself is changed only through its owner's
- * ContentModerationPort.
- */
+// GEN-09 reports and GEN-10 admin decisions. Content is only changed through
+// its owner's ContentModerationPort; every decision is audited (GEN-07).
 @Injectable()
 export class ModerationService {
   constructor(
@@ -81,9 +75,7 @@ export class ModerationService {
     private readonly users: UsersService,
   ) {}
 
-  // ---------------------------------------------------------------------
   // GEN-09: reporting
-  // ---------------------------------------------------------------------
 
   async report(user: AuthenticatedUser, dto: CreateReportDto): Promise<ReportDto> {
     const target = await this.content.find(dto.targetType, dto.targetId);
@@ -120,9 +112,7 @@ export class ModerationService {
     return this.toDto(created.toObject() as LeanReport, target, null, false);
   }
 
-  // ---------------------------------------------------------------------
   // GEN-10: the admin queue
-  // ---------------------------------------------------------------------
 
   /** Oldest first for open reports (a queue); newest first once resolved. */
   async listReports(query: AdminReportsQueryDto): Promise<PageDto<ReportDto>> {
@@ -145,7 +135,7 @@ export class ModerationService {
       result.items.map(async (report) =>
         this.toDto(
           report,
-          await this.findTargetForList(report),
+          await this.findTarget(report),
           reporters.get(report.reporterId.toString())?.name ?? null,
           true,
         ),
@@ -235,18 +225,13 @@ export class ModerationService {
     }
 
     const updated = await this.findReport(reportId);
-    return this.toDto(updated, await this.findTargetForList(updated), null, true);
+    return this.toDto(updated, await this.findTarget(updated), null, true);
   }
 
-  // ---------------------------------------------------------------------
   // GEN-10: direct action on any item
-  // ---------------------------------------------------------------------
 
-  /**
-   * Hide, restore or delete one item without a report. Repeating an action
-   * changes nothing and logs nothing. Hiding or deleting also closes the
-   * item's open reports, since the admin has dealt with them.
-   */
+  // Hide, restore or delete without a report. A repeated action is a no-op;
+  // hiding or deleting also closes the item's open reports.
   async act(
     type: ContentType,
     id: string,
@@ -282,7 +267,6 @@ export class ModerationService {
     return dto;
   }
 
-  // ---------------------------------------------------------------------
 
   private async closeOpenReports(
     type: ContentType,
@@ -320,21 +304,10 @@ export class ModerationService {
     return report;
   }
 
-  /**
-   * The reported item for the admin list. An itinerary while D1 is not wired
-   * is shown as unknown rather than failing the whole page.
-   */
-  private async findTargetForList(
+  private findTarget(
     report: LeanReport,
   ): Promise<ModeratedContent | null> {
-    try {
-      return await this.content.find(report.targetType, report.targetId.toString());
-    } catch (error) {
-      if (error instanceof NotImplementedException) {
-        return null;
-      }
-      throw error;
-    }
+    return this.content.find(report.targetType, report.targetId.toString());
   }
 
   private toDto(

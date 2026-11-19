@@ -1542,7 +1542,7 @@ Rules worth knowing:
 - **States** (`applyModeration`, shared by every owner): VISIBLE and HIDDEN switch both ways; either can become DELETED; DELETED is final (409 `INVALID_MODERATION_CHANGE`). The update filters on the state it read, so two admins acting at once get 409 `MODERATION_CONFLICT` instead of overwriting each other. Repeating an action changes nothing and logs nothing.
 - **Hidden** content is visible only to its author and admins; **deleted** content only to admins (a soft delete, so the audit trail still points at something). Only VISIBLE content appears in public lists, search, comment counts and hotel ratings.
 - **Resolving** with HIDE or DELETE acts on the item and closes every open report on it; acting on an item directly closes them too. Every decision is written to the audit log (GEN-07).
-- **Owners**: posts and comments come from `BlogModule`; reviews through two additive `ReviewsService` methods (`findForModeration`, `moderate`, which also recomputes the hotel rating); itineraries need D1 to provide `ITINERARY_MODERATION_PORT` from a `@Global()` module, and answer 501 `CONTENT_TYPE_UNAVAILABLE` until then.
+- **Owners**: posts and comments come from `BlogModule`; reviews and itineraries through two small methods each on `ReviewsService` and `PublicItinerariesService` (`findForModeration`, `moderate`). Hiding a review recomputes the hotel rating. A hidden itinerary drops out of public search, the public view, cloning and author pages; a deleted one also disappears for its owner. Itineraries saved before this change have no `moderationState` and count as VISIBLE.
 
 Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
 

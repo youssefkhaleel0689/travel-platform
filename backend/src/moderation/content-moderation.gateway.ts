@@ -1,9 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  NotImplementedException,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   COMMENT_MODERATION_PORT,
   ContentType,
@@ -20,11 +15,7 @@ import type {
 } from '../common/moderation/content-moderation.port';
 import { ModerationState } from '../common/moderation/moderation-state';
 
-/**
- * Routes a content type to the module that owns it, like BookingsGateway.
- * Posts, comments and reviews are always wired; itineraries come with D1, and
- * until then answer 501 CONTENT_TYPE_UNAVAILABLE rather than a 500.
- */
+/** Routes a content type to the module that owns it, like BookingsGateway. */
 @Injectable()
 export class ContentModerationGateway {
   constructor(
@@ -33,9 +24,8 @@ export class ContentModerationGateway {
     private readonly comments: ContentModerationPort,
     @Inject(REVIEW_MODERATION_PORT)
     private readonly reviews: ContentModerationPort,
-    @Optional()
     @Inject(ITINERARY_MODERATION_PORT)
-    private readonly itineraries?: ContentModerationPort,
+    private readonly itineraries: ContentModerationPort,
   ) {}
 
   find(type: ContentType, id: string): Promise<ModeratedContent | null> {
@@ -52,20 +42,11 @@ export class ContentModerationGateway {
   }
 
   private port(type: ContentType): ContentModerationPort {
-    const port = {
+    return {
       [ContentType.POST]: this.posts,
       [ContentType.COMMENT]: this.comments,
       [ContentType.REVIEW]: this.reviews,
       [ContentType.ITINERARY]: this.itineraries,
     }[type];
-    if (!port) {
-      throw new NotImplementedException({
-        code: 'CONTENT_TYPE_UNAVAILABLE',
-        message:
-          `${type} moderation is not available yet: the module that owns ` +
-          'it has not been connected',
-      });
-    }
-    return port;
   }
 }

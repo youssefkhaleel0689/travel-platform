@@ -1,7 +1,8 @@
 // D2 reports, admin moderation and the audit log end to end (GEN-07, GEN-09,
-// GEN-10). The suite removes its posts, comments, reports and the audit rows
-// its own admin wrote. Audit rows are append-only through the model, so they
-// are removed with the driver directly, and only for this run's admin.
+// GEN-10). The suite removes its posts, comments, itineraries, reports and
+// the audit rows its own admin wrote. Audit rows are append-only through the
+// model, so they are removed with the driver directly, and only for this
+// run's admin.
 import { INestApplication } from '@nestjs/common';
 import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -12,6 +13,7 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { Comment } from './../src/blog/schemas/comment.schema';
 import { Post } from './../src/blog/schemas/post.schema';
+import { Itinerary } from './../src/itineraries/schemas/itinerary.schema';
 import { Role } from './../src/common/auth/auth.enums';
 import { Report } from './../src/moderation/schemas/report.schema';
 import {
@@ -70,6 +72,7 @@ describe('Reports, moderation and audit log (e2e)', () => {
     await app.get<Model<Report>>(getModelToken(Report.name)).deleteMany({ reporterId: { $in: ids } }).exec();
     await app.get<Model<Comment>>(getModelToken(Comment.name)).deleteMany({ postId: { $in: postIds } }).exec();
     await postModel.deleteMany({ _id: { $in: postIds } }).exec();
+    await app.get<Model<Itinerary>>(getModelToken(Itinerary.name)).deleteMany({ userId: { $in: ids } }).exec();
     await app
       .get<Connection>(getConnectionToken())
       .collection('auditLogs')
@@ -167,6 +170,27 @@ describe('Reports, moderation and audit log (e2e)', () => {
 
       await http().patch(`/api/admin/content/comment/${comment.body.id}/restore`).set('Cookie', admin.cookie).expect(200);
       expect((await http().get(`/api/posts/${postId}`).expect(200)).body.commentCount).toBe(1);
+    }, SLOW_MS);
+
+    it('hides a public itinerary from search, the public view and cloning', async () => {
+      const created = await http().post('/api/itineraries').set('Cookie', author.cookie)
+        .send({ title: 'Reported trip', countries: ['FR'], startDate: '2026-12-20' }).expect(201);
+      const id = created.body.id as string;
+      await http().patch(`/api/itineraries/${id}/visibility`).set('Cookie', author.cookie)
+        .send({ visibility: 'public' }).expect(200);
+
+      await http().post('/api/reports').set('Cookie', reader.cookie)
+        .send({ targetType: 'itinerary', targetId: id, reason: 'SPAM' }).expect(201);
+      await http().patch(`/api/admin/content/itinerary/${id}/hide`).set('Cookie', admin.cookie).expect(200);
+
+      await http().get(`/api/itineraries/public/${id}`).expect(404);
+      await http().post(`/api/itineraries/${id}/clone`).set('Cookie', reader.cookie).expect(404);
+      const search = await http().get('/api/itineraries/public/search?q=Reported%20trip').expect(200);
+      expect(search.body.items.map((i: { id: string }) => i.id)).not.toContain(id);
+      await http().get(`/api/itineraries/${id}`).set('Cookie', author.cookie).expect(200);
+
+      await http().delete(`/api/admin/content/itinerary/${id}`).set('Cookie', admin.cookie).expect(200);
+      await http().get(`/api/itineraries/${id}`).set('Cookie', author.cookie).expect(404);
     }, SLOW_MS);
 
     it('answers 404 for unknown content and 400 for an unknown type', async () => {
