@@ -5,9 +5,11 @@ sitting: every step only needs state an earlier step created, and the sign-ins
 are grouped so Swagger UI's single session cookie is never replaced in the
 middle of a group.
 
-This run covers the 12 endpoints that work end to end today. The seven waiting
-on a booking module are listed in `README.md`; they get captured the same way
-once that module is merged.
+This run covers 12 endpoints and needs nothing from another module. The seven
+payment and policy ones are listed in `README.md` under "Still to capture":
+they are no longer blocked — both booking modules provide a port now — but each
+needs a real booking on hold first, which is several requests through the
+hotels or flights endpoints before any of these can be executed.
 
 ## 0. Before you start
 

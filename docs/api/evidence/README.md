@@ -5,10 +5,9 @@ Screenshots of every endpoint C2 owns, taken in Swagger UI at
 Each one shows the endpoint, the request body or parameters, the **Request
 URL**, the response **code** and the response **body**.
 
-This folder grows over time. Endpoints that depend on a module nobody has
-merged yet are listed under ["Waiting on another module"](#waiting-on-another-module);
-their screenshots are added here once that module lands and the integration is
-tested locally.
+This folder grows over time. The seven payment and policy endpoints that are
+not pictured yet are listed under ["Still to capture"](#still-to-capture), with
+what each one needs before it can be.
 
 `CAPTURE-RUN.md` is the run that produced these, in the order that works: each
 step only needs state an earlier step created, and the sign-ins are grouped so
@@ -128,27 +127,36 @@ body by design, so the proof that they worked is the count before and after:
 
 ![None unread](13_GEN-01_unread-count_200_none-unread.png)
 
-## Waiting on another module
+## Still to capture
 
-These seven are implemented and unit- and e2e-tested, but no module provides
-`BookingsPort` yet, so there is no booking for them to act on. Today they
-answer a documented `501 BOOKING_TYPE_UNAVAILABLE` or `404` rather than a
-`500`, which is deliberate. Screenshots go here once a booking module is
-merged and integration is tested locally.
+**These are no longer blocked.** They were waiting on a `BookingsPort`, and both
+booking modules provide one now: `FlightBookingsModule` exports
+`FLIGHT_BOOKINGS_PORT` and `HotelBookingsModule` exports `HOTEL_BOOKINGS_PORT`,
+each from a `@Global()` module so `BookingsGateway` can see it. The
+`501 BOOKING_TYPE_UNAVAILABLE` these used to answer is gone: ask for a booking
+that does not exist and the answer is now `404`, the same one a booking
+belonging to somebody else gets.
 
-| Requirement | Endpoint | Answers today | Waiting on |
-| --- | --- | --- | --- |
-| PAY-02 | `GET /api/bookings/{type}/{id}/policies` | `501 BOOKING_TYPE_UNAVAILABLE` | a `BookingsPort` from flights (A1) or hotels (B2) |
-| PAY-02 | `POST /api/bookings/{type}/{id}/accept-policies` | `501 BOOKING_TYPE_UNAVAILABLE` | the same |
-| PAY-01 | `POST /api/payments` | `501 BOOKING_TYPE_UNAVAILABLE` | the same |
-| PAY-01 | `POST /api/payments/{id}/retry` | `404` — no payment of yours exists | the same |
-| PAY-01 | `GET /api/payments/{id}` | `404` | the same |
-| PAY-03 | `GET /api/refunds/{id}` | `404` | the same |
-| PAY-01 | `POST /api/payments/webhook` | — | not callable from Swagger at all: Stripe signs it and the signature is checked against the raw request bytes. It is proved with the Stripe CLI (`docs/api/POSTMAN.md` §6) |
+What they still need is a **real booking on hold** to act on, which is several
+requests through another module first — a hotel, a room, availability and a
+hold for the hotel side, or a flight and a seat hold for the flight side. That
+is the next addition to this folder.
 
-Until then, the payment flow is covered by `backend/test/payments.e2e-spec.ts`,
-`refunds.e2e-spec.ts` and `booking-policies.e2e-spec.ts`, which drive it
-against a mocked port — `npm run test:e2e`, 328 tests over 27 suites.
+| Requirement | Endpoint | Needs |
+| --- | --- | --- |
+| PAY-02 | `GET /api/bookings/{type}/{id}/policies` | a booking on hold |
+| PAY-02 | `POST /api/bookings/{type}/{id}/accept-policies` | the same, plus its `policyVersion` |
+| PAY-01 | `POST /api/payments` | the same, with the policies accepted |
+| PAY-01 | `POST /api/payments/{id}/retry` | a payment of your own, so the one above first |
+| PAY-01 | `GET /api/payments/{id}` | the same |
+| PAY-03 | `GET /api/refunds/{id}` | a refund, so a confirmed booking that is then cancelled |
+| PAY-01 | `POST /api/payments/webhook` | nothing from Swagger: Stripe signs it and the signature is checked against the raw request bytes, so a "Try it out" can only fail. It is proved with the Stripe CLI (`docs/api/POSTMAN.md` §6) |
+
+Meanwhile the payment flow is covered by `backend/test/payments.e2e-spec.ts`,
+`refunds.e2e-spec.ts` and `booking-policies.e2e-spec.ts`, which drive it against
+a mocked port, and the Postman collection checks that the gateway really does
+see both ports — if a module ever stops being `@Global()`, those requests go
+back to answering 501 and fail.
 
 ## Note on the screenshots
 
