@@ -40,6 +40,6 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     ItineraryBudgetSummaryService,
     PublicItinerariesService,
   ],
-  exports: [ItinerariesService],
+  exports: [ItinerariesService, PublicItinerariesService],
 })
 export class ItinerariesModule {}
