@@ -40,7 +40,7 @@ describe('Activity images (e2e, ITN-12)', () => {
   let other: SignedInUser;
 
   const http = () => request(app.getHttpServer());
-  const upload = (activityId: string, cookie: string[], file = PNG) =>
+  const upload = (activityId: string, cookie: string, file = PNG) =>
     http()
       .post(`/api/activities/${activityId}/images`)
       .set('Cookie', cookie)
