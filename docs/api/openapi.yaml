@@ -9921,7 +9921,7 @@ components:
             - BLOCKED
       required:
         - availabilityId
-    CancellationTierDto:
+    HotelCancellationTierDto:
       type: object
       properties:
         daysBeforeCheckIn:
@@ -9948,7 +9948,7 @@ components:
           description: Unique daysBeforeCheckIn thresholds
           type: array
           items:
-            $ref: '#/components/schemas/CancellationTierDto'
+            $ref: '#/components/schemas/HotelCancellationTierDto'
       required:
         - checkInTime
         - checkOutTime
@@ -10343,6 +10343,23 @@ components:
       required:
         - extraBagPrice
         - maxExtraBagsPerPassenger
+    AirlineCancellationTierDto:
+      type: object
+      properties:
+        daysBeforeDeparture:
+          type: number
+          example: 7
+          minimum: 0
+          description: Days before departure at which this tier starts to apply. Whole number, unique within the policy.
+        refundPercentage:
+          type: number
+          example: 100
+          minimum: 0
+          maximum: 100
+          description: Refund percentage, 0 to 100, at most 2 decimals.
+      required:
+        - daysBeforeDeparture
+        - refundPercentage
     AirlinePolicyDto:
       type: object
       properties:
@@ -10363,7 +10380,7 @@ components:
           description: Sorted by daysBeforeDeparture, highest first.
           type: array
           items:
-            $ref: '#/components/schemas/CancellationTierDto'
+            $ref: '#/components/schemas/AirlineCancellationTierDto'
         version:
           type: number
           example: 1
@@ -10392,7 +10409,7 @@ components:
           description: The tier with the highest threshold not exceeding the days remaining applies; if none applies the refund is 0%.
           type: array
           items:
-            $ref: '#/components/schemas/CancellationTierDto'
+            $ref: '#/components/schemas/AirlineCancellationTierDto'
       required:
         - cancellationTiers
     CreateFlightDto:
@@ -10819,6 +10836,18 @@ components:
         - group
         - counts
         - bookings
+    BookingCancellationTierDto:
+      type: object
+      properties:
+        daysBeforeDeparture:
+          type: number
+          example: 7
+        refundPercentage:
+          type: number
+          example: 50
+      required:
+        - daysBeforeDeparture
+        - refundPercentage
     CancellationQuoteDto:
       type: object
       properties:
@@ -10864,7 +10893,7 @@ components:
           description: The airline terms this booking was made under, highest threshold first.
           type: array
           items:
-            $ref: '#/components/schemas/CancellationTierDto'
+            $ref: '#/components/schemas/BookingCancellationTierDto'
       required:
         - bookingId
         - bookingReference
@@ -10997,7 +11026,7 @@ components:
         - bookedSeats
         - heldSeats
         - remainingSeats
-    FlightBookingPassengerDto:
+    AirlineBookingPassengerDto:
       type: object
       properties:
         fullName:
@@ -11051,7 +11080,7 @@ components:
         passengers:
           type: array
           items:
-            $ref: '#/components/schemas/FlightBookingPassengerDto'
+            $ref: '#/components/schemas/AirlineBookingPassengerDto'
         confirmedAt:
           type: string
           nullable: true
@@ -11519,6 +11548,59 @@ components:
         - pricePerSeat
         - freeBaggageCount
         - maxBagWeightKg
+    FlightBookingExtraBagsDto:
+      type: object
+      properties:
+        count:
+          type: number
+          example: 1
+        weightKg:
+          type: number
+          example: 20
+        fee:
+          type: string
+          example: '50.00'
+          description: 'count x price per bag x segments: a bag flies every segment.'
+      required:
+        - count
+        - weightKg
+        - fee
+    FlightBookingPassengerDto:
+      type: object
+      properties:
+        fullName:
+          type: string
+          example: Khaled Elshitany
+        dateOfBirth:
+          type: string
+          example: '2004-03-10'
+        passengerType:
+          type: string
+          enum:
+            - ADULT
+            - CHILD
+            - INFANT
+          example: ADULT
+        documentNumber:
+          type: string
+          example: •••••5678
+          description: 'Masked: only the last 4 characters are shown. The full number is personal data.'
+        fare:
+          type: string
+          example: '199.99'
+          description: Over all segments; an infant pays 10% of each fare.
+        extraBags:
+          nullable: true
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/FlightBookingExtraBagsDto'
+      required:
+        - fullName
+        - dateOfBirth
+        - passengerType
+        - documentNumber
+        - fare
+        - extraBags
     FlightBookingCancellationTierDto:
       type: object
       properties:
