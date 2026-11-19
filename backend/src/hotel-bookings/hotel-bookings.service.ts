@@ -480,6 +480,23 @@ export class HotelBookingsService {
     return count > 0;
   }
 
+  /**
+   * ACC-15: the distinct users holding a CONFIRMED stay at this hotel whose
+   * check-out has not passed yet (same "upcoming" rule as ACC-12 above), so the
+   * admin module can tell them their booking stays valid when the hotel is
+   * deactivated. Read-only: it never changes a booking.
+   */
+  async findUserIdsWithUpcomingConfirmedStays(hotelId: string): Promise<string[]> {
+    const userIds = await this.bookingModel
+      .distinct('userId', {
+        hotelId: oid(hotelId, 'hotelId'),
+        status: HotelBookingStatus.CONFIRMED,
+        checkOutDate: { $gte: todayUtc() },
+      })
+      .exec();
+    return userIds.map((id) => String(id));
+  }
+
   /** Guest names come from UsersService, never from the User model. */
   private async userBriefs(ids: Types.ObjectId[]) {
     const entries = await Promise.all(

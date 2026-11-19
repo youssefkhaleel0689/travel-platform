@@ -21,7 +21,10 @@ import { FlightHoldExpiryService } from './flight-hold-expiry.service';
 // Global for one reason: BookingsGateway (common/bookings, C2) is created inside
 // BookingsModule and asks for FLIGHT_BOOKINGS_PORT there. common/ must never import a
 // feature module, so BookingsModule cannot import this one; a global module's exports are
-// visible to every module, BookingsModule included. Only the port token is exported.
+// visible to every module, BookingsModule included. Besides the port token,
+// FlightBookingsService is exported for one read-only caller: the administration module
+// (ACC-15) asks it which users hold upcoming CONFIRMED bookings with an airline. That
+// adds no cycle, because nothing this module imports imports administration.
 @Global()
 @Module({
   imports: [
@@ -43,6 +46,6 @@ import { FlightHoldExpiryService } from './flight-hold-expiry.service';
     // Its @Cron runs through ScheduleModule.forRoot(), registered once in PaymentsModule.
     FlightHoldExpiryService,
   ],
-  exports: [FLIGHT_BOOKINGS_PORT],
+  exports: [FLIGHT_BOOKINGS_PORT, FlightBookingsService],
 })
 export class FlightBookingsModule {}
