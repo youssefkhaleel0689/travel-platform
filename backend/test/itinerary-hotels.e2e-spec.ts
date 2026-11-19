@@ -1,10 +1,8 @@
-// ITN-25 end to end against the shared database: hotel search from an itinerary's city
-// group. This suite WRITES, and afterAll deletes exactly what it wrote, by _id:
-//  - two test accounts (auth-test-helper, test_c2_ emails);
-//  - their itineraries, created through the API;
-//  - one hotel "test_c2_itn25 hotel" in Cairo with one active room at 3217.43 a night
-//    and an AVAILABLE range covering the searched stay.
-// Run `npm run seed` first: it uses the seeded cities cairo and dubai.
+// GET /api/itineraries/:id/hotels (ITN-25) against the real app and the shared
+// database. It writes only test_c2_ accounts made by the shared helper and their
+// itineraries, and afterAll deletes exactly those. The stay dates are checked on
+// what reaches hotel search (HTL-11); the hotels found are whatever the shared
+// database has for the city (the demo hotels when npm run seed:hotels was run).
 import { INestApplication } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -13,13 +11,9 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
-import {
-  Availability,
-  AvailabilityStatus,
-} from './../src/availability/schemas/availability.schema';
-import { Hotel } from './../src/hotels/schemas/hotel.schema';
+import { HotelSearchDto } from './../src/hotel-search/dto/hotel-search.dto';
+import { HotelSearchService } from './../src/hotel-search/hotel-search.service';
 import { Itinerary } from './../src/itineraries/schemas/itinerary.schema';
-import { Room } from './../src/rooms/schemas/room.schema';
 import {
   createSignedInUser,
   deleteTestUsers,
@@ -27,259 +21,200 @@ import {
 } from './support/auth-test-helper';
 
 const CONNECT_TIMEOUT_MS = 120_000;
+const SLOW_MS = 30_000;
 
-// Days 1-2 in Cairo, day 3 in Dubai: group 1 is Cairo from 10 to 11 May 2099, so
-// check-in is the 10th and check-out the 12th. Group 2 is Dubai; there is no group 3.
-const START_DATE = '2099-05-10';
-const CHECK_IN = '2099-05-10';
-const CHECK_OUT = '2099-05-12';
-// Unusual enough that no teammate's room in Cairo costs exactly this, so the filter
-// keeps our hotel on the first page whatever else is in Cairo.
-const ROOM_PRICE = '3217.43';
-
-interface ItineraryHotelsBody {
-  itineraryId: string;
-  cityGroup: Record<string, unknown>;
-  checkInDate: string;
-  checkOutDate: string;
-  nights: number;
-  guestCount: number;
-  roomCount: number;
-  items: { hotelId: string; name: string; pricePerNight: string }[];
-}
-
-describe('Itinerary hotels, ITN-25 (e2e)', () => {
+describe('Itinerary hotel search (e2e, ITN-25)', () => {
   let app: INestApplication<App>;
   let itineraryModel: Model<Itinerary>;
-  let hotelModel: Model<Hotel>;
-  let roomModel: Model<Room>;
-  let availabilityModel: Model<Availability>;
-
+  let searchSpy: jest.SpyInstance;
+  const createdUserIds: string[] = [];
   let owner: SignedInUser;
   let other: SignedInUser;
+  // 10 March 2027: Paris on days 1-2, London on day 3.
   let itineraryId: string;
-  let hotelId: string;
-
-  const createdUserIds: string[] = [];
-  const itineraryIds: Types.ObjectId[] = [];
-  const hotelIds: Types.ObjectId[] = [];
-  const roomIds: Types.ObjectId[] = [];
-  const availabilityIds: Types.ObjectId[] = [];
+  let emptyItineraryId: string;
 
   const http = () => request(app.getHttpServer());
-
-  /** An itinerary of the owner, made through the API, with one day per city. */
-  async function createItinerary(
-    startDate: string,
-    cities: string[],
-  ): Promise<string> {
-    const created = await http()
-      .post('/api/itineraries')
-      .set('Cookie', owner.cookie)
-      .send({ title: 'test_c2_itn25', countries: ['EG', 'AE'], startDate })
-      .expect(201);
-    const id = created.body.id as string;
-    itineraryIds.push(new Types.ObjectId(id));
-    for (const city of cities) {
-      await http()
-        .post(`/api/itineraries/${id}/days`)
-        .set('Cookie', owner.cookie)
-        .send({ city })
-        .expect(201);
-    }
-    return id;
-  }
-
-  function searchHotels(
-    id: string,
-    query: Record<string, string | number>,
-    cookie = owner.cookie,
-  ) {
-    return http()
-      .get(`/api/itineraries/${id}/hotels`)
-      .query(query)
-      .set('Cookie', cookie);
-  }
+  const lastHotelQuery = () =>
+    searchSpy.mock.calls[searchSpy.mock.calls.length - 1][0] as HotelSearchDto;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-
     app = moduleFixture.createNestApplication();
     configureApp(app);
     await app.init();
     itineraryModel = app.get<Model<Itinerary>>(getModelToken(Itinerary.name));
-    hotelModel = app.get<Model<Hotel>>(getModelToken(Hotel.name));
-    roomModel = app.get<Model<Room>>(getModelToken(Room.name));
-    availabilityModel = app.get<Model<Availability>>(
-      getModelToken(Availability.name),
-    );
+    searchSpy = jest.spyOn(app.get(HotelSearchService), 'search');
 
-    owner = await createSignedInUser(app, { label: 'itn25_owner' });
-    other = await createSignedInUser(app, { label: 'itn25_other' });
+    owner = await createSignedInUser(app, { label: 'itn_htl_owner' });
+    other = await createSignedInUser(app, { label: 'itn_htl_other' });
     createdUserIds.push(owner.userId, other.userId);
 
-    itineraryId = await createItinerary(START_DATE, [
-      'cairo',
-      'cairo',
-      'dubai',
-    ]);
-
-    const hotel = await hotelModel.create({
-      name: 'test_c2_itn25 hotel',
-      address: '1 Test Street',
-      cityId: 'cairo',
-      countryId: 'EG',
-      starClass: 3,
-      createdBy: new Types.ObjectId(owner.userId),
-    });
-    hotelIds.push(hotel._id);
-    hotelId = hotel._id.toString();
-
-    const room = await roomModel.create({
-      hotelId: hotel._id,
-      roomNumber: 'ITN25-1',
-      name: 'test_c2_itn25 room',
-      type: 'DOUBLE',
-      beds: 1,
-      maxOccupancy: 2,
-      pricePerNight: Types.Decimal128.fromString(ROOM_PRICE),
-      isActive: true,
-    });
-    roomIds.push(room._id);
-
-    const availability = await availabilityModel.create({
-      hotelId: hotel._id,
-      roomId: room._id,
-      startDate: new Date(`${CHECK_IN}T00:00:00Z`),
-      endDate: new Date(`${CHECK_OUT}T00:00:00Z`),
-      status: AvailabilityStatus.AVAILABLE,
-    });
-    availabilityIds.push(availability._id);
+    const created = await http()
+      .post('/api/itineraries')
+      .set('Cookie', owner.cookie)
+      .send({
+        title: 'E2E hotels',
+        countries: ['FR', 'GB'],
+        startDate: '2027-03-10',
+      })
+      .expect(201);
+    itineraryId = created.body.id as string;
+    for (const city of ['paris', 'paris', 'london']) {
+      await http()
+        .post(`/api/itineraries/${itineraryId}/days`)
+        .set('Cookie', owner.cookie)
+        .send({ city })
+        .expect(201);
+    }
+    const empty = await http()
+      .post('/api/itineraries')
+      .set('Cookie', owner.cookie)
+      .send({ title: 'E2E empty', countries: ['FR'], startDate: '2027-03-10' })
+      .expect(201);
+    emptyItineraryId = empty.body.id as string;
   }, CONNECT_TIMEOUT_MS);
 
-  // Deletes only what this suite created, by _id, then closes the app.
   afterAll(async () => {
-    if (availabilityModel) {
-      await availabilityModel
-        .deleteMany({ _id: { $in: availabilityIds } })
+    if (itineraryModel && createdUserIds.length > 0) {
+      await itineraryModel
+        .deleteMany({
+          userId: { $in: createdUserIds.map((id) => new Types.ObjectId(id)) },
+        })
         .exec();
-      await roomModel.deleteMany({ _id: { $in: roomIds } }).exec();
-      await hotelModel.deleteMany({ _id: { $in: hotelIds } }).exec();
-      await itineraryModel.deleteMany({ _id: { $in: itineraryIds } }).exec();
     }
     await deleteTestUsers(app, createdUserIds);
     await app.close();
   }, CONNECT_TIMEOUT_MS);
 
-  it('lists the Cairo hotel for city group 1, with check-out the day after its last day', async () => {
-    const res = await searchHotels(itineraryId, {
-      cityGroup: 1,
-      guestCount: 2,
-      minPricePerNight: ROOM_PRICE,
-      maxPricePerNight: ROOM_PRICE,
-    }).expect(200);
-    const body = res.body as ItineraryHotelsBody;
-
-    expect(body.itineraryId).toBe(itineraryId);
-    expect(body.cityGroup).toEqual({
-      index: 1,
-      city: 'cairo',
-      fromDay: 1,
-      toDay: 2,
-      checkInDate: CHECK_IN,
-      checkOutDate: CHECK_OUT,
-    });
-    expect(body.checkInDate).toBe(`${CHECK_IN}T00:00:00.000Z`);
-    expect(body.checkOutDate).toBe(`${CHECK_OUT}T00:00:00.000Z`);
-    expect(body.nights).toBe(2);
-    expect(body.guestCount).toBe(2);
-    expect(body.roomCount).toBe(1);
-    expect(body.items).toContainEqual(
-      expect.objectContaining({
-        hotelId,
-        name: 'test_c2_itn25 hotel',
-        pricePerNight: ROOM_PRICE,
-      }),
-    );
-  });
-
-  it('does not list the Cairo hotel for group 2, which is in Dubai', async () => {
-    const res = await searchHotels(itineraryId, {
-      cityGroup: 2,
-      guestCount: 1,
-    }).expect(200);
-    const body = res.body as ItineraryHotelsBody;
-
-    expect(body.cityGroup).toMatchObject({
-      city: 'dubai',
-      fromDay: 3,
-      toDay: 3,
-    });
-    expect(body.items.map((item) => item.hotelId)).not.toContain(hotelId);
-  });
-
-  it('answers 400 UNKNOWN_CITY_GROUP for group 3 of 2', async () => {
-    const res = await searchHotels(itineraryId, {
-      cityGroup: 3,
-      guestCount: 1,
-    }).expect(400);
-
-    expect(res.body.code).toBe('UNKNOWN_CITY_GROUP');
-    expect(res.body.message).toBe(
-      'cityGroup must be between 1 and 2: this itinerary has 2 city groups',
-    );
-  });
-
-  it("answers 404 for another user's itinerary", async () => {
-    const res = await searchHotels(
-      itineraryId,
-      { cityGroup: 1, guestCount: 1 },
-      other.cookie,
-    ).expect(404);
-
-    expect(res.body.code).toBe('ITINERARY_NOT_FOUND');
-  });
-
-  it('answers 400 VALIDATION_FAILED for guestCount 0', async () => {
-    const res = await searchHotels(itineraryId, {
-      cityGroup: 1,
-      guestCount: 0,
-    }).expect(400);
-
-    expect(res.body.code).toBe('VALIDATION_FAILED');
-    expect(res.body.errors).toEqual([
-      { field: 'guestCount', messages: ['guestCount must not be less than 1'] },
-    ]);
-  });
-
-  it('answers 401 for a guest', async () => {
+  it('needs a login', async () => {
     await http()
-      .get(`/api/itineraries/${itineraryId}/hotels`)
-      .query({ cityGroup: 1, guestCount: 1 })
+      .get(`/api/itineraries/${itineraryId}/hotels?group=1&guestCount=2`)
       .expect(401);
   });
 
-  it('answers 409 ITINERARY_HAS_NO_DAYS for an itinerary without days', async () => {
-    const empty = await createItinerary(START_DATE, []);
+  it(
+    "searches the first group's city and dates (check-out the day after its last day)",
+    async () => {
+      const res = await http()
+        .get(`/api/itineraries/${itineraryId}/hotels?group=1&guestCount=2`)
+        .set('Cookie', owner.cookie)
+        .expect(200);
+      expect(res.body.cityGroup).toEqual({
+        group: 1,
+        city: 'paris',
+        fromDay: 1,
+        toDay: 2,
+        checkInDate: '2027-03-10',
+        checkOutDate: '2027-03-12',
+      });
+      expect(res.body.nights).toBe(2);
+      expect(res.body.guestCount).toBe(2);
+      expect(res.body.roomCount).toBe(1);
+      expect(res.body.meta).toEqual(
+        expect.objectContaining({ page: 1, pageSize: 10 }),
+      );
+      for (const hotel of res.body.items as { cityId: string }[]) {
+        expect(hotel.cityId).toBe('paris');
+      }
+      // What reached hotel search (HTL-11): the group's city and stay.
+      expect(lastHotelQuery()).toEqual(
+        expect.objectContaining({
+          cityId: 'paris',
+          checkInDate: '2027-03-10',
+          checkOutDate: '2027-03-12',
+          guestCount: 2,
+          roomCount: 1,
+        }),
+      );
+    },
+    SLOW_MS,
+  );
 
-    const res = await searchHotels(empty, {
-      cityGroup: 1,
-      guestCount: 1,
-    }).expect(409);
+  it(
+    'searches the second group with the guests, rooms and filters entered',
+    async () => {
+      const res = await http()
+        .get(
+          `/api/itineraries/${itineraryId}/hotels?group=2&guestCount=3&roomCount=2&maxPricePerNight=500&sortBy=rating`,
+        )
+        .set('Cookie', owner.cookie)
+        .expect(200);
+      expect(res.body.cityGroup).toEqual(
+        expect.objectContaining({
+          group: 2,
+          city: 'london',
+          checkInDate: '2027-03-12',
+          checkOutDate: '2027-03-13',
+        }),
+      );
+      expect(res.body.nights).toBe(1);
+      expect(lastHotelQuery()).toEqual(
+        expect.objectContaining({
+          cityId: 'london',
+          guestCount: 3,
+          roomCount: 2,
+          maxPricePerNight: '500',
+          sortBy: 'rating',
+        }),
+      );
+    },
+    SLOW_MS,
+  );
 
-    expect(res.body.code).toBe('ITINERARY_HAS_NO_DAYS');
+  it('validates the group and the guest count', async () => {
+    await http()
+      .get(`/api/itineraries/${itineraryId}/hotels?group=3&guestCount=2`)
+      .set('Cookie', owner.cookie)
+      .expect(400)
+      .expect((res) => expect(res.body.code).toBe('INVALID_CITY_GROUP'));
+    await http()
+      .get(`/api/itineraries/${itineraryId}/hotels?guestCount=2`)
+      .set('Cookie', owner.cookie)
+      .expect(400)
+      .expect((res) => expect(res.body.code).toBe('VALIDATION_FAILED'));
+    await http()
+      .get(`/api/itineraries/${itineraryId}/hotels?group=1&guestCount=0`)
+      .set('Cookie', owner.cookie)
+      .expect(400)
+      .expect((res) => expect(res.body.code).toBe('VALIDATION_FAILED'));
   });
 
-  it("gives hotel search's own 400 for a group whose check-in has passed", async () => {
-    const past = await createItinerary('2020-01-01', ['cairo']);
+  it("answers 404 for another account's itinerary", async () => {
+    await http()
+      .get(`/api/itineraries/${itineraryId}/hotels?group=1&guestCount=2`)
+      .set('Cookie', other.cookie)
+      .expect(404)
+      .expect((res) => expect(res.body.code).toBe('ITINERARY_NOT_FOUND'));
+  });
 
-    const res = await searchHotels(past, {
-      cityGroup: 1,
-      guestCount: 1,
-    }).expect(400);
+  it('answers 409 for an itinerary without days', async () => {
+    await http()
+      .get(`/api/itineraries/${emptyItineraryId}/hotels?group=1&guestCount=2`)
+      .set('Cookie', owner.cookie)
+      .expect(409)
+      .expect((res) => expect(res.body.code).toBe('ITINERARY_HAS_NO_DAYS'));
+  });
 
-    expect(res.body.message).toBe('checkInDate cannot be in the past');
+  it('refuses a stay in the past, as hotel search does', async () => {
+    const past = await http()
+      .post('/api/itineraries')
+      .set('Cookie', owner.cookie)
+      .send({ title: 'E2E past', countries: ['FR'], startDate: '2020-01-10' })
+      .expect(201);
+    await http()
+      .post(`/api/itineraries/${past.body.id}/days`)
+      .set('Cookie', owner.cookie)
+      .send({ city: 'paris' })
+      .expect(201);
+    await http()
+      .get(`/api/itineraries/${past.body.id}/hotels?group=1&guestCount=1`)
+      .set('Cookie', owner.cookie)
+      .expect(400)
+      .expect((res) =>
+        expect(res.body.message).toBe('checkInDate cannot be in the past'),
+      );
   });
 });

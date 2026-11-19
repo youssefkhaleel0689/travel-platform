@@ -13,14 +13,14 @@ import {
 import { ItineraryHotelSearchQueryDto } from './dto/itinerary-hotel-search-query.dto';
 import { ItineraryHotelSearchResponseDto } from './dto/itinerary-hotel-search-response.dto';
 import {
-  ItineraryHotelSearch,
+  ITINERARY_HAS_NO_DAYS,
   ItineraryHotelsService,
 } from './itinerary-hotels.service';
 
 const PATH = `${ITINERARY_PATH}/hotels`;
 
-// ITN-25: hotel search from an itinerary's city group. Under /itineraries like D1's
-// routes and ITN-26, with the same auth and ownership answers.
+// ITN-25: hotel search for one city group of the itinerary. Under /itineraries
+// with the same auth and ownership answers as the other itinerary routes.
 @ApiTags('Itineraries')
 @ApiItineraryAuth(PATH)
 @Controller('itineraries')
@@ -29,12 +29,12 @@ export class ItineraryHotelsController {
 
   @Get(':id/hotels')
   @ApiOperation({
-    summary: "Search hotels for one of the itinerary's city groups (ITN-25)",
+    summary: 'Search hotels for one city group of the itinerary (ITN-25)',
     description:
-      'Hotels in the city of the chosen city group (cityGroups in GET ' +
-      '/api/itineraries/:id, numbered from 1), with check-in on the date of its first ' +
-      'day and check-out the day after its last day. Guests, rooms, price and rating ' +
-      'filters, sorting and paging work as in GET /api/hotels/search, which this reuses.',
+      'Pick a city group by its number (see cityGroups on the itinerary). The stay ' +
+      "is that group's dates: check-in on its first day, check-out the day after its " +
+      'last day. guestCount and roomCount are yours to enter; price, rating, sorting ' +
+      'and paging work as in GET /api/hotels/search, which this reuses.',
   })
   @ApiOkResponse({ type: ItineraryHotelSearchResponseDto })
   @ApiErrorResponse(
@@ -47,34 +47,23 @@ export class ItineraryHotelsController {
         },
       ],
       {
-        code: 'UNKNOWN_CITY_GROUP',
-        message:
-          'cityGroup must be between 1 and 2: this itinerary has 2 city groups',
+        code: 'INVALID_CITY_GROUP',
+        message: 'group must be between 1 and 2, the number of city groups',
       },
-      {
-        code: 'BAD_REQUEST',
-        message: 'checkInDate cannot be in the past',
-      },
+      { code: 'BAD_REQUEST', message: 'checkInDate cannot be in the past' },
     ),
   )
   @ApiErrorResponse(notFoundError(PATH, ITINERARY_NOT_FOUND_EXAMPLE))
   @ApiErrorResponse({
     status: 409,
-    description: 'The itinerary has no day yet (ITINERARY_HAS_NO_DAYS)',
-    examples: [
-      {
-        code: 'ITINERARY_HAS_NO_DAYS',
-        message:
-          'Add a day with a city to the itinerary before searching hotels',
-        path: PATH,
-      },
-    ],
+    description: 'The itinerary has no day yet, so it has no city group',
+    examples: [{ ...ITINERARY_HAS_NO_DAYS, path: PATH }],
   })
   search(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ItineraryHotelSearchQueryDto,
-  ): Promise<ItineraryHotelSearch> {
+  ): Promise<ItineraryHotelSearchResponseDto> {
     return this.itineraryHotels.search(id, user, query);
   }
 }

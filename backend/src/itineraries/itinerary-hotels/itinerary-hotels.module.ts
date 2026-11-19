@@ -5,8 +5,7 @@ import { ItineraryHotelsController } from './itinerary-hotels.controller';
 import { ItineraryHotelsService } from './itinerary-hotels.service';
 
 // ITN-25 on its own module, like ITN-26: it needs both HotelSearchModule
-// (HotelSearchService) and ItinerariesModule (ItinerariesService), and neither of those
-// should import the other.
+// (HotelSearchService) and ItinerariesModule, and neither should import the other.
 @Module({
   imports: [HotelSearchModule, ItinerariesModule],
   controllers: [ItineraryHotelsController],
