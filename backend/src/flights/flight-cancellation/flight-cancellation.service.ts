@@ -18,6 +18,8 @@ import {
   NotificationResourceType,
   NotificationType,
 } from '../../notifications/notification-type.enum';
+import { AuditEntityType, AuditAction } from '../../audit/audit-action.enum';
+import { AuditService } from '../../audit/audit.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { CancelledBy } from '../../payments/refund-status.enum';
 import { RefundsService } from '../../payments/refunds.service';
@@ -75,6 +77,7 @@ export class FlightCancellationService {
     private readonly seatInventory: SeatInventoryService,
     private readonly notifications: NotificationsService,
     private readonly moduleRef: ModuleRef,
+    private readonly audit: AuditService,
   ) {}
 
   async cancel(
@@ -159,12 +162,21 @@ export class FlightCancellationService {
     );
     await this.notifyAll(transition.flight, transition.cancelled, reason);
 
-    // TODO(GEN-07): FLT-06 asks for an audit log entry through the shared audit service.
-    // None exists in the codebase yet (D2), so this is only a log line until it does.
-    this.logger.log(
-      `AUDIT FLT-06: moderator ${actor.userId} cancelled flight ${transition.flight._id.toString()}: ` +
-        `${transition.cancelled.length} bookings cancelled, ${transition.releasedHolds} holds released`,
-    );
+    // GEN-07: the cancellation is an important moderator action, so it goes
+    // to the audit log. record() never throws: the flight is already cancelled.
+    await this.audit.record({
+      actorId: actor.userId,
+      action: AuditAction.FLIGHT_CANCELLED,
+      entityType: AuditEntityType.FLIGHT,
+      entityId: transition.flight._id.toString(),
+      before: { status: FlightStatus.SCHEDULED },
+      after: {
+        status: FlightStatus.CANCELLED,
+        cancelledBookings: transition.cancelled.length,
+        releasedHolds: transition.releasedHolds,
+        reason,
+      },
+    });
 
     return {
       flight: toFlightDto(transition.flight),

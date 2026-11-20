@@ -17,7 +17,12 @@ const CODE_BY_STATUS: Record<number, string> = {
   403: 'FORBIDDEN',
   404: 'NOT_FOUND',
   409: 'CONFLICT',
+  413: 'PAYLOAD_TOO_LARGE',
+  415: 'UNSUPPORTED_MEDIA_TYPE',
+  423: 'LOCKED',
+  429: 'TOO_MANY_REQUESTS',
   500: 'INTERNAL_ERROR',
+  503: 'SERVICE_UNAVAILABLE',
 };
 
 // Nest's router 404 text, e.g. "Cannot GET /api/nope?token=abc".
@@ -75,6 +80,40 @@ function isCastError(e: unknown): e is { name: 'CastError'; path: string } {
   );
 }
 
+// Mongoose ValidationError: a schema rule (required, min, enum, a custom
+// validator) refused a document the DTO let through. Field names only.
+function isMongooseValidationError(
+  e: unknown,
+): e is { name: 'ValidationError'; errors: Record<string, unknown> } {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { name?: unknown }).name === 'ValidationError' &&
+    typeof (e as { errors?: unknown }).errors === 'object' &&
+    (e as { errors?: unknown }).errors !== null
+  );
+}
+
+// Mongoose VersionError: two requests saved the same document at once and
+// this one lost (array edits on itineraries, bookings). Not a server fault.
+function isVersionError(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { name?: unknown }).name === 'VersionError'
+  );
+}
+
+// BSONError from new Types.ObjectId(<not 24 hex>): a malformed id that slipped
+// past a DTO. Treated like a CastError rather than a server fault.
+function isBsonError(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { name?: unknown }).name === 'BSONError'
+  );
+}
+
 // Every error leaves the API in the shape of ErrorResponseDto.
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -123,6 +162,40 @@ export class AllExceptionsFilter implements ExceptionFilter {
         code: 'INVALID_VALUE',
         message: `Invalid value for "${exception.path}"`,
         errors: [{ field: exception.path, messages: ['invalid value'] }],
+      };
+    }
+
+    if (isBsonError(exception)) {
+      this.logger.warn(`Malformed id on ${route}`);
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        code: 'INVALID_ID',
+        message: 'An id in the request is not a valid id',
+      };
+    }
+
+    if (isMongooseValidationError(exception)) {
+      // Messages are generic: a schema message can quote the rejected value.
+      const fields = Object.keys(exception.errors);
+      this.logger.warn(
+        `Schema validation failed on ${route}: ${fields.join(', ')}`,
+      );
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        code: 'VALIDATION_FAILED',
+        message: fields.length
+          ? `Invalid value for ${fields.map((f) => `"${f}"`).join(', ')}`
+          : 'Validation failed',
+        errors: fields.map((field) => ({ field, messages: ['invalid value'] })),
+      };
+    }
+
+    if (isVersionError(exception)) {
+      return {
+        statusCode: HttpStatus.CONFLICT,
+        code: 'CONCURRENT_UPDATE',
+        message:
+          'The resource was changed by another request at the same time; reload it and try again',
       };
     }
 

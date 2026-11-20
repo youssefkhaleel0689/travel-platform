@@ -1,3 +1,4 @@
+import type { AuditService } from '../../audit/audit.service';
 import { HttpException } from '@nestjs/common';
 import type { ModuleRef } from '@nestjs/core';
 import type { Connection, Model } from 'mongoose';
@@ -154,6 +155,7 @@ function setup(
         }),
   );
   const moduleRef = { get: jest.fn(() => ({ issueForCancellation })) };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const service = new FlightCancellationService(
     flightModel as unknown as Model<Flight>,
     bookingModel as unknown as Model<FlightBooking>,
@@ -163,6 +165,7 @@ function setup(
     seatInventory as unknown as SeatInventoryService,
     notifications as unknown as NotificationsService,
     moduleRef as unknown as ModuleRef,
+    audit as unknown as AuditService,
   );
   return {
     service,
@@ -171,6 +174,7 @@ function setup(
     seatInventory,
     notifications,
     issueForCancellation,
+    audit,
   };
 }
 
@@ -235,6 +239,24 @@ describe('FlightCancellationService.cancel (FLT-06)', () => {
     expect(ctx.seatInventory.releaseHeld).toHaveBeenCalledWith(
       { flightId: FLIGHT_ID, category: 'ECONOMY', seats: 3 },
       expect.anything(),
+    );
+  });
+
+  it('writes one audit entry for the cancellation (GEN-07)', async () => {
+    const ctx = setup({ bookings: [booking(BookingStatus.CONFIRMED)] });
+    await ctx.service.cancel(
+      FLIGHT_ID.toString(),
+      { confirm: true, reason: 'Aircraft unavailable' },
+      moderator,
+    );
+    expect(ctx.audit.record).toHaveBeenCalledTimes(1);
+    expect(ctx.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: moderator.userId,
+        action: 'FLIGHT_CANCELLED',
+        entityType: 'FLIGHT',
+        entityId: FLIGHT_ID.toString(),
+      }),
     );
   });
 
