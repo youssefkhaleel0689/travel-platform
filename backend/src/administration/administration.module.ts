@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
+import { BookingsModule } from '../common/bookings/bookings.module';
 import {
   AIRLINE_MODERATOR_ASSIGNMENT_PORT,
   HOTEL_MODERATOR_ASSIGNMENT_PORT,
@@ -12,6 +13,8 @@ import { HotelBookingsModule } from '../hotel-bookings/hotel-bookings.module';
 import { HotelsModule } from '../hotels/hotels.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AdminAccountsController } from './admin-accounts.controller';
+import { AdminBookingsController } from './admin-bookings.controller';
+import { AdminBookingsService } from './admin-bookings.service';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminModeratorsController } from './admin-moderators.controller';
 import { AdminModeratorsService } from './admin-moderators.service';
@@ -21,8 +24,8 @@ import { AirlineModeratorAssignmentAdapter } from './airline-moderator-assignmen
 import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.adapter';
 
 /**
- * The administration module (ACC-07a, ACC-13, ACC-14, ACC-16, and later
- * ACC-15, ACC-17, GEN-07, GEN-09, GEN-10).
+ * The administration module (ACC-07a, ACC-13, ACC-14, ACC-16, ACC-17, and later
+ * ACC-15, GEN-07, GEN-09, GEN-10).
  *
  * It owns no collection of its own: it works through UsersService and
  * NotificationsService, which is why the account rules cannot drift between
@@ -38,8 +41,9 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
  *
  * ModeratorAssignmentsGateway is provided here rather than in a module of its
  * own under common/, which is where BookingsGateway lives. That is on purpose:
- * BookingsModule exists because two modules consume it (auth for ACC-12 and
- * payments), while this gateway has exactly one consumer. If a second module
+ * BookingsModule exists because several modules consume it (auth for ACC-12,
+ * payments, and this module for ACC-17), while this gateway has exactly one
+ * consumer. If a second module
  * ever needs it, move it to a common/providers/providers.module.ts then.
  */
 @Module({
@@ -52,14 +56,19 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
     HotelBookingsModule,
     FlightBookingsModule,
     AuditModule,
+    // ACC-17 reads both booking collections through BookingsGateway, never
+    // through the flights or hotels models.
+    BookingsModule,
   ],
   controllers: [
     AdminAccountsController,
+    AdminBookingsController,
     AdminModeratorsController,
     AdminProvidersController,
   ],
   providers: [
     AdminAccountsService,
+    AdminBookingsService,
     AdminModeratorsService,
     AdminProvidersService,
     ModeratorAssignmentsGateway,

@@ -6725,6 +6725,144 @@ paths:
       summary: Reset an account's password to a temporary one (ACC-07a)
       tags:
         - Administration
+  /api/admin/bookings:
+    get:
+      description: 'Pages of 10, newest booking first (GEN-05). Flight bookings and hotel reservations live in two collections owned by two modules; both are read through the shared BookingsPort, which both implement, and merged into one page. A module whose port did not implement the optional listForAdmin would simply be absent, and this route would still answer a page, never a 501. type, status, the from/to day range (the day each booking was made, in UTC) and the exact booking reference narrow the list. Read-only: a booking is cancelled through the module that owns it.'
+      operationId: AdminBookingsController_listBookings
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: type
+          required: false
+          in: query
+          description: Only flight bookings or only hotel reservations.
+          schema:
+            type: string
+            enum:
+              - FLIGHT
+              - HOTEL
+        - name: status
+          required: false
+          in: query
+          description: The GEN-11 lifecycle state of the booking.
+          schema:
+            type: string
+            enum:
+              - PENDING_PAYMENT
+              - CONFIRMED
+              - COMPLETED
+              - EXPIRED
+              - CANCELLED
+        - name: from
+          required: false
+          in: query
+          description: First day of the range, in UTC. Bookings made on this day are included.
+          schema:
+            example: '2026-11-01'
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: Last day of the range, in UTC. The whole day is included, so from and to may name the same day.
+          schema:
+            example: '2026-11-30'
+            type: string
+        - name: reference
+          required: false
+          in: query
+          description: 'The exact booking reference, which a confirmed booking carries. Case is ignored; an unpaid booking has none and can never match. Both shapes in use are covered: a 6-character flight reference (K7M2QX) and a hotel one (HTL-8F2A19C04B).'
+          schema:
+            example: K7M2QX
+            type: string
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminBookingDto'
+        '400':
+          description: Bad page, unknown type or status, a day that is not YYYY-MM-DD, a bad reference, or an unknown query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_DATE_RANGE:
+                  summary: from must not be later than to
+                  value:
+                    statusCode: 400
+                    code: INVALID_DATE_RANGE
+                    error: Bad Request
+                    message: from must not be later than to
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List every flight and hotel booking (ACC-17)
+      tags:
+        - Administration
   /api/admin/moderators:
     post:
       description: 'Creates the account and links it to exactly one airline or hotel, which must already exist and must not be deactivated. Name it with airlineId when role is AIRLINE_MODERATOR, or with hotelId when role is HOTEL_MODERATOR; sending the id that does not match the role is a 400. The temporary password is returned once: either the one sent in the body or, if none was sent, a generated one. Until the moderator replaces it through PATCH /api/auth/change-password, every other endpoint answers 403 PASSWORD_CHANGE_REQUIRED (ACC-07a).'
@@ -9033,6 +9171,295 @@ paths:
       security:
         - cookie: []
       summary: Delete an activity (ITN-10)
+      tags:
+        - Itineraries - Activities
+  /api/activities/{id}/images:
+    post:
+      description: 'Multipart, field "file": one JPG or PNG of at most 5 MB. An activity holds at most 5 images. The response has the URL that serves it.'
+      operationId: ActivityImagesController_addImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Activity id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60720
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: One JPG or PNG image, at most 5 MB
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityImageDto'
+        '400':
+          description: No file, not a JPG or PNG (checked on the bytes, not the name), larger than 5 MB, or not sent in the "file" field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FILE_REQUIRED:
+                  summary: An image file is required
+                  value:
+                    statusCode: 400
+                    code: FILE_REQUIRED
+                    error: Bad Request
+                    message: An image file is required
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_FILE_TYPE:
+                  summary: Only JPG and PNG images are accepted
+                  value:
+                    statusCode: 400
+                    code: INVALID_FILE_TYPE
+                    error: Bad Request
+                    message: Only JPG and PNG images are accepted
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FILE_TOO_LARGE:
+                  summary: Images must be at most 5 MB
+                  value:
+                    statusCode: 400
+                    code: FILE_TOO_LARGE
+                    error: Bad Request
+                    message: Images must be at most 5 MB
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_UPLOAD:
+                  summary: Send exactly one image in the form field "file"
+                  value:
+                    statusCode: 400
+                    code: INVALID_UPLOAD
+                    error: Bad Request
+                    message: Send exactly one image in the form field "file"
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such activity, or it is in another account’s itinerary (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ACTIVITY_NOT_FOUND
+                error: Not Found
+                message: Activity not found
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The activity already has its maximum number of images
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: IMAGE_LIMIT_REACHED
+                error: Conflict
+                message: An activity can have at most 5 images
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Attach an image to one of your activities (ITN-12, GEN-08)
+      tags:
+        - Itineraries - Activities
+  /api/activities/{id}/images/{imageId}:
+    get:
+      description: Served to the itinerary’s owner, and to anyone when the itinerary is public and not hidden by moderation.
+      operationId: ActivityImagesController_getImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Activity id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60720
+            type: string
+        - name: imageId
+          required: true
+          in: path
+          description: Image id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60770
+            type: string
+      responses:
+        '200':
+          description: The image file
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No such activity or image, or you may not see the itinerary (a private one answers the same)
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ACTIVITY_NOT_FOUND:
+                  summary: Activity not found
+                  value:
+                    statusCode: 404
+                    code: ACTIVITY_NOT_FOUND
+                    error: Not Found
+                    message: Activity not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+            image/png:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ACTIVITY_NOT_FOUND:
+                  summary: Activity not found
+                  value:
+                    statusCode: 404
+                    code: ACTIVITY_NOT_FOUND
+                    error: Not Found
+                    message: Activity not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Download an image of an activity (ITN-12, GEN-08)
+      tags:
+        - Itineraries - Activities
+    delete:
+      operationId: ActivityImagesController_removeImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Activity id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60720
+            type: string
+        - name: imageId
+          required: true
+          in: path
+          description: Image id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60770
+            type: string
+      responses:
+        '204':
+          description: The image and its file are gone
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such activity or image, or the activity is in another account’s itinerary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ACTIVITY_NOT_FOUND:
+                  summary: Activity not found
+                  value:
+                    statusCode: 404
+                    code: ACTIVITY_NOT_FOUND
+                    error: Not Found
+                    message: Activity not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Remove an image from one of your activities (ITN-12)
       tags:
         - Itineraries - Activities
   /api/itineraries/{id}/days/{dayId}/budgets:
@@ -14730,6 +15157,104 @@ components:
         - email
         - temporaryPassword
         - message
+    AdminBookingUserDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        name:
+          type: object
+          nullable: true
+          example: Taher Khalaf
+          description: null when the account has since been deleted
+        email:
+          type: object
+          nullable: true
+          example: taher@example.com
+          description: null when the account has since been deleted
+      required:
+        - id
+    AdminBookingProviderDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - AIRLINE
+            - HOTEL
+          example: AIRLINE
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+        name:
+          type: object
+          nullable: true
+          example: KD Airways
+          description: null when the airline or hotel row has since been removed
+      required:
+        - type
+        - id
+    AdminBookingDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        type:
+          type: string
+          enum:
+            - FLIGHT
+            - HOTEL
+          example: FLIGHT
+        reference:
+          type: object
+          nullable: true
+          example: K7M2QX
+          description: Generated on payment, so null while the booking is unpaid
+        user:
+          $ref: '#/components/schemas/AdminBookingUserDto'
+        provider:
+          $ref: '#/components/schemas/AdminBookingProviderDto'
+        startsAt:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+          description: Departure of the first flight, or the check-in day
+        endsAt:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+          description: Arrival of the last flight, or the check-out day
+        amount:
+          type: string
+          example: '420.00'
+          description: 'A string, never a number: money is Decimal128 (PAY-04)'
+        currency:
+          type: string
+          example: USD
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - COMPLETED
+            - EXPIRED
+            - CANCELLED
+          example: CONFIRMED
+        bookedAt:
+          type: string
+          example: '2026-11-19T08:00:00.000Z'
+          description: When the booking was made; the list is newest first
+      required:
+        - id
+        - type
+        - user
+        - provider
+        - startsAt
+        - endsAt
+        - amount
+        - currency
+        - status
+        - bookedAt
     CreateModeratorDto:
       type: object
       properties:
@@ -15491,6 +16016,35 @@ components:
           description: Required with cost
       required:
         - name
+    ActivityImageDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60770
+        url:
+          type: string
+          example: /api/activities/6720f1c2a1b2c3d4e5f60720/images/6720f1c2a1b2c3d4e5f60770
+          description: Serves the image (GET), for whoever may see the itinerary
+        mimeType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+          example: image/jpeg
+        sizeBytes:
+          type: number
+          example: 245760
+        uploadedAt:
+          format: date-time
+          type: string
+          example: '2026-11-19T10:15:00.000Z'
+      required:
+        - id
+        - url
+        - mimeType
+        - sizeBytes
+        - uploadedAt
     ActivityDto:
       type: object
       properties:
@@ -15517,6 +16071,11 @@ components:
           type: string
           nullable: true
           example: EUR
+        images:
+          description: Up to 5 images (ITN-12). Add them with POST /api/activities/{id}/images
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityImageDto'
       required:
         - id
         - name
@@ -15524,6 +16083,7 @@ components:
         - time
         - cost
         - currency
+        - images
     UpdateActivityDto:
       type: object
       properties:

@@ -14,12 +14,42 @@ import {
 // Types only: a type in a decorated constructor signature has to be imported
 // this way while isolatedModules and emitDecoratorMetadata are both on.
 import type {
+  AdminBookingFilter,
+  AdminBookingRow,
   BookingConfirmation,
   BookingsPort,
   BookingPolicies,
   PayableBooking,
 } from './bookings.port';
 import { BookingType } from './booking-status';
+import { PageDto, PageMetaDto } from '../pagination/dto/page.dto';
+import { PAGE_SIZE } from '../pagination/pagination.constants';
+
+/** ACC-17: the filters an admin may apply, before a port is chosen. */
+export type AdminBookingsQuery = Omit<AdminBookingFilter, 'limit'> & {
+  /** Only this module's bookings; both modules when it is left out. */
+  bookingType?: BookingType;
+};
+
+/**
+ * A port that is wired in and implements the optional ACC-17 listing. Written
+ * as a type guard so the call below needs no non-null assertion.
+ */
+function listsForAdmin(
+  port: BookingsPort | undefined,
+): port is BookingsPort & Required<Pick<BookingsPort, 'listForAdmin'>> {
+  return typeof port?.listForAdmin === 'function';
+}
+
+/**
+ * Newest booking first, with the id as a tie-break so two bookings made in the
+ * same millisecond - in one collection or in both - always come back in the
+ * same order and never repeat or vanish between pages.
+ */
+function newestFirst(a: AdminBookingRow, b: AdminBookingRow): number {
+  const byDate = b.createdAt.getTime() - a.createdAt.getTime();
+  return byDate !== 0 ? byDate : b.bookingId.localeCompare(a.bookingId);
+}
 
 /**
  * Routes a booking type to the module that owns it.
@@ -113,6 +143,45 @@ export class BookingsGateway {
       ports.map((port) => port.hasUpcomingConfirmedBookings(userId)),
     );
     return answers.some(Boolean);
+  }
+
+  /**
+   * ACC-17: one page of every booking an admin may see, newest first.
+   *
+   * Flights and hotels keep their own collections, so each wired module is
+   * asked for its newest `page x 10` rows and the two lists are merged here.
+   * The page the admin asked for is always inside that merge: a row on page n
+   * cannot be older than the nth newest row of either module.
+   *
+   * A module that is not wired in, or one whose port does not implement
+   * listForAdmin yet, has no bookings to report here, so it is skipped rather
+   * than answering 501 - an admin list must not break because a module is
+   * still being built. Asking for a type whose module is missing or silent
+   * therefore gives an empty page rather than an error.
+   */
+  async listForAdmin(
+    query: AdminBookingsQuery,
+    page: number,
+  ): Promise<PageDto<AdminBookingRow>> {
+    const { bookingType, ...filter } = query;
+    const ports = (
+      bookingType === undefined
+        ? [this.flightPort, this.hotelPort]
+        : [this.port(bookingType)]
+    ).filter(listsForAdmin);
+
+    const limit = page * PAGE_SIZE;
+    const answers = await Promise.all(
+      ports.map((port) => port.listForAdmin({ ...filter, limit })),
+    );
+
+    const rows = answers
+      .flatMap((answer) => answer.rows)
+      .sort(newestFirst)
+      .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const totalItems = answers.reduce((sum, answer) => sum + answer.total, 0);
+
+    return new PageDto(rows, PageMetaDto.create(page, totalItems));
   }
 
   private port(bookingType: BookingType): BookingsPort | undefined {

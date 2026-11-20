@@ -23,6 +23,12 @@ import { centsToDecimal128, centsToString, pickRefundPercentage, refundCents, to
 import { oid } from '../common/mongo';
 import { PageDto, PageMetaDto } from '../common/pagination/dto/page.dto';
 import { PAGE_SIZE } from '../common/pagination/pagination.constants';
+import { BookingType, ProviderType } from '../common/bookings/booking-status';
+import type {
+  AdminBookingFilter,
+  AdminBookingList,
+} from '../common/bookings/bookings.port';
+import { decimal128ToString } from '../common/money/money';
 import { HOTEL_NOTIFICATIONS, HOTEL_PAYMENTS } from './hotel-integration.ports';
 import type { HotelNotificationsPort, HotelPaymentsPort } from './hotel-integration.ports';
 
@@ -495,6 +501,63 @@ export class HotelBookingsService {
       })
       .exec();
     return userIds.map((id) => String(id));
+  }
+
+  /**
+   * ACC-17: the newest reservations an admin may see, with the hotel name the
+   * list shows. Read-only and not filtered by user - an admin sees every
+   * account's bookings - and the count runs beside the rows.
+   *
+   * The caller asks for at most `filter.limit` rows: C2's gateway merges them
+   * with the flight bookings and keeps the page it needs.
+   */
+  async listForAdminPort(filter: AdminBookingFilter): Promise<AdminBookingList> {
+    const query: QueryFilter<HotelBookingDocument> = {};
+    if (filter.status) query.status = filter.status;
+    if (filter.reference) query.bookingReference = filter.reference;
+    if (filter.createdFrom || filter.createdTo) {
+      query.createdAt = {
+        ...(filter.createdFrom ? { $gte: filter.createdFrom } : {}),
+        ...(filter.createdTo ? { $lt: filter.createdTo } : {}),
+      };
+    }
+
+    const [bookings, total] = await Promise.all([
+      this.bookingModel
+        .find(query)
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(filter.limit)
+        .lean<HotelBooking[]>()
+        .exec(),
+      this.bookingModel.countDocuments(query).exec(),
+    ]);
+
+    // Hotel names in one query, through HotelsService: this module never reads
+    // the hotels collection itself.
+    const hotels = await this.hotels.briefs(
+      bookings.map((booking) => booking.hotelId),
+    );
+
+    return {
+      rows: bookings.map((booking) => ({
+        bookingId: String((booking as HotelBooking & { _id: Types.ObjectId })._id),
+        bookingType: BookingType.HOTEL,
+        bookingReference: booking.bookingReference ?? null,
+        userId: String(booking.userId),
+        providerType: ProviderType.HOTEL,
+        providerId: String(booking.hotelId),
+        providerName: hotels.get(String(booking.hotelId))?.name ?? null,
+        startsAt: booking.checkInDate,
+        endsAt: booking.checkOutDate,
+        // Decimal128 becomes a string here, not in a schema transform: a lean
+        // query skips transforms (README money rule).
+        totalAmount: decimal128ToString(booking.totalPrice) ?? '0.00',
+        currency: booking.currency,
+        status: booking.status,
+        createdAt: booking.createdAt,
+      })),
+      total,
+    };
   }
 
   /** Guest names come from UsersService, never from the User model. */

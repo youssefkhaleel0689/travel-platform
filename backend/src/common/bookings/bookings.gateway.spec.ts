@@ -19,6 +19,7 @@ describe('BookingsGateway (GEN-11)', () => {
     confirmAfterPayment: jest.Mock;
     releaseHold: jest.Mock;
     hasUpcomingConfirmedBookings: jest.Mock;
+    listForAdmin: jest.Mock;
   }
 
   const asPort = (stub: PortStub): BookingsPort =>
@@ -53,6 +54,7 @@ describe('BookingsGateway (GEN-11)', () => {
       }),
       releaseHold: jest.fn().mockResolvedValue(undefined),
       hasUpcomingConfirmedBookings: jest.fn().mockResolvedValue(false),
+      listForAdmin: jest.fn().mockResolvedValue({ rows: [], total: 0 }),
     };
   }
 
@@ -199,6 +201,193 @@ describe('BookingsGateway (GEN-11)', () => {
       // Both are asked, in parallel, not short-circuited by order.
       expect(flightPort.hasUpcomingConfirmedBookings).toHaveBeenCalled();
       expect(hotelPort.hasUpcomingConfirmedBookings).toHaveBeenCalled();
+    });
+  });
+  // ACC-17: the admin list is the one place both collections are read at once.
+  describe('listForAdmin (ACC-17)', () => {
+    // A row made at `minutesAgo` minutes before a fixed instant.
+    const NOW = new Date('2026-11-19T12:00:00.000Z');
+
+    function row(bookingType: BookingType, minutesAgo: number, id = String(minutesAgo).padStart(24, 'a')) {
+      return {
+        bookingId: id,
+        bookingType,
+        bookingReference: null,
+        userId: '6720f1c2a1b2c3d4e5f60001',
+        providerType:
+          bookingType === BookingType.FLIGHT
+            ? ProviderType.AIRLINE
+            : ProviderType.HOTEL,
+        providerId: '6720f1c2a1b2c3d4e5f60002',
+        providerName: 'Provider',
+        startsAt: NOW,
+        endsAt: NOW,
+        totalAmount: '100.00',
+        currency: 'USD',
+        status: BookingStatus.CONFIRMED,
+        createdAt: new Date(NOW.getTime() - minutesAgo * 60_000),
+      };
+    }
+
+    it('returns an empty page when no module is wired in', async () => {
+      const page = await new BookingsGateway().listForAdmin({}, 1);
+
+      expect(page.items).toEqual([]);
+      expect(page.meta).toMatchObject({ totalItems: 0, totalPages: 0 });
+    });
+
+    // listForAdmin is the one optional method on the port: a module that has
+    // not implemented it yet still works for payments and ACC-12, and simply
+    // does not appear in the admin list.
+    it('skips a wired port that does not implement listForAdmin', async () => {
+      const older = portStub();
+      delete (older as Partial<PortStub>).listForAdmin;
+      const hotelPort = portStub();
+      hotelPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.HOTEL, 1)],
+        total: 1,
+      });
+      const gateway = new BookingsGateway(asPort(older), asPort(hotelPort));
+
+      const page = await gateway.listForAdmin({}, 1);
+
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0].bookingType).toBe(BookingType.HOTEL);
+      expect(page.meta.totalItems).toBe(1);
+    });
+
+    it('gives an empty page for a type whose port cannot list yet', async () => {
+      const older = portStub();
+      delete (older as Partial<PortStub>).listForAdmin;
+      const gateway = new BookingsGateway(asPort(older), undefined);
+
+      const page = await gateway.listForAdmin(
+        { bookingType: BookingType.FLIGHT },
+        1,
+      );
+
+      expect(page.items).toEqual([]);
+      expect(page.meta.totalItems).toBe(0);
+    });
+
+    it('merges both modules newest first and counts them together', async () => {
+      const flightPort = portStub();
+      const hotelPort = portStub();
+      flightPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.FLIGHT, 1), row(BookingType.FLIGHT, 3)],
+        total: 7,
+      });
+      hotelPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.HOTEL, 2), row(BookingType.HOTEL, 4)],
+        total: 5,
+      });
+      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+
+      const page = await gateway.listForAdmin({}, 1);
+
+      expect(page.items.map((item) => item.bookingType)).toEqual([
+        BookingType.FLIGHT,
+        BookingType.HOTEL,
+        BookingType.FLIGHT,
+        BookingType.HOTEL,
+      ]);
+      expect(page.meta.totalItems).toBe(12);
+    });
+
+    // Each module is asked for page x 10 rows, because the first ten of the
+    // merged list can all come from one module.
+    it('asks each module for enough rows to cover the page', async () => {
+      const flightPort = portStub();
+      const hotelPort = portStub();
+      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+
+      await gateway.listForAdmin({ status: BookingStatus.CONFIRMED }, 3);
+
+      for (const port of [flightPort, hotelPort]) {
+        expect(port.listForAdmin).toHaveBeenCalledWith({
+          status: BookingStatus.CONFIRMED,
+          createdFrom: undefined,
+          createdTo: undefined,
+          reference: undefined,
+          limit: 30,
+        });
+      }
+    });
+
+    it('keeps only the rows of the page asked for', async () => {
+      const flightPort = portStub();
+      flightPort.listForAdmin.mockResolvedValue({
+        rows: Array.from({ length: 20 }, (_, i) =>
+          row(BookingType.FLIGHT, i, String(i).padStart(24, 'b')),
+        ),
+        total: 20,
+      });
+      const gateway = new BookingsGateway(asPort(flightPort), undefined);
+
+      const page = await gateway.listForAdmin({}, 2);
+
+      expect(page.items).toHaveLength(10);
+      expect(page.items[0].bookingId).toBe(String(10).padStart(24, 'b'));
+      expect(page.meta).toMatchObject({
+        page: 2,
+        totalItems: 20,
+        totalPages: 2,
+        hasNextPage: false,
+        hasPreviousPage: true,
+      });
+    });
+
+    it('asks only the module that owns the type when one is given', async () => {
+      const flightPort = portStub();
+      const hotelPort = portStub();
+      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+
+      await gateway.listForAdmin({ bookingType: BookingType.HOTEL }, 1);
+
+      expect(flightPort.listForAdmin).not.toHaveBeenCalled();
+      expect(hotelPort.listForAdmin).toHaveBeenCalled();
+    });
+
+    // 501 would be wrong here: an admin list must still answer while a module
+    // is being built, and a module that is not wired in has no bookings.
+    it('gives an empty page for a type whose module is missing', async () => {
+      const hotelPort = portStub();
+      hotelPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.HOTEL, 1)],
+        total: 1,
+      });
+      const gateway = new BookingsGateway(undefined, asPort(hotelPort));
+
+      const page = await gateway.listForAdmin(
+        { bookingType: BookingType.FLIGHT },
+        1,
+      );
+
+      expect(page.items).toEqual([]);
+      expect(page.meta.totalItems).toBe(0);
+    });
+
+    // Two bookings made in the same millisecond, one per collection: the order
+    // has to be the same every time or a row could repeat or vanish.
+    it('breaks a tie on the booking id, not on which module answered first', async () => {
+      const flightPort = portStub();
+      const hotelPort = portStub();
+      flightPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.FLIGHT, 5, 'a'.repeat(24))],
+        total: 1,
+      });
+      hotelPort.listForAdmin.mockResolvedValue({
+        rows: [row(BookingType.HOTEL, 5, 'f'.repeat(24))],
+        total: 1,
+      });
+      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+
+      const page = await gateway.listForAdmin({}, 1);
+
+      expect(page.items.map((item) => item.bookingId)).toEqual([
+        'f'.repeat(24),
+        'a'.repeat(24),
+      ]);
     });
   });
 });

@@ -11,6 +11,8 @@ import {
   ProviderType,
 } from '../common/bookings/booking-status';
 import type {
+  AdminBookingFilter,
+  AdminBookingList,
   BookingConfirmation,
   BookingPolicies,
   BookingsPort,
@@ -101,5 +103,10 @@ export class HotelBookingsPort implements BookingsPort {
 
   hasUpcomingConfirmedBookings(userId: string): Promise<boolean> {
     return this.bookings.hasUpcomingConfirmedForPort(userId);
+  }
+
+  /** ACC-17: a page of reservations for the admin list, newest first. */
+  listForAdmin(filter: AdminBookingFilter): Promise<AdminBookingList> {
+    return this.bookings.listForAdminPort(filter);
   }
 }
