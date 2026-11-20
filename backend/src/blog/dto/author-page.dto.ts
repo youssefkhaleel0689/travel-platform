@@ -1,10 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { PageMetaDto } from '../../common/pagination/dto/page.dto';
 import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
 import { PublicItinerarySummaryDto } from '../../itineraries/dto/public-itinerary-response.dto';
 import { PostSummaryDto } from './post-response.dto';
+import { MAX_PAGE } from '../../common/pagination/pagination.constants';
 
 export class AuthorPageQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
@@ -17,6 +18,7 @@ export class AuthorPageQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(MAX_PAGE)
   itinerariesPage: number = 1;
 }
 
