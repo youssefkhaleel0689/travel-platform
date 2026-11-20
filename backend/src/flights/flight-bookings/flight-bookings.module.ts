@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { FLIGHT_BOOKINGS_PORT } from '../../common/bookings/bookings.port';
 import { ReferenceDataModule } from '../../common/reference-data/reference-data.module';
+import { PaymentsModule } from '../../payments/payments.module';
 import { Airline, AirlineSchema } from '../schemas/airline.schema';
 import {
   FlightBooking,
@@ -11,6 +12,8 @@ import { Flight, FlightSchema } from '../schemas/flight.schema';
 import { FlightsModule } from '../flights.module';
 import { FlightBookingPolicyReader } from './flight-booking-policy.reader';
 import { FlightBookingsPortAdapter } from './flight-bookings-port.adapter';
+import { ChangeFlightController } from './change-flight.controller';
+import { ChangeFlightService } from './change-flight.service';
 import { FlightBookingsController } from './flight-bookings.controller';
 import { FlightBookingsService } from './flight-bookings.service';
 import { FlightHoldExpiryService } from './flight-hold-expiry.service';
@@ -38,8 +41,14 @@ import { SeatSelectionService } from './seat-selection.service';
     // SeatInventoryService: the only code that writes the seat counters (FLT-22).
     FlightsModule,
     ReferenceDataModule,
+    // FLT-27: fare differences go through Stripe in the payments module.
+    PaymentsModule,
   ],
-  controllers: [FlightBookingsController, SeatSelectionController],
+  controllers: [
+    FlightBookingsController,
+    SeatSelectionController,
+    ChangeFlightController,
+  ],
   providers: [
     FlightBookingsService,
     FlightBookingPolicyReader,
@@ -48,6 +57,7 @@ import { SeatSelectionService } from './seat-selection.service';
     // Its @Cron runs through ScheduleModule.forRoot(), registered once in PaymentsModule.
     FlightHoldExpiryService,
     SeatSelectionService,
+    ChangeFlightService,
   ],
   exports: [FLIGHT_BOOKINGS_PORT, FlightBookingsService],
 })

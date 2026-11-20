@@ -5,8 +5,6 @@ import { CurrentUser } from '../../common/auth/current-user.decorator';
 import { SelectSeatsDto } from './dto/seat-selection.dto';
 import { SeatSelectionService } from './seat-selection.service';
 
-const PATH = '/api/flight-bookings/{id}/seat';
-
 @ApiTags('Flight bookings - Seats')
 @ApiCookieAuth()
 @Controller('flight-bookings')

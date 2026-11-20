@@ -125,6 +125,27 @@ export class FlightSegment {
 
 export const FlightSegmentSchema = SchemaFactory.createForClass(FlightSegment);
 
+/** FLT-27: a paid-for flight change waiting for the Stripe webhook/caller. */
+@Schema({ _id: false, versionKey: false })
+export class PendingFlightChange {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  newFlightId: Types.ObjectId;
+
+  @Prop({ type: String, required: true })
+  amountDifference: string;
+
+  @Prop({ type: String, required: true, uppercase: true, length: 3 })
+  currency: string;
+
+  @Prop({ type: String, required: true })
+  stripePaymentIntentId: string;
+
+  @Prop({ type: Date, required: true })
+  requestedAt: Date;
+}
+export const PendingFlightChangeSchema =
+  SchemaFactory.createForClass(PendingFlightChange);
+
 // Keeps its own _id so baggage[].passengerId can point to it.
 @Schema({ versionKey: false })
 export class Passenger {
@@ -391,6 +412,10 @@ export class FlightBooking {
     default: BookingStatus.PENDING_PAYMENT,
   })
   status: BookingStatus;
+
+  // FLT-27: set while a fare-difference PaymentIntent is still open.
+  @Prop({ type: PendingFlightChangeSchema, default: null })
+  pendingChange?: PendingFlightChange | null;
 
   // Created + 10 minutes (HOLD_MINUTES). After it, the booking can only become EXPIRED.
   @Prop({ type: Date, required: true })
