@@ -1,8 +1,10 @@
-// The flight booking summary, hold and payments port (FLT-19, FLT-21, FLT-22, GEN-11)
-// against the real app and the shared database. This test WRITES: one airline named "KE e2e booking" with an unused
+// The flight booking summary, hold and payments port (FLT-19, FLT-21, FLT-22, GEN-11), and
+// what happens to bookings when their flight moves or departs (FLT-05, GEN-11), against the
+// real app and the shared database. This test WRITES: one airline named "KE e2e booking" with an unused
 // two-digit IATA code (from 50 up, so it never races the search test, which starts at 00),
 // flights numbered KE6xxx in February 2099, test_c2_ accounts made by the shared helper,
-// and the bookings of those accounts. afterAll deletes exactly those.
+// the bookings of those accounts and the airline assignment of its moderator. afterAll
+// deletes exactly those.
 import {
   ConflictException,
   HttpException,
@@ -35,6 +37,8 @@ import {
   FlightStatus,
 } from './../src/flights/schemas/flight.schema';
 import { FlightHoldExpiryService } from './../src/flights/flight-bookings/flight-hold-expiry.service';
+import { FlightStatusService } from './../src/flights/flight-status/flight-status.service';
+import { AirlineModeratorAssignment } from './../src/flights/schemas/airline-moderator-assignment.schema';
 import { SeatInventoryService } from './../src/flights/seat-inventory/seat-inventory.service';
 import {
   createSignedInUser,
@@ -656,6 +660,223 @@ describe('Flight bookings (e2e, shared database)', () => {
           held: before.held - 1,
           booked: before.booked,
         });
+      },
+      SLOW_MS,
+    );
+  });
+
+  // A hold on the given flights, confirmed the way the payments webhook does it.
+  async function confirmedBooking(body: unknown): Promise<string> {
+    const res = await post(HOLD, body).expect(201);
+    const id = (res.body as { id: string }).id;
+    await app
+      .get(BookingsGateway)
+      .confirmAfterPayment(
+        BookingType.FLIGHT,
+        id,
+        new Types.ObjectId().toString(),
+      );
+    return id;
+  }
+
+  describe('when the airline moves the flight (FLT-05)', () => {
+    let assignmentModel: Model<AirlineModeratorAssignment>;
+    // Its own flights, so these seats and times never mix with the other tests.
+    let movedId: string;
+    let movedBackId: string;
+
+    beforeAll(async () => {
+      assignmentModel = app.get<Model<AirlineModeratorAssignment>>(
+        getModelToken(AirlineModeratorAssignment.name),
+      );
+      await assignmentModel.create({
+        moderatorId: new Types.ObjectId(moderator.userId),
+        airlineId,
+      });
+      movedId = await createFlight({ totalSeats: 5 });
+      movedBackId = await createFlight({ totalSeats: 5, ...returnFields(17) });
+    }, SLOW_MS);
+
+    afterAll(async () => {
+      await assignmentModel
+        .deleteMany({ moderatorId: new Types.ObjectId(moderator.userId) })
+        .exec();
+    }, SLOW_MS);
+
+    function moveFlight(flightId: string, body: Record<string, string>) {
+      return request(app.getHttpServer())
+        .patch(`/api/flights/${flightId}`)
+        .set('Cookie', moderator.cookie)
+        .send(body);
+    }
+
+    it(
+      'moves the times of its held and confirmed bookings, not of an expired one',
+      async () => {
+        const confirmedId = await confirmedBooking(
+          oneWay([passenger()], movedId),
+        );
+        const heldRes = await post(HOLD, oneWay([passenger()], movedId)).expect(
+          201,
+        );
+        const heldId = (heldRes.body as { id: string }).id;
+        const expiredRes = await post(
+          HOLD,
+          oneWay([passenger()], movedId),
+        ).expect(201);
+        const expiredId = (expiredRes.body as { id: string }).id;
+        await app
+          .get(BookingsGateway)
+          .releaseHold(
+            BookingType.FLIGHT,
+            expiredId,
+            HoldReleaseReason.HOLD_EXPIRED,
+          );
+
+        // 75 minutes later: 09:45 in Cairo (UTC+2) and 15:45 in Dubai (UTC+4).
+        await moveFlight(movedId, {
+          departureLocalInput: '2099-02-10T09:45',
+          arrivalLocalInput: '2099-02-10T15:45',
+        }).expect(200);
+
+        for (const id of [confirmedId, heldId]) {
+          const segment = (await storedBooking(id))?.segments[0];
+          expect(segment?.departureAtUtc).toEqual(
+            new Date('2099-02-10T07:45:00Z'),
+          );
+          expect(segment?.arrivalAtUtc).toEqual(
+            new Date('2099-02-10T11:45:00Z'),
+          );
+        }
+        // What the traveller sees, in local time, follows the flight.
+        const res = await get(bookingPath(confirmedId)).expect(200);
+        expect(res.body.segments[0]).toMatchObject({
+          departureLocalTime: '2099-02-10T09:45:00+02:00',
+          arrivalLocalTime: '2099-02-10T15:45:00+04:00',
+        });
+        // An expired booking keeps the times it ended with.
+        const expired = await storedBooking(expiredId);
+        expect(expired?.segments[0].departureAtUtc).toEqual(
+          new Date('2099-02-10T06:30:00Z'),
+        );
+      },
+      SLOW_MS,
+    );
+
+    it(
+      'changes only the segment on the moved flight of a round trip',
+      async () => {
+        const id = await confirmedBooking({
+          tripType: 'ROUND_TRIP',
+          outbound: { flightId: movedId, cabin: 'ECONOMY' },
+          inbound: { flightId: movedBackId, cabin: 'ECONOMY' },
+          passengers: [passenger()],
+        });
+        const before = (await storedBooking(id))?.segments[1];
+
+        // 10:30 in Cairo is 08:30Z.
+        await moveFlight(movedId, {
+          departureLocalInput: '2099-02-10T10:30',
+        }).expect(200);
+
+        const stored = await storedBooking(id);
+        expect(stored?.segments[0].departureAtUtc).toEqual(
+          new Date('2099-02-10T08:30:00Z'),
+        );
+        expect(stored?.segments[1].departureAtUtc).toEqual(
+          before?.departureAtUtc,
+        );
+        expect(stored?.segments[1].arrivalAtUtc).toEqual(before?.arrivalAtUtc);
+      },
+      SLOW_MS,
+    );
+  });
+
+  describe('once its flights have departed (GEN-11)', () => {
+    let flownId: string;
+    let flownBackId: string;
+
+    beforeAll(async () => {
+      flownId = await createFlight({ totalSeats: 5 });
+      flownBackId = await createFlight({ totalSeats: 5, ...returnFields(18) });
+    }, SLOW_MS);
+
+    // As if the flight of this segment had left an hour ago: the booking keeps a copy of
+    // the flight times, and that copy is what decides.
+    async function departSegment(id: string, index: number): Promise<void> {
+      await bookingModel
+        .updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`segments.${index}.departureAtUtc`]: new Date(
+                Date.now() - 60 * 60 * 1000,
+              ),
+            },
+          },
+        )
+        .exec();
+    }
+
+    // What the flight status job runs every minute. It may also complete other flown
+    // bookings in the shared database, which is exactly its job.
+    function runJob(): Promise<number> {
+      return app.get(FlightStatusService).completeFlownBookings();
+    }
+
+    it(
+      'completes a one-way booking, and its e-ticket stays available',
+      async () => {
+        const id = await confirmedBooking(oneWay([passenger()], flownId));
+        await departSegment(id, 0);
+
+        expect(await runJob()).toBeGreaterThanOrEqual(1);
+
+        const stored = await storedBooking(id);
+        expect(stored?.status).toBe(BookingStatus.COMPLETED);
+        expect(stored?.completedAt).toBeInstanceOf(Date);
+        const res = await get(bookingPath(id)).expect(200);
+        expect(res.body.status).toBe(BookingStatus.COMPLETED);
+        await eTicket(id).expect(200);
+      },
+      SLOW_MS,
+    );
+
+    it(
+      'keeps a round trip CONFIRMED until the way back has departed too',
+      async () => {
+        const id = await confirmedBooking({
+          tripType: 'ROUND_TRIP',
+          outbound: { flightId: flownId, cabin: 'ECONOMY' },
+          inbound: { flightId: flownBackId, cabin: 'ECONOMY' },
+          passengers: [passenger()],
+        });
+
+        await departSegment(id, 0);
+        await runJob();
+        expect((await storedBooking(id))?.status).toBe(BookingStatus.CONFIRMED);
+
+        await departSegment(id, 1);
+        await runJob();
+        expect((await storedBooking(id))?.status).toBe(BookingStatus.COMPLETED);
+      },
+      SLOW_MS,
+    );
+
+    it(
+      'never completes a booking that was not paid',
+      async () => {
+        const res = await post(HOLD, oneWay([passenger()], flownId)).expect(
+          201,
+        );
+        const id = (res.body as { id: string }).id;
+        await departSegment(id, 0);
+
+        await runJob();
+
+        expect((await storedBooking(id))?.status).toBe(
+          BookingStatus.PENDING_PAYMENT,
+        );
       },
       SLOW_MS,
     );
