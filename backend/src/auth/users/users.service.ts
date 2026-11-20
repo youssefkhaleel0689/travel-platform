@@ -34,6 +34,17 @@ export interface UserProfile {
   deactivatedAt: Date | null;
 }
 
+/**
+ * ACC-17: who owns a booking, for an admin-only list. Separate from UserBrief
+ * on purpose: that one is also used for public author pages, and an email
+ * address must never reach one of those.
+ */
+export interface UserContact {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface UserBrief {
   id: string;
   name: string;
@@ -199,6 +210,26 @@ export class UsersService {
           status: user.status,
           createdAt: user.createdAt,
         },
+      ]),
+    );
+  }
+
+  // ACC-17: name and email of the accounts that own a page of bookings, in
+  // one query. Admin-only callers: the email is never shown to other users.
+  async findContactsByIds(ids: string[]): Promise<Map<string, UserContact>> {
+    const unique = [...new Set(ids)].filter((id) => OBJECT_ID.test(id));
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const users = await this.userModel
+      .find({ _id: { $in: unique.map((id) => new Types.ObjectId(id)) } })
+      .select('name email')
+      .lean<Pick<User, '_id' | 'name' | 'email'>[]>()
+      .exec();
+    return new Map(
+      users.map((user) => [
+        user._id.toString(),
+        { id: user._id.toString(), name: user.name, email: user.email },
       ]),
     );
   }

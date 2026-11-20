@@ -6,6 +6,7 @@ import {
   ProviderType,
 } from '../../common/bookings/booking-status';
 import { HoldReleaseReason } from '../../common/bookings/bookings.port';
+import type { Airline } from '../schemas/airline.schema';
 import { BookingStatus, FlightBooking } from '../schemas/flight-booking.schema';
 import { CabinCategory } from '../schemas/flight.schema';
 import type { ReferenceDataService } from '../../common/reference-data/reference-data.service';
@@ -133,14 +134,28 @@ function setup(found: FlightBooking | null = booking()) {
       Promise.resolve({ id, timeZone: ZONES[id] }),
     ),
   };
+  // ACC-17 only: the admin list resolves airline names through this model.
+  const airlineModel = {
+    find: jest.fn(() => ({
+      select: () => ({ lean: () => ({ exec: () => Promise.resolve([]) }) }),
+    })),
+  };
   sessions.length = 0;
   const adapter = new FlightBookingsPortAdapter(
     bookingModel as unknown as Model<FlightBooking>,
+    airlineModel as unknown as Model<Airline>,
     connection as unknown as Connection,
     seatInventory as unknown as SeatInventoryService,
     referenceData as unknown as ReferenceDataService,
   );
-  return { adapter, bookingModel, connection, seatInventory, referenceData };
+  return {
+    adapter,
+    bookingModel,
+    airlineModel,
+    connection,
+    seatInventory,
+    referenceData,
+  };
 }
 
 async function failure(promise: Promise<unknown>): Promise<HttpException> {
@@ -549,6 +564,178 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
       }
       // Random, not a counter: 200 draws from about a billion are all different.
       expect(new Set(references).size).toBe(200);
+    });
+  });
+  // ACC-17: the rows C2's admin list merges with the hotel reservations.
+  describe('listForAdmin (ACC-17)', () => {
+    const CREATED_AT = new Date('2026-11-17T09:00:00.000Z');
+
+    // A booking as .lean() returns it: the two segments of the round trip
+    // above, with their arrivals and the createdAt `timestamps: true` adds.
+    const ARRIVALS = [
+      new Date('2026-12-20T10:30:00.000Z'),
+      new Date('2026-12-27T14:00:00.000Z'),
+    ];
+
+    // Spread through a plain-object view: FlightBooking is a class, and
+    // spreading an instance would drop its prototype.
+    const plain = (value: unknown): Record<string, unknown> =>
+      value as Record<string, unknown>;
+
+    function adminBooking(overrides: Partial<FlightBooking> = {}) {
+      const base = plain(
+        booking({
+          status: BookingStatus.CONFIRMED,
+          bookingReference: 'K7M2QX',
+          ...overrides,
+        }),
+      );
+      const segments = (base.segments as unknown[]).map((segment, index) => ({
+        ...plain(segment),
+        arrivalAtUtc: ARRIVALS[index],
+      }));
+      return {
+        ...base,
+        createdAt: CREATED_AT,
+        segments,
+      } as unknown as FlightBooking;
+    }
+
+    function adminSetup(rows: FlightBooking[], total = rows.length) {
+      const find = jest.fn(() => ({
+        sort: () => ({
+          limit: () => ({ lean: () => ({ exec: () => Promise.resolve(rows) }) }),
+        }),
+      }));
+      const bookingModel = {
+        find,
+        countDocuments: jest.fn(() => ({
+          exec: () => Promise.resolve(total),
+        })),
+      };
+      const airlineFind = jest.fn(() => ({
+        select: () => ({
+          lean: () => ({
+            exec: () =>
+              Promise.resolve([{ _id: AIRLINE_ID, name: 'KD Airways' }]),
+          }),
+        }),
+      }));
+      const adapter = new FlightBookingsPortAdapter(
+        bookingModel as unknown as Model<FlightBooking>,
+        { find: airlineFind } as unknown as Model<Airline>,
+        {} as unknown as Connection,
+        {} as unknown as SeatInventoryService,
+        {} as unknown as ReferenceDataService,
+      );
+      return { adapter, find, airlineFind, bookingModel };
+    }
+
+    it('maps a booking to the row the admin list shows', async () => {
+      const { adapter } = adminSetup([adminBooking()]);
+
+      const { rows, total } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(total).toBe(1);
+      expect(rows[0]).toEqual({
+        bookingId: BOOKING_ID.toString(),
+        bookingType: BookingType.FLIGHT,
+        bookingReference: 'K7M2QX',
+        userId: USER_ID.toString(),
+        providerType: ProviderType.AIRLINE,
+        providerId: AIRLINE_ID.toString(),
+        providerName: 'KD Airways',
+        // The whole trip: the first departure to the last arrival.
+        startsAt: new Date('2026-12-20T06:30:00.000Z'),
+        endsAt: new Date('2026-12-27T14:00:00.000Z'),
+        // A string, never a number: the total is Decimal128 in the database.
+        totalAmount: '420.00',
+        currency: 'USD',
+        status: BookingStatus.CONFIRMED,
+        createdAt: CREATED_AT,
+      });
+    });
+
+    it('asks for nothing in particular when there is no filter', async () => {
+      const { adapter, find } = adminSetup([]);
+
+      await adapter.listForAdmin({ limit: 10 });
+
+      expect(find).toHaveBeenCalledWith({});
+    });
+
+    it('turns the filters into one query, with a half-open date range', async () => {
+      const { adapter, find, bookingModel } = adminSetup([]);
+      const createdFrom = new Date('2026-11-01T00:00:00.000Z');
+      const createdTo = new Date('2026-12-01T00:00:00.000Z');
+
+      await adapter.listForAdmin({
+        limit: 20,
+        status: BookingStatus.CANCELLED,
+        reference: 'K7M2QX',
+        createdFrom,
+        createdTo,
+      });
+
+      const expected = {
+        status: BookingStatus.CANCELLED,
+        bookingReference: 'K7M2QX',
+        createdAt: { $gte: createdFrom, $lt: createdTo },
+      };
+      expect(find).toHaveBeenCalledWith(expected);
+      // The count must use the same filter, or the page says 12 and shows 3.
+      expect(bookingModel.countDocuments).toHaveBeenCalledWith(expected);
+    });
+
+    it('shows an unpaid booking with no reference', async () => {
+      const { adapter } = adminSetup([
+        adminBooking({
+          status: BookingStatus.PENDING_PAYMENT,
+          bookingReference: undefined,
+        }),
+      ]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows[0].bookingReference).toBeNull();
+    });
+
+    it('does not look an airline up when the page is empty', async () => {
+      const { adapter, airlineFind } = adminSetup([]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows).toEqual([]);
+      expect(airlineFind).not.toHaveBeenCalled();
+    });
+
+    // One query for the whole page, not one per row.
+    it('asks for the airlines of a page once', async () => {
+      const { adapter, airlineFind } = adminSetup([
+        adminBooking(),
+        adminBooking(),
+        adminBooking(),
+      ]);
+
+      await adapter.listForAdmin({ limit: 10 });
+
+      expect(airlineFind).toHaveBeenCalledTimes(1);
+      expect(airlineFind).toHaveBeenCalledWith({ _id: { $in: [AIRLINE_ID] } });
+    });
+
+    it('leaves the name null when the airline row has gone', async () => {
+      const { adapter } = adminSetup([
+        adminBooking({
+          policySnapshot: {
+            ...plain(booking().policySnapshot),
+            airlineId: new Types.ObjectId(),
+          },
+        } as Partial<FlightBooking>),
+      ]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows[0].providerName).toBeNull();
     });
   });
 });

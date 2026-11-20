@@ -1217,6 +1217,7 @@ of them.
 | `PATCH /api/admin/accounts/:id/reactivate` | ACC-16, ACC-15 | Also clears a login lockout |
 | `POST /api/admin/users/:id/reset-password` | ACC-07a | Returns a temporary password once; stored only as a hash |
 | `POST /api/admin/moderators` | ACC-13 | Admin only; creates an airline or hotel moderator linked to exactly one provider |
+| `GET /api/admin/bookings` | ACC-17 | Admin only, read-only; every flight booking and hotel reservation in one list, filtered by type, status, the days they were made and the booking reference. Both booking modules implement `listForAdmin`, so both types appear (see "Booking lifecycle and the BookingsPort") |
 
 Rules worth knowing before you touch these:
 
@@ -1423,7 +1424,7 @@ export class FlightsModule {}
 
 The module that provides a port must be `@Global()`. `BookingsGateway` lives in `BookingsModule` under `src/common/`, which must not import a feature module, and Nest only resolves a provider from a module's own imports or from a global module. Without `@Global()` the gateway's optional port stays empty and that booking type answers 501. `HotelBookingsModule` does this for `HOTEL_BOOKINGS_PORT`.
 
-`BookingsPort` has five methods:
+`BookingsPort` has six methods:
 
 | Method | Used by | Must |
 | --- | --- | --- |
@@ -1432,8 +1433,13 @@ The module that provides a port must be `@Global()`. `BookingsGateway` lives in 
 | `confirmAfterPayment(bookingId, paymentId)` | PAY-01 | Be idempotent, refuse once the hold has expired, and convert the hold in one atomic step |
 | `releaseHold(bookingId, reason)` | PAY-01 | Release once only, however often it is called |
 | `hasUpcomingConfirmedBookings(userId)` | ACC-12 | Say whether the account has a confirmed booking that has not happened yet |
+| `listForAdmin(filter)` | ACC-17 | **Optional.** Return the newest `filter.limit` bookings matching the filter **and** how many match in all, ordered by `createdAt` descending with the booking id as the tie-break. Read-only, and not filtered by user |
 
 Both ports are optional, so the app runs with neither, one or both wired in. A booking type whose module is not connected answers **501 `BOOKING_TYPE_UNAVAILABLE`** with a clear message, rather than the app refusing to start or a 500 that looks like a bug in payments.
+
+`listForAdmin` is the only optional method of the six, because the admin list arrived after both booking modules did: a port that has not implemented it still satisfies the interface and still works for payments and ACC-12, and its booking type simply does not appear in the admin list yet. Implementing it is what puts flight bookings and hotel reservations into `GET /api/admin/bookings`.
+
+The admin list (ACC-17) is also the one exception to that 501: a module that is not wired in, or whose port does not implement `listForAdmin`, has no bookings to report, so `BookingsGateway.listForAdmin` skips it instead of throwing. An admin list must not break because a module is still being built. It asks every wired module for its newest `page x 10` rows, merges them and keeps the page it needs - a row on page n cannot be older than the nth newest row of either module - and adds the two counts together for `meta.totalItems`. That is why `listForAdmin` takes a limit rather than a page, and why its order has to be the same in both modules.
 
 Returning the booking's own policy snapshot rather than the provider's current policy is what makes acceptance stable: a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user has already given, and a later edit never changes what an existing booking agreed to.
 

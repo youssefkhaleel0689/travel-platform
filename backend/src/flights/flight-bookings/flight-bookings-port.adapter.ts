@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
-import type { ClientSession, Connection, Model } from 'mongoose';
+import type { ClientSession, Connection, Model, QueryFilter } from 'mongoose';
 import {
   assertBookingTransition,
   BookingStatus,
@@ -15,12 +15,15 @@ import {
   ProviderType,
 } from '../../common/bookings/booking-status';
 import type {
+  AdminBookingFilter,
+  AdminBookingList,
   BookingConfirmation,
   BookingPolicies,
   BookingsPort,
   HoldReleaseReason,
   PayableBooking,
 } from '../../common/bookings/bookings.port';
+import { Airline } from '../schemas/airline.schema';
 import { FlightBooking, FlightSegment } from '../schemas/flight-booking.schema';
 import {
   SeatChange,
@@ -66,6 +69,31 @@ function seatsOf(segment: FlightSegment): SeatChange {
   };
 }
 
+// What ACC-17's filters mean against the flightBookings collection. createdAt
+// comes from `timestamps: true`; the range is half-open so a day boundary
+// belongs to exactly one range.
+function adminFilterToQuery(
+  filter: AdminBookingFilter,
+): QueryFilter<FlightBooking> {
+  const query: QueryFilter<FlightBooking> = {};
+  if (filter.status) {
+    query.status = filter.status;
+  }
+  if (filter.reference) {
+    query.bookingReference = filter.reference;
+  }
+  if (filter.createdFrom || filter.createdTo) {
+    query.createdAt = {
+      ...(filter.createdFrom ? { $gte: filter.createdFrom } : {}),
+      ...(filter.createdTo ? { $lt: filter.createdTo } : {}),
+    };
+  }
+  return query;
+}
+
+// What .lean() gives back for a booking document.
+type LeanFlightBooking = FlightBooking & { _id: Types.ObjectId };
+
 /**
  * The flights side of GEN-11's BookingsPort: how payments (C2) reads, confirms and
  * releases flight bookings without touching the flightBookings collection. Every status
@@ -79,6 +107,8 @@ export class FlightBookingsPortAdapter implements BookingsPort {
   constructor(
     @InjectModel(FlightBooking.name)
     private readonly bookingModel: Model<FlightBooking>,
+    @InjectModel(Airline.name)
+    private readonly airlineModel: Model<Airline>,
     @InjectConnection() private readonly connection: Connection,
     private readonly seatInventory: SeatInventoryService,
     private readonly referenceData: ReferenceDataService,
@@ -208,6 +238,80 @@ export class FlightBookingsPortAdapter implements BookingsPort {
       })
       .exec();
     return found !== null;
+  }
+
+  /**
+   * ACC-17: the newest flight bookings an admin may see, with the airline name
+   * the list shows. Read-only, and not filtered by user: an admin sees every
+   * account's bookings.
+   *
+   * The count and the rows run in parallel, as paginateQuery does, and the
+   * airline names are fetched in one query for the whole page rather than one
+   * per row.
+   */
+  async listForAdmin(filter: AdminBookingFilter): Promise<AdminBookingList> {
+    const query = adminFilterToQuery(filter);
+    const [bookings, total] = await Promise.all([
+      this.bookingModel
+        .find(query)
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(filter.limit)
+        .lean<LeanFlightBooking[]>()
+        .exec(),
+      this.bookingModel.countDocuments(query).exec(),
+    ]);
+
+    const airlineNames = await this.airlineNames(
+      bookings.map((booking) => booking.policySnapshot.airlineId),
+    );
+
+    return {
+      rows: bookings.map((booking) => {
+        const departures = booking.segments.map((segment) =>
+          segment.departureAtUtc.getTime(),
+        );
+        const arrivals = booking.segments.map((segment) =>
+          segment.arrivalAtUtc.getTime(),
+        );
+        const airlineId = booking.policySnapshot.airlineId.toString();
+        return {
+          bookingId: booking._id.toString(),
+          bookingType: BookingType.FLIGHT,
+          bookingReference: booking.bookingReference ?? null,
+          userId: booking.userId.toString(),
+          providerType: ProviderType.AIRLINE,
+          providerId: airlineId,
+          providerName: airlineNames.get(airlineId) ?? null,
+          // A round trip has two segments: the trip runs from the first
+          // departure to the last arrival.
+          startsAt: new Date(Math.min(...departures)),
+          endsAt: new Date(Math.max(...arrivals)),
+          totalAmount: moneyString(booking.priceSnapshot.total),
+          currency: booking.priceSnapshot.currency,
+          status: booking.status,
+          createdAt: booking.createdAt,
+        };
+      }),
+      total,
+    };
+  }
+
+  /** Airline names for one page of bookings, in a single query. */
+  private async airlineNames(
+    ids: Types.ObjectId[],
+  ): Promise<Map<string, string>> {
+    const unique = [...new Map(ids.map((id) => [id.toString(), id])).values()];
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const airlines = await this.airlineModel
+      .find({ _id: { $in: unique } })
+      .select('name')
+      .lean<{ _id: Types.ObjectId; name: string }[]>()
+      .exec();
+    return new Map(
+      airlines.map((airline) => [airline._id.toString(), airline.name]),
+    );
   }
 
   /**
