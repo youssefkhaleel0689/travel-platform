@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingType } from '../../common/bookings/booking-status';
 import { decimal128ToString } from '../../common/money/money';
-import { CancelledBy, RefundStatus } from '../refund-status.enum';
+import { CancelledBy, RefundKind, RefundStatus } from '../refund-status.enum';
 import { RefundDocument } from '../schemas/refund.schema';
 
 // PAY-03: the refund as it appears on the booking details.
@@ -48,6 +48,14 @@ export class RefundDto {
   })
   cancelledBy: CancelledBy;
 
+  @ApiProperty({
+    enum: RefundKind,
+    example: RefundKind.CANCELLATION,
+    description:
+      'CANCELLATION: the booking was cancelled. FARE_DIFFERENCE: a flight booking moved to a cheaper flight (FLT-27)',
+  })
+  kind: RefundKind;
+
   @ApiProperty({ example: 'Cancelled by the traveller 5 days before check-in' })
   reason: string;
 
@@ -92,6 +100,7 @@ export class RefundDto {
     dto.currency = refund.currency;
     dto.status = refund.status;
     dto.cancelledBy = refund.cancelledBy;
+    dto.kind = refund.kind ?? RefundKind.CANCELLATION;
     dto.reason = refund.reason;
     dto.refundPercentage = refund.refundPercentage;
     dto.policySnapshot = refund.policySnapshot ?? null;

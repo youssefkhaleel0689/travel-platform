@@ -178,7 +178,11 @@ export class PaymentsService {
     return this.paymentModel.findById(paymentId).exec();
   }
 
-  /** The succeeded payment of a booking, which is what a refund needs. */
+  /**
+   * The payment that paid for the booking itself: the oldest succeeded one. A
+   * flight booking that was changed to a pricier flight has a second, later
+   * one for the fare difference (FLT-27).
+   */
   async findSucceededForBooking(
     bookingType: BookingType,
     bookingId: string,
@@ -192,7 +196,77 @@ export class PaymentsService {
         bookingId: new Types.ObjectId(bookingId),
         status: PaymentStatus.SUCCEEDED,
       })
+      .sort({ createdAt: 1, _id: 1 })
       .exec();
+  }
+
+  /** Every succeeded payment of a booking, oldest first: what refunds draw on. */
+  async findSucceededPaymentsForBooking(
+    bookingType: BookingType,
+    bookingId: string,
+  ): Promise<PaymentDocument[]> {
+    if (!Types.ObjectId.isValid(bookingId)) {
+      return [];
+    }
+    return this.paymentModel
+      .find({
+        bookingType,
+        bookingId: new Types.ObjectId(bookingId),
+        status: PaymentStatus.SUCCEEDED,
+      })
+      .sort({ createdAt: 1, _id: 1 })
+      .exec();
+  }
+
+  /**
+   * FLT-27: records a fare difference Stripe has already confirmed, as a
+   * SUCCEEDED payment of the same booking, so a later refund can give it back.
+   * It is written only once the money is in, so the expiry sweep, which looks
+   * at open payments, never sees it, and the webhook for its PaymentIntent
+   * finds it already SUCCEEDED and does nothing. Recording the same
+   * PaymentIntent twice returns the first row.
+   */
+  async recordFareDifference(input: {
+    bookingType: BookingType;
+    bookingId: string;
+    userId: string;
+    stripePaymentIntentId: string;
+    amount: string;
+  }): Promise<PaymentDocument | null> {
+    const original = await this.findSucceededForBooking(
+      input.bookingType,
+      input.bookingId,
+    );
+    if (!original) {
+      this.logger.error(
+        `Fare difference ${input.stripePaymentIntentId} has no booking payment to belong to (${input.bookingType} ${input.bookingId})`,
+      );
+      return null;
+    }
+    try {
+      return await this.paymentModel.create({
+        bookingType: input.bookingType,
+        bookingId: new Types.ObjectId(input.bookingId),
+        userId: new Types.ObjectId(input.userId),
+        stripePaymentIntentId: input.stripePaymentIntentId,
+        amount: toDecimal128(input.amount),
+        currency: PLATFORM_CURRENCY,
+        status: PaymentStatus.SUCCEEDED,
+        // The terms accepted for the booking still apply to it after a change.
+        policyAcceptanceId: original.policyAcceptanceId,
+        idempotencyKey: `fare-difference:${input.bookingType}:${input.bookingId}:${input.stripePaymentIntentId}`,
+        attempt: original.attempt,
+        succeededAt: new Date(),
+        failedAt: null,
+        cancelledAt: null,
+        failureMessage: null,
+      });
+    } catch (error) {
+      if (isDuplicateKey(error)) {
+        return this.findByStripeId(input.stripePaymentIntentId);
+      }
+      throw error;
+    }
   }
 
   /**

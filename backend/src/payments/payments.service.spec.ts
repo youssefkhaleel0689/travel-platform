@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Model, Types } from 'mongoose';
@@ -480,8 +481,9 @@ describe('PaymentsService (PAY-01)', () => {
   });
 
   describe('findSucceededForBooking (used by PAY-03)', () => {
-    it('looks for the succeeded payment of that booking', async () => {
-      model.findOne.mockReturnValue(exec(paymentDoc()));
+    it('looks for the oldest succeeded payment of that booking', async () => {
+      const query = sortExec(paymentDoc());
+      model.findOne.mockReturnValue(query);
 
       await service.findSucceededForBooking(BookingType.HOTEL, BOOKING_ID);
 
@@ -491,6 +493,8 @@ describe('PaymentsService (PAY-01)', () => {
         bookingId: new Types.ObjectId(BOOKING_ID),
         status: PaymentStatus.SUCCEEDED,
       });
+      // The booking's own payment, not a later fare difference (FLT-27).
+      expect(query.sort).toHaveBeenCalledWith({ createdAt: 1, _id: 1 });
     });
 
     it('returns null for a malformed booking id without querying', async () => {
@@ -498,6 +502,83 @@ describe('PaymentsService (PAY-01)', () => {
         service.findSucceededForBooking(BookingType.HOTEL, 'nope'),
       ).resolves.toBeNull();
       expect(model.findOne).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findSucceededPaymentsForBooking (PAY-03, FLT-27)', () => {
+    it('lists every succeeded payment of the booking, oldest first', async () => {
+      const query = sortExec([paymentDoc()]);
+      model.find.mockReturnValue(query);
+
+      await expect(
+        service.findSucceededPaymentsForBooking(BookingType.FLIGHT, BOOKING_ID),
+      ).resolves.toHaveLength(1);
+
+      expect(model.find).toHaveBeenCalledWith({
+        bookingType: BookingType.FLIGHT,
+        bookingId: new Types.ObjectId(BOOKING_ID),
+        status: PaymentStatus.SUCCEEDED,
+      });
+      expect(query.sort).toHaveBeenCalledWith({ createdAt: 1, _id: 1 });
+    });
+
+    it('returns nothing for a malformed booking id without querying', async () => {
+      await expect(
+        service.findSucceededPaymentsForBooking(BookingType.FLIGHT, 'nope'),
+      ).resolves.toEqual([]);
+      expect(model.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('recordFareDifference (FLT-27)', () => {
+    const input = {
+      bookingType: BookingType.FLIGHT,
+      bookingId: BOOKING_ID,
+      userId: USER_ID,
+      stripePaymentIntentId: 'pi_difference',
+      amount: '55.00',
+    };
+
+    it('records it as a SUCCEEDED payment under the terms of the booking payment', async () => {
+      const acceptance = new Types.ObjectId();
+      model.findOne.mockReturnValue(
+        sortExec(paymentDoc({ policyAcceptanceId: acceptance, attempt: 2 })),
+      );
+
+      await service.recordFareDifference(input);
+
+      const [created] = model.create.mock.calls[0] as [Record<string, unknown>];
+      expect(created).toMatchObject({
+        bookingType: BookingType.FLIGHT,
+        stripePaymentIntentId: 'pi_difference',
+        status: PaymentStatus.SUCCEEDED,
+        policyAcceptanceId: acceptance,
+        attempt: 2,
+        idempotencyKey: `fare-difference:FLIGHT:${BOOKING_ID}:pi_difference`,
+      });
+      expect(String(created.amount)).toBe('55.00');
+      expect(created.succeededAt).toBeInstanceOf(Date);
+    });
+
+    it('returns the first row when the same PaymentIntent is recorded twice', async () => {
+      model.findOne
+        .mockReturnValueOnce(sortExec(paymentDoc()))
+        .mockReturnValueOnce(
+          exec(paymentDoc({ stripePaymentIntentId: 'pi_difference' })),
+        );
+      model.create.mockRejectedValue({ code: 11000 });
+
+      const row = await service.recordFareDifference(input);
+
+      expect(row?.stripePaymentIntentId).toBe('pi_difference');
+    });
+
+    it('records nothing when the booking has no payment of its own', async () => {
+      jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      model.findOne.mockReturnValue(sortExec(null));
+
+      await expect(service.recordFareDifference(input)).resolves.toBeNull();
+      expect(model.create).not.toHaveBeenCalled();
     });
   });
 

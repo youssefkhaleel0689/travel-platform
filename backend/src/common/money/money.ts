@@ -114,6 +114,17 @@ export function addMoney(a: string, b: string): string {
   return formatMoney(parseMoney(a).plus(parseMoney(b)));
 }
 
+/** a - b. Amounts are never negative, so b larger than a is a bug and throws. */
+export function subtractMoney(a: string, b: string): string {
+  const difference = parseMoney(a).minus(parseMoney(b));
+  if (difference.isNegative()) {
+    throw new InternalServerErrorException(
+      `Cannot take ${b} from ${a}: amounts are never negative`,
+    );
+  }
+  return formatMoney(difference);
+}
+
 export function isGreaterThan(a: string, b: string): boolean {
   return parseMoney(a).greaterThan(parseMoney(b));
 }

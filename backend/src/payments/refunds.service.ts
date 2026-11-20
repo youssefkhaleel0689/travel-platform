@@ -16,6 +16,7 @@ import {
   isZero,
   percentageOf,
   PLATFORM_CURRENCY,
+  subtractMoney,
   toDecimal128,
 } from '../common/money/money';
 import {
@@ -27,8 +28,10 @@ import { PaymentsService } from './payments.service';
 import {
   CancelledBy,
   fromStripeRefundStatus,
+  RefundKind,
   RefundStatus,
 } from './refund-status.enum';
+import type { PaymentDocument } from './schemas/payment.schema';
 import { Refund, RefundDocument } from './schemas/refund.schema';
 import { StripeService } from './stripe.service';
 
@@ -45,6 +48,17 @@ export interface IssueRefundInput {
   reason: string;
   /** The cancellation terms the percentage came from, for the record. */
   policySnapshot?: Record<string, unknown> | null;
+}
+
+/** A booking's succeeded payments and what each still has to give back. */
+interface Ledger {
+  bookingType: BookingType;
+  bookingId: string;
+  payments: PaymentDocument[];
+  refunds: RefundDocument[];
+  /** Payment id -> captured less its live refunds. */
+  refundable: Map<string, string>;
+  refundableTotal: string;
 }
 
 /**
@@ -81,11 +95,8 @@ export class RefundsService {
   async issueForCancellation(
     input: IssueRefundInput,
   ): Promise<RefundDocument | null> {
-    const payment = await this.payments.findSucceededForBooking(
-      input.bookingType,
-      input.bookingId,
-    );
-    if (!payment) {
+    const ledger = await this.ledger(input.bookingType, input.bookingId);
+    if (ledger.payments.length === 0) {
       // Nothing was ever captured, so there is nothing to give back. A hold
       // that expired or failed never took money.
       this.logger.log(
@@ -99,69 +110,193 @@ export class RefundsService {
     // the platform cancelling is always a full refund.
     const percentage =
       input.cancelledBy === CancelledBy.USER ? input.refundPercentage : 100;
-    const captured = decimal128ToString(payment.amount) ?? '0.00';
-    const amount = percentageOf(captured, percentage);
 
-    if (isZero(amount)) {
-      this.logger.log(
-        `Refund share is ${percentage}% of ${captured}: nothing to refund for booking ${input.bookingId}`,
-      );
-      return null;
-    }
-
-    const existing = await this.findForBooking(
-      input.bookingType,
-      input.bookingId,
-    );
-    const live = existing.find(
-      (refund) => refund.status !== RefundStatus.FAILED,
+    // Checked first: a cancellation that ran twice must be refused, not
+    // quietly answered "nothing left to refund".
+    const live = ledger.refunds.find(
+      (refund) =>
+        refund.status !== RefundStatus.FAILED &&
+        refund.kind !== RefundKind.FARE_DIFFERENCE,
     );
     if (live) {
-      // A cancellation that ran twice must not refund twice.
       throw new ConflictException({
         code: 'REFUND_ALREADY_ISSUED',
         message: 'This booking already has a refund',
       });
     }
 
-    // The data model's invariant: total refunds never exceed what was
-    // captured. With one refund per booking the check above already makes this
-    // impossible, so this is a backstop rather than a live branch - it is what
-    // would catch a mistake if partial or repeated refunds are ever added.
-    const alreadyRefunded = existing
-      .filter((refund) => refund.status === RefundStatus.REFUNDED)
-      .reduce(
-        (total, refund) =>
-          addMoney(total, decimal128ToString(refund.amount) ?? '0.00'),
-        '0.00',
+    // The share is of what is still paid: everything captured (the booking
+    // and any fare difference, FLT-27) less what has already gone back (a
+    // cheaper flight's difference). That is the booking's current total, the
+    // same figure the cancellation quote shows.
+    const stillPaid = ledger.refundableTotal;
+    const amount = percentageOf(stillPaid, percentage);
+
+    if (isZero(amount)) {
+      this.logger.log(
+        `Refund share is ${percentage}% of ${stillPaid}: nothing to refund for booking ${input.bookingId}`,
       );
-    if (isGreaterThan(addMoney(alreadyRefunded, amount), captured)) {
+      return null;
+    }
+
+    return this.allocate(ledger, amount, {
+      kind: RefundKind.CANCELLATION,
+      cancelledBy: input.cancelledBy,
+      reason: input.reason,
+      refundPercentage: percentage,
+      policySnapshot: input.policySnapshot ?? null,
+    });
+  }
+
+  /**
+   * FLT-27: gives back the fare difference when a confirmed flight booking
+   * moves to a cheaper flight. Recorded, sent to Stripe and notified exactly
+   * like a cancellation refund (PAY-03), as kind FARE_DIFFERENCE, so it never
+   * blocks the cancellation refund that may come later and that one is worked
+   * out from what is still paid. Returns the first refund row, or null when
+   * nothing was captured.
+   */
+  async issueFareDifference(input: {
+    bookingType: BookingType;
+    bookingId: string;
+    amount: string;
+    reason: string;
+  }): Promise<RefundDocument | null> {
+    const ledger = await this.ledger(input.bookingType, input.bookingId);
+    if (ledger.payments.length === 0 || isZero(input.amount)) {
+      return null;
+    }
+    const captured = ledger.payments.reduce(
+      (total, payment) =>
+        addMoney(total, decimal128ToString(payment.amount) ?? '0.00'),
+      '0.00',
+    );
+    // The share of everything captured, for the record and the notice.
+    const share = Math.min(
+      100,
+      Math.round((Number(input.amount) / Number(captured)) * 10_000) / 100,
+    );
+    return this.allocate(ledger, input.amount, {
+      kind: RefundKind.FARE_DIFFERENCE,
+      cancelledBy: CancelledBy.USER,
+      reason: input.reason,
+      refundPercentage: share,
+      policySnapshot: null,
+    });
+  }
+
+  /**
+   * What a booking has paid and what is already on its way back. A refund is
+   * only ever drawn from a payment that still has that much left on it, which
+   * is the invariant "refunds never exceed what was captured", per payment.
+   * FAILED refunds returned nothing, so they do not count.
+   */
+  private async ledger(
+    bookingType: BookingType,
+    bookingId: string,
+  ): Promise<Ledger> {
+    const [payments, refunds] = await Promise.all([
+      this.payments.findSucceededPaymentsForBooking(bookingType, bookingId),
+      this.findForBooking(bookingType, bookingId),
+    ]);
+    const refundable = new Map<string, string>();
+    for (const payment of payments) {
+      const returned = refunds
+        .filter(
+          (refund) =>
+            refund.status !== RefundStatus.FAILED &&
+            refund.paymentId.toString() === payment._id.toString(),
+        )
+        .reduce(
+          (total, refund) =>
+            addMoney(total, decimal128ToString(refund.amount) ?? '0.00'),
+          '0.00',
+        );
+      const captured = decimal128ToString(payment.amount) ?? '0.00';
+      refundable.set(
+        payment._id.toString(),
+        isGreaterThan(returned, captured)
+          ? '0.00'
+          : subtractMoney(captured, returned),
+      );
+    }
+    const refundableTotal = [...refundable.values()].reduce(
+      (total, left) => addMoney(total, left),
+      '0.00',
+    );
+    return {
+      bookingType,
+      bookingId,
+      payments,
+      refunds,
+      refundable,
+      refundableTotal,
+    };
+  }
+
+  /**
+   * Refunds `amount`, newest payment first, never more from a payment than it
+   * has left: a fare difference paid on top of the booking goes back before
+   * the booking's own payment. Usually one payment covers it and this writes
+   * one row. Each row is written before Stripe is called. Returns the first.
+   */
+  private async allocate(
+    ledger: Ledger,
+    amount: string,
+    fields: {
+      kind: RefundKind;
+      cancelledBy: CancelledBy;
+      reason: string;
+      refundPercentage: number;
+      policySnapshot: Record<string, unknown> | null;
+    },
+  ): Promise<RefundDocument | null> {
+    if (isGreaterThan(amount, ledger.refundableTotal)) {
       throw new BadRequestException({
         code: 'REFUND_EXCEEDS_PAYMENT',
         message: 'A refund cannot exceed the amount that was captured',
       });
     }
-
-    const refund = await this.refundModel.create({
-      bookingType: input.bookingType,
-      bookingId: new Types.ObjectId(input.bookingId),
-      paymentId: payment._id,
-      stripeRefundId: null,
-      amount: toDecimal128(amount),
-      currency: PLATFORM_CURRENCY,
-      status: RefundStatus.PENDING,
-      cancelledBy: input.cancelledBy,
-      reason: input.reason,
-      refundPercentage: percentage,
-      policySnapshot: input.policySnapshot ?? null,
-      // Numbered by attempt, so a retry after a failure gets its own key.
-      idempotencyKey: `refund:${input.bookingType}:${input.bookingId}:${existing.length + 1}`,
-      requestedAt: new Date(),
-      completedAt: null,
-      failureMessage: null,
-    });
-
-    return this.sendToStripe(refund, payment.stripePaymentIntentId);
+    let owed = amount;
+    let written = 0;
+    let first: RefundDocument | null = null;
+    for (const payment of [...ledger.payments].reverse()) {
+      if (isZero(owed)) {
+        break;
+      }
+      const left = ledger.refundable.get(payment._id.toString()) ?? '0.00';
+      if (isZero(left)) {
+        continue;
+      }
+      const slice = isGreaterThan(owed, left) ? left : owed;
+      owed = subtractMoney(owed, slice);
+      written += 1;
+      const refund = await this.refundModel.create({
+        bookingType: ledger.bookingType,
+        bookingId: new Types.ObjectId(ledger.bookingId),
+        paymentId: payment._id,
+        stripeRefundId: null,
+        amount: toDecimal128(slice),
+        currency: PLATFORM_CURRENCY,
+        status: RefundStatus.PENDING,
+        cancelledBy: fields.cancelledBy,
+        kind: fields.kind,
+        reason: fields.reason,
+        refundPercentage: fields.refundPercentage,
+        policySnapshot: fields.policySnapshot,
+        // Numbered per booking, so a retry after a failure gets its own key.
+        idempotencyKey: `refund:${ledger.bookingType}:${ledger.bookingId}:${ledger.refunds.length + written}`,
+        requestedAt: new Date(),
+        completedAt: null,
+        failureMessage: null,
+      });
+      const sent = await this.sendToStripe(
+        refund,
+        payment.stripePaymentIntentId,
+      );
+      first = first ?? sent;
+    }
+    return first;
   }
 
   /**
@@ -354,8 +489,11 @@ export class RefundsService {
       type: NotificationType.REFUND_ISSUED,
       title: 'Refund issued',
       message:
-        `${amount} ${refund.currency} is being refunded for your cancelled ` +
-        `booking (${refund.refundPercentage}% of what you paid).`,
+        refund.kind === RefundKind.FARE_DIFFERENCE
+          ? `${amount} ${refund.currency} is being refunded: the fare ` +
+            'difference after your booking moved to a cheaper flight.'
+          : `${amount} ${refund.currency} is being refunded for your cancelled ` +
+            `booking (${refund.refundPercentage}% of what you paid).`,
       resourceType: NotificationResourceType.REFUND,
       resourceId: refund._id.toString(),
     });

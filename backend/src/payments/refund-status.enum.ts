@@ -23,6 +23,17 @@ export enum CancelledBy {
   SYSTEM = 'SYSTEM',
 }
 
+/**
+ * Why money goes back. A booking can have one cancellation refund, and before
+ * that any number of fare-difference refunds from flight changes (FLT-27).
+ */
+export enum RefundKind {
+  /** The booking was cancelled: its tier of what is still paid (PAY-03). */
+  CANCELLATION = 'CANCELLATION',
+  /** The booking moved to a cheaper flight: the difference (FLT-27). */
+  FARE_DIFFERENCE = 'FARE_DIFFERENCE',
+}
+
 /** Maps a Stripe refund status onto ours. */
 export function fromStripeRefundStatus(
   stripeStatus: string | null,

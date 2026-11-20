@@ -8,6 +8,7 @@ import { PLATFORM_CURRENCY } from '../../common/money/money';
 import {
   CancelledBy,
   REFUND_STATUSES,
+  RefundKind,
   RefundStatus,
 } from '../refund-status.enum';
 import { Payment } from './payment.schema';
@@ -50,6 +51,15 @@ export class Refund {
 
   @Prop({ type: String, required: true, enum: Object.values(CancelledBy) })
   cancelledBy: CancelledBy;
+
+  // A row written before this field existed has none and counts as a
+  // CANCELLATION, which is the only kind there was.
+  @Prop({
+    type: String,
+    enum: Object.values(RefundKind),
+    default: RefundKind.CANCELLATION,
+  })
+  kind: RefundKind;
 
   /** Why it was cancelled, shown on the booking details. */
   @Prop({ type: String, required: true, trim: true, maxlength: 500 })
