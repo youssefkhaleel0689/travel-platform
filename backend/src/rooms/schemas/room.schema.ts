@@ -4,7 +4,10 @@ import { jsonTransform } from '../../common/mongo';
 
 export type RoomDocument = HydratedDocument<Room>;
 
-@Schema({ timestamps: true, toJSON: { transform: jsonTransform, versionKey: false } })
+@Schema({
+  timestamps: true,
+  toJSON: { transform: jsonTransform, versionKey: false },
+})
 export class Room {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Hotel', required: true })
   hotelId!: mongoose.Types.ObjectId;

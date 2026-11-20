@@ -1,5 +1,5 @@
-import { ApiPropertyOptional } from "@nestjs/swagger";
-import { Type } from "class-transformer";
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -8,8 +8,8 @@ import {
   IsString,
   Matches,
   Min,
-} from "class-validator";
-import { PRICE_REGEX } from "./create-room.dto";
+} from 'class-validator';
+import { PRICE_REGEX } from './create-room.dto';
 
 export class UpdateRoomDto {
   @ApiPropertyOptional()
@@ -34,11 +34,11 @@ export class UpdateRoomDto {
 
   @ApiPropertyOptional({
     description:
-      "Price change never affects existing reservations (they keep a snapshot).",
+      'Price change never affects existing reservations (they keep a snapshot).',
   })
   @IsOptional()
   @Matches(PRICE_REGEX, {
-    message: "pricePerNight must be greater than zero (max 2 decimals)",
+    message: 'pricePerNight must be greater than zero (max 2 decimals)',
   })
   pricePerNight?: string;
 

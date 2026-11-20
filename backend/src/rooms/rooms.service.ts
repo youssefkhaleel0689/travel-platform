@@ -1,9 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { fieldBadRequest } from '../common/validation/field-error';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { Room, RoomDocument } from './schemas/room.schema';
-import { Availability, AvailabilityDocument } from '../availability/schemas/availability.schema';
-import { HotelBooking, HotelBookingDocument } from '../hotel-bookings/schemas/hotel-booking.schema';
+import {
+  Availability,
+  AvailabilityDocument,
+} from '../availability/schemas/availability.schema';
+import {
+  HotelBooking,
+  HotelBookingDocument,
+} from '../hotel-bookings/schemas/hotel-booking.schema';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { InventoryService } from '../inventory/inventory.service';
@@ -21,8 +28,10 @@ const FAR_FUTURE = new Date('9999-12-31T00:00:00.000Z');
 export class RoomsService {
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<RoomDocument>,
-    @InjectModel(Availability.name) private readonly availabilityModel: Model<AvailabilityDocument>,
-    @InjectModel(HotelBooking.name) private readonly bookingModel: Model<HotelBookingDocument>,
+    @InjectModel(Availability.name)
+    private readonly availabilityModel: Model<AvailabilityDocument>,
+    @InjectModel(HotelBooking.name)
+    private readonly bookingModel: Model<HotelBookingDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly inventory: InventoryService,
     private readonly hotels: HotelsService,
@@ -42,7 +51,10 @@ export class RoomsService {
         pricePerNight: centsToDecimal128(toCents(dto.pricePerNight)),
       });
     } catch (err) {
-      rethrowDuplicate(err, 'Room number and room name must be unique within the hotel');
+      rethrowDuplicate(
+        err,
+        'Room number and room name must be unique within the hotel',
+      );
     }
   }
 
@@ -50,7 +62,12 @@ export class RoomsService {
     const hotel = await this.hotels.assertManagesHotel(user, hotelId, true);
     const filter = { hotelId: hotel._id };
     const [items, total] = await Promise.all([
-      this.roomModel.find(filter).sort({ roomNumber: 1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).exec(),
+      this.roomModel
+        .find(filter)
+        .sort({ roomNumber: 1 })
+        .skip((page - 1) * PAGE_SIZE)
+        .limit(PAGE_SIZE)
+        .exec(),
       this.roomModel.countDocuments(filter).exec(),
     ]);
     return new PageDto(items, PageMetaDto.create(page, total));
@@ -63,13 +80,20 @@ export class RoomsService {
 
   /** Room must exist AND belong to the hotel in the URL. */
   async getRoomOfHotel(hotelId: string, roomId: string): Promise<RoomDocument> {
-    const room = await this.roomModel.findOne({ _id: oid(roomId, 'roomId'), hotelId: oid(hotelId, 'hotelId') }).exec();
+    const room = await this.roomModel
+      .findOne({ _id: oid(roomId, 'roomId'), hotelId: oid(hotelId, 'hotelId') })
+      .exec();
     if (!room) throw new NotFoundException('Room not found in this hotel');
     return room;
   }
 
   /** HTL-05: edit beds, occupancy, price (and other attributes). Existing reservations keep their snapshot. */
-  async update(user: AuthenticatedUser, hotelId: string, roomId: string, dto: UpdateRoomDto) {
+  async update(
+    user: AuthenticatedUser,
+    hotelId: string,
+    roomId: string,
+    dto: UpdateRoomDto,
+  ) {
     await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
 
@@ -89,12 +113,19 @@ export class RoomsService {
       }
       if (dto.isActive === true) set.isActive = true;
       const updated = await this.roomModel
-        .findByIdAndUpdate(room._id, { $set: set }, { new: true, runValidators: true })
+        .findByIdAndUpdate(
+          room._id,
+          { $set: set },
+          { new: true, runValidators: true },
+        )
         .exec();
       if (!updated) throw new NotFoundException('Room not found');
       return updated;
     } catch (err) {
-      rethrowDuplicate(err, 'Room number and room name must be unique within the hotel');
+      rethrowDuplicate(
+        err,
+        'Room number and room name must be unique within the hotel',
+      );
     }
   }
 
@@ -107,24 +138,40 @@ export class RoomsService {
   async activate(user: AuthenticatedUser, hotelId: string, roomId: string) {
     await this.hotels.assertManagesHotel(user, hotelId);
     const room = await this.getRoomOfHotel(hotelId, roomId);
-    const updated = await this.roomModel.findByIdAndUpdate(room._id, { $set: { isActive: true } }, { new: true }).exec();
+    const updated = await this.roomModel
+      .findByIdAndUpdate(room._id, { $set: { isActive: true } }, { new: true })
+      .exec();
     return updated!;
   }
 
   /** HTL-06: deactivation is rejected when it overlaps a CONFIRMED or (unexpired) PENDING_PAYMENT reservation. */
-  private setActive(roomId: Types.ObjectId, active: boolean, extra: Record<string, unknown>) {
+  private setActive(
+    roomId: Types.ObjectId,
+    active: boolean,
+    extra: Record<string, unknown>,
+  ) {
     return this.connection.transaction(async (session: ClientSession) => {
       await this.inventory.lockRooms([roomId], session);
       if (!active) {
-        const blocking = await this.inventory.findConsumingBookings([roomId], todayUtc(), FAR_FUTURE, { session });
+        const blocking = await this.inventory.findConsumingBookings(
+          [roomId],
+          todayUtc(),
+          FAR_FUTURE,
+          { session },
+        );
         if (blocking.length) {
-          throw new BadRequestException(
+          throw fieldBadRequest(
+            'roomId',
             'Room cannot be deactivated while it has an upcoming CONFIRMED or PENDING_PAYMENT reservation',
           );
         }
       }
       const updated = await this.roomModel
-        .findByIdAndUpdate(roomId, { $set: { ...extra, isActive: active } }, { new: true, runValidators: true, session })
+        .findByIdAndUpdate(
+          roomId,
+          { $set: { ...extra, isActive: active } },
+          { new: true, runValidators: true, session },
+        )
         .exec();
       if (!updated) throw new NotFoundException('Room not found');
       return updated;
@@ -143,20 +190,36 @@ export class RoomsService {
         .session(session)
         .exec();
       if (everReserved) {
-        throw new BadRequestException('A room that has been reserved cannot be deleted; deactivate it instead');
+        throw fieldBadRequest(
+          'roomId',
+          'A room that has been reserved cannot be deleted; deactivate it instead',
+        );
       }
-      await this.availabilityModel.deleteMany({ roomId: room._id }, { session }).exec();
+      await this.availabilityModel
+        .deleteMany({ roomId: room._id }, { session })
+        .exec();
       await this.roomModel.deleteOne({ _id: room._id }, { session }).exec();
       return { deleted: true, id: String(room._id) };
     });
   }
 
   /** HTL-15: all active rooms of an active hotel that are free for the whole stay, with total stay price. */
-  async findAvailable(hotelId: string, checkInDate: string, checkOutDate: string) {
+  async findAvailable(
+    hotelId: string,
+    checkInDate: string,
+    checkOutDate: string,
+  ) {
     const { checkIn, checkOut, nights } = parseStay(checkInDate, checkOutDate);
     const hotel = await this.hotels.getActiveHotelOrThrow(hotelId);
-    const rooms = await this.roomModel.find({ hotelId: hotel._id, isActive: true }).sort({ pricePerNight: 1, roomNumber: 1 }).exec();
-    const status = await this.inventory.evaluateRooms(rooms.map((r) => r._id), checkIn, checkOut);
+    const rooms = await this.roomModel
+      .find({ hotelId: hotel._id, isActive: true })
+      .sort({ pricePerNight: 1, roomNumber: 1 })
+      .exec();
+    const status = await this.inventory.evaluateRooms(
+      rooms.map((r) => r._id),
+      checkIn,
+      checkOut,
+    );
 
     const items = rooms
       .filter((r) => status.get(String(r._id))?.free)
@@ -174,6 +237,12 @@ export class RoomsService {
           totalStayPrice: centsToString(perNight * BigInt(nights)),
         };
       });
-    return { hotelId: hotel._id, checkInDate: checkIn, checkOutDate: checkOut, nights, rooms: items };
+    return {
+      hotelId: hotel._id,
+      checkInDate: checkIn,
+      checkOutDate: checkOut,
+      nights,
+      rooms: items,
+    };
   }
 }

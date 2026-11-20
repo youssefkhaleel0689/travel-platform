@@ -1,4 +1,8 @@
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Model, Types } from 'mongoose';
 import Stripe from 'stripe';
 import { BookingStatus, BookingType } from '../common/bookings/booking-status';
@@ -9,6 +13,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
 import { PaymentsWebhookService } from './payments-webhook.service';
+import { CancelledBy } from './refund-status.enum';
+import { RefundsService } from './refunds.service';
 import {
   StripeWebhookEvent,
   WebhookEventStatus,
@@ -36,6 +42,7 @@ describe('PaymentsWebhookService (PAY-01)', () => {
   };
   let bookings: { confirmAfterPayment: jest.Mock; releaseHold: jest.Mock };
   let notifications: { notify: jest.Mock };
+  let refunds: { issueForCancellation: jest.Mock; syncFromStripe: jest.Mock };
   let service: PaymentsWebhookService;
 
   const exec = (value: unknown) => ({
@@ -100,6 +107,10 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       releaseHold: jest.fn().mockResolvedValue(undefined),
     };
     notifications = { notify: jest.fn().mockResolvedValue(undefined) };
+    refunds = {
+      issueForCancellation: jest.fn().mockResolvedValue({ _id: 'refund_1' }),
+      syncFromStripe: jest.fn().mockResolvedValue(null),
+    };
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
@@ -111,6 +122,7 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       payments as unknown as PaymentsService,
       bookings as unknown as BookingsGateway,
       notifications as unknown as NotificationsService,
+      refunds as unknown as RefundsService,
     );
   });
 
@@ -291,6 +303,70 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       });
       expect(bookings.confirmAfterPayment).toHaveBeenCalled();
     });
+  });
+
+  describe('payment that arrives after the hold (FLT-22, HTL-18)', () => {
+    beforeEach(() => {
+      bookings.confirmAfterPayment.mockRejectedValue(
+        new ConflictException({
+          code: 'HOLD_EXPIRED',
+          message: 'The hold expired before the payment was confirmed',
+        }),
+      );
+    });
+
+    it('refunds the full amount instead of leaving the customer charged', async () => {
+      const outcome = await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(outcome.status).toBe(WebhookEventStatus.PROCESSED);
+      expect(refunds.issueForCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bookingId: BOOKING_ID,
+          cancelledBy: CancelledBy.SYSTEM,
+          refundPercentage: 100,
+        }),
+      );
+    });
+
+    it('tells the user the booking was not confirmed, not that it was', async () => {
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+      expect(notifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking not confirmed',
+        }),
+      );
+    });
+
+    it('still rethrows an error that is not a conflict, so Stripe retries', async () => {
+      bookings.confirmAfterPayment.mockRejectedValue(new Error('db down'));
+
+      await expect(service.handle(RAW_BODY, SIGNATURE)).rejects.toThrow('db down');
+      expect(refunds.issueForCancellation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('refund events (PAY-03)', () => {
+    it.each(['refund.updated', 'refund.failed', 'charge.refund.updated'])(
+      'passes %s to the refunds service',
+      async (type) => {
+        stripe.constructWebhookEvent.mockReturnValue({
+          id: 'evt_r',
+          type,
+          data: { object: { id: 're_1', object: 'refund', status: 'succeeded' } },
+        } as unknown as Stripe.Event);
+
+        const outcome = await service.handle(RAW_BODY, SIGNATURE);
+
+        expect(outcome.status).toBe(WebhookEventStatus.PROCESSED);
+        expect(refunds.syncFromStripe).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 're_1', status: 'succeeded' }),
+        );
+        expect(payments.findByStripeId).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('payment_intent.payment_failed', () => {

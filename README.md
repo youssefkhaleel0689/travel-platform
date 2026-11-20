@@ -1195,11 +1195,21 @@ After the verified Stripe webhook, `confirmAfterPayment` does the first three pa
 
 Payments' own sweep only looks at bookings with an open payment, so without this job a hold the user never started paying for would keep its seats for good. When both reach the same booking, the first one releases the seats and the second changes nothing. A hold keeps its seats for 11 minutes at most, one failing booking is logged without stopping the rest, and a run is skipped while the previous one is still going.
 
+### When the flight moves or departs (FLT-05, GEN-11)
+
+A booking keeps a copy of its flight times in each segment (`departureAtUtc`, `arrivalAtUtc`). Everything a traveller sees about the booking reads that copy: the booking response, the e-ticket, "My bookings" (FLT-25), the cancellation tier (FLT-26) and completion below.
+
+- **A time change follows the flight.** FLT-05 keeps existing bookings at the price they were made at, but a new time is a change to the trip itself: its passengers are notified of it. When an airline moderator moves a flight (`PATCH /api/flights/:id`), `FlightsService` updates the copy in every `PENDING_PAYMENT` and `CONFIRMED` booking on that flight in the same transaction as the flight itself, so the two never disagree. `arrayFilters` changes only the segment on that flight: the other half of a round trip keeps its times. `CANCELLED` and `EXPIRED` bookings keep the times they ended with. Passengers with a confirmed booking are notified as before.
+- **Completion.** GEN-11's `CONFIRMED -> COMPLETED` happens once every flight of the booking has departed, the moment "My bookings" already lists it under PAST. `FlightStatusJob` (once at start-up, then every minute) first marks departed flights (FLT-30) and then calls `FlightStatusService.completeFlownBookings()`: one conditional `updateMany` that sets `COMPLETED` and `completedAt`. A round trip whose way back is still ahead stays `CONFIRMED`, and a booking that was never paid is never completed. A completed booking keeps its e-ticket and stays in the airline's passenger list.
+- **The job.** Its two steps fail independently and are retried at the next tick. A run in progress finishes before the app shuts down (`onModuleDestroy` waits for it), so it never queries a connection that is already closed.
+
+Not covered: moving the outbound flight of a round trip past its return is not checked against the bookings that hold both; FLT-05 does not ask for it.
+
 ### Tests
 
-Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `e-ticket/e-ticket.view.spec.ts`, `e-ticket/e-ticket.pdf.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
+Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `e-ticket/e-ticket.view.spec.ts`, `e-ticket/e-ticket.pdf.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`. For FLT-05 and GEN-11: `flights/flights.service.spec.ts`, `flight-status/flight-status.service.spec.ts` and `flight-status/flight-status.job.spec.ts`.
 
-`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent, the notice summary), the e-ticket (409 before payment, the PDF after it, 404 for another account), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
+`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent, the notice summary), the e-ticket (409 before payment, the PDF after it, 404 for another account), ACC-12, a release that happens once, the expiry job, a rescheduled flight moving its held and confirmed bookings but not an expired one (and only its own segment of a round trip), completion once every flight of a booking has departed, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts, that airline's policy and its moderator's assignment, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
 
 ## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
@@ -1496,6 +1506,12 @@ The hold is re-checked before any client secret is handed back, including on a r
 
 A sweep runs every minute (`PaymentExpiryService`) over the open payments. For each one whose booking is no longer payable it cancels the PaymentIntent at Stripe and then releases the hold. A TTL index cannot do this: two things have to happen together and neither is a deletion, and cancelling at Stripe is what makes a late payment impossible rather than merely ignored. Stripe is called before the status is written, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction.
 
+### A payment that succeeds too late, and refunds Stripe settles later
+
+- **Late payment (FLT-22, HTL-18).** The sweep cancels a PaymentIntent when the hold expires, but a payment can still succeed in the gap (the card was charged in minute 9, the webhook arrives in minute 11). The booking module then refuses to confirm with a 409 (`HOLD_EXPIRED`, or the booking is in another state). The webhook no longer leaves the customer charged with no booking: it issues a **full refund** (`cancelledBy: SYSTEM`), tells the user "Booking not confirmed", and answers Stripe with 2xx. The payment stays `SUCCEEDED`, because Stripe did take the money; the refund row shows it going back.
+- **Refund status (PAY-03).** A refund Stripe answers with `pending` is stored `PENDING`. It now moves on by itself: the webhook handles `refund.updated`, `refund.failed` and `charge.refund.updated` (add them to `stripe listen --events`), and `GET /api/refunds/:id` asks Stripe again while it is still `PENDING`. Each change is one conditional update, so a repeated event applies once.
+
+
 ### Policies before payment (PAY-02)
 
 Payment is refused with 403 `POLICIES_NOT_ACCEPTED` until the provider's terms have been accepted. `POST .../accept-policies` requires the `policyVersion` the user was shown, so acceptance can only be given for terms that were really displayed; a stale value is 409 `POLICY_VERSION_MISMATCH`. One acceptance per booking per version is enforced by a unique index, which makes a double click idempotent, keeps the first timestamp and turns a race into the same answer for both requests.
@@ -1546,7 +1562,7 @@ stripe listen --print-secret
 **2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,refund.updated,refund.failed,charge.refund.updated --forward-to localhost:3000/api/payments/webhook
 ~~~
 
 `--events` is not optional any more: current CLIs refuse to start without it
