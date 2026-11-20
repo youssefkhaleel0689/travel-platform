@@ -1,0 +1,335 @@
+import {
+  applyDecorators,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBody,
+  ApiCookieAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProduces,
+  ApiTags,
+} from '@nestjs/swagger';
+import { EmailVerifiedGuard } from '../../auth/guards/email-verified.guard';
+import { Role } from '../../common/auth/auth.enums';
+import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
+import { CurrentUser } from '../../common/auth/current-user.decorator';
+import { Roles } from '../../common/auth/roles.decorator';
+import {
+  ApiErrorResponse,
+  ApiErrorResponseOptions,
+} from '../../common/swagger/api-error-response.decorator';
+import {
+  forbidden,
+  unauthenticated,
+} from '../../common/swagger/standard-errors';
+import { FlightBookingRequestDto } from './dto/flight-booking-request.dto';
+import {
+  FlightBookingDto,
+  FlightBookingSummaryDto,
+} from './dto/flight-booking-response.dto';
+import { FlightBookingsService } from './flight-bookings.service';
+
+const SUMMARY_PATH = '/api/flight-bookings';
+const HOLD_PATH = '/api/flight-bookings/hold';
+const BOOKING_PATH = '/api/flight-bookings/6720f1c2a1b2c3d4e5f60720';
+const E_TICKET_PATH = `${BOOKING_PATH}/e-ticket`;
+
+// The errors the summary and the hold share: both check the same request against the
+// same flights (FLT-19, FLT-21, FLT-22).
+export function bookingRequestErrors(path: string): ApiErrorResponseOptions[] {
+  return [
+    {
+      status: 400,
+      description:
+        'Validation failed, a passenger type that does not match the date of birth, a ' +
+        'cabin the flight does not have, a return flight that does not fit the outbound ' +
+        'one, or extra bags the airline or cabin does not allow',
+      examples: [
+        {
+          code: 'VALIDATION_FAILED',
+          message: 'Validation failed',
+          path,
+          errors: [
+            {
+              field: 'passengers',
+              messages: ['passengers must not have more infants than adults'],
+            },
+          ],
+        },
+        {
+          code: 'PASSENGER_TYPE_MISMATCH',
+          message:
+            'Passenger types must match their dates of birth on the departure date',
+          path,
+          errors: [
+            {
+              field: 'passengers.1.passengerType',
+              messages: [
+                'passengerType must be CHILD for someone born on 2018-01-01 (age on 2026-12-20)',
+              ],
+            },
+          ],
+        },
+        {
+          code: 'CABIN_NOT_OFFERED',
+          message: 'This flight has no FIRST cabin',
+          path,
+          errors: [
+            {
+              field: 'outbound.cabin',
+              messages: ['This flight has no FIRST cabin'],
+            },
+          ],
+        },
+        {
+          code: 'ROUND_TRIP_ROUTE_MISMATCH',
+          message: 'inbound must fly from DXB to CAI',
+          path,
+          errors: [
+            {
+              field: 'inbound.flightId',
+              messages: ['inbound must fly from DXB to CAI'],
+            },
+          ],
+        },
+        {
+          code: 'RETURN_BEFORE_ARRIVAL',
+          message: 'inbound must leave after the outbound flight lands',
+          path,
+          errors: [
+            {
+              field: 'inbound.flightId',
+              messages: ['inbound must leave after the outbound flight lands'],
+            },
+          ],
+        },
+        {
+          code: 'EXTRA_BAGS_NOT_ALLOWED',
+          message:
+            "Extra bags must fit the airline's policy and the cabin's bag weight",
+          path,
+          errors: [
+            {
+              field: 'passengers.0.extraBags',
+              messages: ['this airline does not sell extra bags'],
+            },
+          ],
+        },
+      ],
+    },
+    unauthenticated(path),
+    forbidden(path),
+    {
+      status: 404,
+      description: 'No flight has this id (FLIGHT_NOT_FOUND)',
+      examples: [
+        {
+          code: 'FLIGHT_NOT_FOUND',
+          message: 'Flight not found',
+          path,
+          errors: [
+            { field: 'outbound.flightId', messages: ['no flight has this id'] },
+          ],
+        },
+      ],
+    },
+    {
+      status: 409,
+      description:
+        'The flight is cancelled, has departed or its airline is deactivated ' +
+        '(FLIGHT_NOT_BOOKABLE), or the cabin has fewer free seats than adults and ' +
+        'children (SEAT_UNAVAILABLE)',
+      examples: [
+        {
+          code: 'FLIGHT_NOT_BOOKABLE',
+          message: 'This flight can no longer be booked',
+          path,
+          errors: [
+            {
+              field: 'outbound.flightId',
+              messages: ['this flight can no longer be booked'],
+            },
+          ],
+        },
+        {
+          code: 'SEAT_UNAVAILABLE',
+          message: 'Only 1 seat left in ECONOMY',
+          path,
+          errors: [
+            {
+              field: 'outbound.cabin',
+              messages: ['Only 1 seat left in ECONOMY'],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+function ApiBookingRequestErrors(path: string): MethodDecorator {
+  return applyDecorators(
+    ...bookingRequestErrors(path).map((options) => ApiErrorResponse(options)),
+  );
+}
+
+// FLT-19, FLT-21, FLT-22: booking a flight. Registered users only (ACC-11).
+@ApiTags('Flight bookings')
+@ApiCookieAuth('access_token')
+@Controller('flight-bookings')
+export class FlightBookingsController {
+  constructor(private readonly bookings: FlightBookingsService) {}
+
+  @Post()
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'Booking summary before payment (FLT-19, FLT-21)',
+    description:
+      'Checks the passengers and extra bags against the chosen flights and returns ' +
+      'each segment, each passenger with their fare (infants pay 10%), the airline ' +
+      'policy and the total. Nothing is stored and no seat is held: send the same body ' +
+      'to POST /api/flight-bookings/hold to hold the seats.',
+  })
+  @ApiBody({ type: FlightBookingRequestDto })
+  @ApiOkResponse({ type: FlightBookingSummaryDto })
+  @ApiBookingRequestErrors(SUMMARY_PATH)
+  summarize(
+    @Body() dto: FlightBookingRequestDto,
+  ): Promise<FlightBookingSummaryDto> {
+    return this.bookings.summarize(dto);
+  }
+
+  @Post('hold')
+  // ACC-02: only creating a booking needs a verified email; viewing and
+  // cancelling existing bookings stay open.
+  @UseGuards(EmailVerifiedGuard)
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'Hold the seats for 10 minutes (FLT-22)',
+    description:
+      'Same body as the summary. In one transaction it checks and prices the request ' +
+      'again, holds a seat per adult and child on every segment and creates the booking ' +
+      'in PENDING_PAYMENT with holdExpiresAt 10 minutes ahead. If any segment is full, ' +
+      'no seat is held at all. Then accept the policies (GET and POST ' +
+      '/api/bookings/flight/{id}/policies) and pay (POST /api/payments). An unpaid hold ' +
+      'expires and its seats are released.',
+  })
+  @ApiBody({ type: FlightBookingRequestDto })
+  @ApiCreatedResponse({ type: FlightBookingDto })
+  @ApiBookingRequestErrors(HOLD_PATH)
+  @ApiErrorResponse({
+    status: 403,
+    description:
+      'Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)',
+    examples: [
+      {
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email before making a booking',
+        path: HOLD_PATH,
+        errors: [{ field: 'email', messages: ['email is not verified'] }],
+      },
+    ],
+  })
+  hold(
+    @Body() dto: FlightBookingRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    return this.bookings.hold(dto, user);
+  }
+
+  @Get(':id')
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'One of your flight bookings (FLT-22, ACC-11)',
+    description:
+      'The booking with its status, the hold expiry and, once paid, the booking ' +
+      "reference. Only the owner sees it: another account's booking answers the same " +
+      '404 as one that does not exist.',
+  })
+  @ApiOkResponse({ type: FlightBookingDto })
+  @ApiErrorResponse(unauthenticated(BOOKING_PATH))
+  @ApiErrorResponse(forbidden(BOOKING_PATH))
+  @ApiErrorResponse({
+    status: 404,
+    description:
+      'No such booking, or it belongs to another account (BOOKING_NOT_FOUND): both answer the same, so ids cannot be probed',
+    examples: [
+      {
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+        path: BOOKING_PATH,
+      },
+    ],
+  })
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FlightBookingDto> {
+    return this.bookings.findOwned(id, user);
+  }
+  @Get(':id/e-ticket')
+  @Roles(Role.USER)
+  @ApiOperation({
+    summary: 'Download the e-ticket of a confirmed booking (FLT-23)',
+    description:
+      'A PDF with the booking reference, the flights in local times, the passengers ' +
+      '(document numbers masked), the baggage, the price and the cancellation policy. ' +
+      'Only for your own booking once it is CONFIRMED (or COMPLETED). Generated on ' +
+      'every download from the booking itself.',
+  })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'The e-ticket, downloaded as e-ticket-<reference>.pdf',
+    content: {
+      'application/pdf': { schema: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiErrorResponse(unauthenticated(E_TICKET_PATH))
+  @ApiErrorResponse(forbidden(E_TICKET_PATH))
+  @ApiErrorResponse({
+    status: 404,
+    description:
+      'No such booking, or it belongs to another account (BOOKING_NOT_FOUND)',
+    examples: [
+      {
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+        path: E_TICKET_PATH,
+      },
+    ],
+  })
+  @ApiErrorResponse({
+    status: 409,
+    description:
+      'The booking is not paid yet, or it was cancelled or expired (TICKET_NOT_AVAILABLE)',
+    examples: [
+      {
+        code: 'TICKET_NOT_AVAILABLE',
+        message:
+          'The e-ticket is available once the booking is paid and confirmed',
+        path: E_TICKET_PATH,
+      },
+    ],
+  })
+  async eTicket(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<StreamableFile> {
+    const ticket = await this.bookings.eTicket(id, user);
+    return new StreamableFile(ticket.content, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${ticket.filename}"`,
+    });
+  }
+}
