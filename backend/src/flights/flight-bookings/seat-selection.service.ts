@@ -4,8 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { ownerFilter } from '../../common/auth/ownership';
 import { BookingStatus } from '../../common/bookings/booking-status';
@@ -15,6 +15,12 @@ import {
   FlightBookingDocument,
 } from '../schemas/flight-booking.schema';
 import { Flight, FlightDocument } from '../schemas/flight.schema';
+import {
+  FlightSeatClaim,
+  FlightSeatClaimDocument,
+} from '../schemas/flight-seat-claim.schema';
+
+const DUPLICATE_KEY = 11000;
 
 const SEAT_LETTERS = 'ABCDEF';
 
@@ -37,6 +43,9 @@ export class SeatSelectionService {
     private readonly bookingModel: Model<FlightBookingDocument>,
     @InjectModel(Flight.name)
     private readonly flightModel: Model<FlightDocument>,
+    @InjectModel(FlightSeatClaim.name)
+    private readonly claimModel: Model<FlightSeatClaimDocument>,
+    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   /** FLT-28: choose seats on one segment of your own CONFIRMED booking. */
@@ -114,37 +123,113 @@ export class SeatSelectionService {
       });
     }
 
-    // A seat cannot be taken by another CONFIRMED booking on the same flight.
-    const seats = requested.map((a) => a.seatNumber);
-    const taken = await this.bookingModel
-      .findOne({
-        _id: { $ne: booking._id },
-        status: BookingStatus.CONFIRMED,
-        'segments.flightId': segment.flightId,
-        'segments.seatAssignments.seatNumber': { $in: seats },
-      })
-      .select('_id')
-      .exec();
-    if (taken) {
+    if (segment.departureAtUtc.getTime() <= Date.now()) {
       throw new ConflictException({
-        code: 'SEAT_ALREADY_TAKEN',
-        message: 'One of the chosen seats is already taken',
+        code: 'SEGMENT_ALREADY_DEPARTED',
+        message: 'Seats cannot be chosen after departure',
       });
     }
 
-    segment.seatAssignments = requested.map((a) => ({
+    const assignments = requested.map((a) => ({
       passengerId: new Types.ObjectId(a.passengerId),
       seatNumber: a.seatNumber.toUpperCase(),
     }));
-    await booking.save();
+
+    // One transaction: this booking's old claims on the segment go, the new
+    // ones are inserted, and the booking is saved. The unique index decides a
+    // race; a duplicate key aborts everything and nothing changes.
+    try {
+      await this.connection.transaction(async (session) => {
+        await this.claimModel
+          .deleteMany({ bookingId: booking._id, flightId: segment.flightId }, { session })
+          .exec();
+        for (const a of assignments) {
+          await this.releaseIfStale(
+            segment.flightId,
+            segment.cabinCategory,
+            a.seatNumber,
+            booking._id,
+            session,
+          );
+        }
+        await this.claimModel.insertMany(
+          assignments.map((a) => ({
+            flightId: segment.flightId,
+            cabinCategory: segment.cabinCategory,
+            seatNumber: a.seatNumber,
+            bookingId: booking._id,
+            passengerId: a.passengerId,
+          })),
+          { session },
+        );
+        segment.seatAssignments = assignments;
+        await booking.save({ session });
+      });
+    } catch (error) {
+      if (isDuplicateKey(error)) {
+        throw new ConflictException({
+          code: 'SEAT_ALREADY_TAKEN',
+          message: 'One of the chosen seats is already taken',
+        });
+      }
+      throw error;
+    }
     return {
       bookingId: String(booking._id),
       segmentIndex: index,
       flightId: String(segment.flightId),
-      seats: segment.seatAssignments.map((s) => ({
+      seats: assignments.map((s) => ({
         passengerId: String(s.passengerId),
         seatNumber: s.seatNumber,
       })),
     };
   }
+
+  /**
+   * A claim held by another booking blocks the seat only while that booking
+   * is CONFIRMED and still has this seat on this flight (a cancelled or
+   * changed booking leaves its claim behind). A stale claim is removed.
+   */
+  private async releaseIfStale(
+    flightId: Types.ObjectId,
+    cabinCategory: string,
+    seatNumber: string,
+    bookingId: Types.ObjectId,
+    session: ClientSession,
+  ): Promise<void> {
+    const claim = await this.claimModel
+      .findOne({ flightId, cabinCategory, seatNumber }, null, { session })
+      .exec();
+    if (!claim || claim.bookingId.equals(bookingId)) return;
+    const holder = await this.bookingModel
+      .exists({
+        _id: claim.bookingId,
+        status: BookingStatus.CONFIRMED,
+        segments: {
+          $elemMatch: {
+            flightId,
+            cabinCategory,
+            'seatAssignments.seatNumber': seatNumber,
+          },
+        },
+      })
+      .session(session)
+      .exec();
+    if (holder) {
+      throw new ConflictException({
+        code: 'SEAT_ALREADY_TAKEN',
+        message: 'One of the chosen seats is already taken',
+      });
+    }
+    await this.claimModel.deleteOne({ _id: claim._id }, { session }).exec();
+  }
 }
+
+function isDuplicateKey(error: unknown): boolean {
+  const e = error as { code?: number; writeErrors?: { code?: number }[] } | null;
+  return (
+    e?.code === DUPLICATE_KEY ||
+    (Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w.code === DUPLICATE_KEY))
+  );
+}
+

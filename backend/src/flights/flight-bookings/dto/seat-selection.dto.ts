@@ -7,6 +7,7 @@ import {
   IsMongoId,
   IsOptional,
   Matches,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -26,11 +27,12 @@ export class SeatAssignmentInputDto {
 
 /** FLT-28: choose seats for one segment of a confirmed booking. */
 export class SelectSeatsDto {
-  @ApiPropertyOptional({ example: 0, description: 'Segment index, starting at 0' })
+  @ApiPropertyOptional({ example: 0, description: 'Segment index: 0 outbound, 1 return' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1)
   segmentIndex?: number;
 
   @ApiProperty({ type: [SeatAssignmentInputDto] })
