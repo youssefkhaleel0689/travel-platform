@@ -161,11 +161,14 @@ Then, as the admin:
 
 | # | Endpoint | Req | Send | Expect |
 | --- | --- | --- | --- | --- |
-| 23 | `GET /api/admin/bookings` | ACC-17 | **clear** the `from`, `to` and `reference` fields | `200`, an empty page while no module implements `listForAdmin` |
+| 23 | `GET /api/admin/bookings` | ACC-17 | **clear** the `from`, `to` and `reference` fields | `200`, flight bookings and hotel reservations in one page, newest first |
 
 Swagger UI pre-fills those optional fields with the DTO's examples, including a
 made-up reference, `K7M2QX`. Left as they are, the request filters on a booking that
-does not exist, and the empty page then proves nothing about the route.
+does not exist, and the empty page then proves nothing about the route. The page
+shows a flight row only if the database holds a flight booking; on a cluster with
+none, hold a seat on a test flight first (FLT-22) and take the shot inside its
+10 minutes.
 
 ## 6. Worth adding if the TA wants refusals
 

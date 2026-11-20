@@ -1076,3 +1076,13 @@ Result: 23 screenshots and one webhook log, covering all 20 endpoints C2 owns, w
 Before the PR went up, the payment chain these shots show was run again on the tree develop will have once all three C2 PRs land, with the same real Stripe test key. Every step answered the same way, the signed webhook got a 200, and the 240.00 refund came back REFUNDED, so the evidence still describes the code it documents.
 ================================================
 ================================================
+Date: 2026-11-20
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-17 evidence (shot 23); branch docs/swagger-evidence
+Prompt:
+Same request as the ACC-17 adapters entry: push the listForAdmin adapters for flights and hotels onto the ACC-17 branch today, because without them GET /api/admin/bookings answers an empty page in Swagger. Shot 23 had captured exactly that empty page, so it had to be re-taken once the adapters were in.
+How the output was used:
+Shot 23 was re-taken with the same capture script as before, against a server running the ACC-17 branch with both adapters: still no filter, with Swagger UI's pre-filled example fields cleared and the request URL checked to carry only page=1. The shared cluster held hotel reservations but no flight bookings at that moment, so a real one was made through the API first - a test airline, its moderator, a flight and cabin created by that moderator, and a traveller's seat hold - and the shot was taken inside the hold's 10 minutes. It shows that FLIGHT row first, with the airline's name, the travel times in UTC and the amount as a string, followed by the hotel reservations. The captions in the evidence README and CAPTURE-RUN were rewritten to describe that, not the empty page. Every row made for the shot was deleted by id afterwards, once the hold had expired and its seat had gone back.
+================================================
+================================================

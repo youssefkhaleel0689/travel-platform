@@ -50,7 +50,7 @@ ACC-04) to prove that a deactivated account's cookie stops working.
 | PAY-01 | `POST /api/payments/webhook` | Stripe's `payment_intent.succeeded`, forwarded by the Stripe CLI, answered `200` | `24_PAY-01_webhook-via-stripe-cli.txt` |
 | PAY-01 | `GET /api/payments/{id}` | `200`, `SUCCEEDED` — the webhook confirmed it seven seconds after it was opened | `21_PAY-01_get-payment_200.png` |
 | PAY-03 | `GET /api/refunds/{id}` | `200`, a real Stripe refund of `240.00` USD, `REFUNDED`, at the 100% tier | `22_PAY-03_get-refund_200.png` |
-| ACC-17 | `GET /api/admin/bookings` | `200`, an empty page — no booking module implements `listForAdmin` yet | `23_ACC-17_admin-bookings_200.png` |
+| ACC-17 | `GET /api/admin/bookings` | `200`, flight bookings and hotel reservations in one page, newest first | `23_ACC-17_admin-bookings_200.png` |
 
 ## ACC-07a — admin resets an account to a temporary password
 
@@ -191,12 +191,15 @@ that applied and the terms it came from are stored on the refund.
 
 ## ACC-17 — the admin's list of every booking
 
-The request has no filter at all, and the page is empty on purpose. The bookings
-live in the flights and hotels modules, and each appears here once that module
-implements the optional `listForAdmin` on `BookingsPort`; neither has yet. Until
-then the route still answers a page, never a 501, so an admin list does not break
-while a module is still being built. This shows the route, the admin guard and the
-paging working; it will fill up as those two modules land.
+The request has no filter at all. The bookings live in the flights and hotels
+modules, which both implement the optional `listForAdmin` on `BookingsPort`, and
+the route merges them into one page, newest first. The first row is a `FLIGHT`
+booking still on its 10-minute hold, so it has no reference yet, with the user,
+the airline's name, the travel times in UTC and the amount as a string. The hotel
+reservations follow it; the response box scrolls to the rest of the page and its
+`meta`. The flight was made for this shot through the API (a test airline, its
+moderator, a flight and a seat hold) because the shared cluster held no flight
+bookings at the time, and every row made for it was deleted afterwards.
 
 ![The admin booking list](23_ACC-17_admin-bookings_200.png)
 
