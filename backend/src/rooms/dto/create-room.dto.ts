@@ -1,22 +1,22 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { Type } from "class-transformer";
-import { IsInt, IsNotEmpty, IsString, Matches, Min } from "class-validator";
+import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsNotEmpty, IsString, Matches, Min } from 'class-validator';
 
 // Up to 2 decimals, strictly > 0.
 export const PRICE_REGEX = /^(?=.*[1-9])\d{1,10}(?:\.\d{1,2})?$/;
 
 export class CreateRoomDto {
-  @ApiProperty({ example: "101" })
+  @ApiProperty({ example: '101' })
   @IsString()
   @IsNotEmpty()
   roomNumber!: string;
 
-  @ApiProperty({ example: "Deluxe Sea View 101" })
+  @ApiProperty({ example: 'Deluxe Sea View 101' })
   @IsString()
   @IsNotEmpty()
   name!: string;
 
-  @ApiProperty({ example: "DOUBLE" })
+  @ApiProperty({ example: 'DOUBLE' })
   @IsString()
   @IsNotEmpty()
   type!: string;
@@ -34,11 +34,11 @@ export class CreateRoomDto {
   maxOccupancy!: number;
 
   @ApiProperty({
-    example: "120.50",
-    description: "Decimal string, > 0, up to 2 decimals",
+    example: '120.50',
+    description: 'Decimal string, > 0, up to 2 decimals',
   })
   @Matches(PRICE_REGEX, {
-    message: "pricePerNight must be greater than zero (max 2 decimals)",
+    message: 'pricePerNight must be greater than zero (max 2 decimals)',
   })
   pricePerNight!: string;
 }

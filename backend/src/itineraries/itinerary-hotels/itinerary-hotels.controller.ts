@@ -45,15 +45,16 @@ export class ItineraryHotelsController {
           field: 'guestCount',
           messages: ['guestCount must not be less than 1'],
         },
+        // The group's check-in has passed: hotel search's own field error.
+        {
+          field: 'checkInDate',
+          messages: ['checkInDate cannot be in the past'],
+        },
       ],
       {
         code: 'UNKNOWN_CITY_GROUP',
         message:
           'cityGroup must be between 1 and 2: this itinerary has 2 city groups',
-      },
-      {
-        code: 'BAD_REQUEST',
-        message: 'checkInDate cannot be in the past',
       },
     ),
   )

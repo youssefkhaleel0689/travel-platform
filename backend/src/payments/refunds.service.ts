@@ -1,3 +1,4 @@
+import type Stripe from 'stripe';
 import {
   BadRequestException,
   ConflictException,
@@ -94,8 +95,10 @@ export class RefundsService {
     }
 
     // A provider cancellation is always full, whatever the tiers say.
+    // Only a traveller's own cancellation follows the tiers; the provider or
+    // the platform cancelling is always a full refund.
     const percentage =
-      input.cancelledBy === CancelledBy.PROVIDER ? 100 : input.refundPercentage;
+      input.cancelledBy === CancelledBy.USER ? input.refundPercentage : 100;
     const captured = decimal128ToString(payment.amount) ?? '0.00';
     const amount = percentageOf(captured, percentage);
 
@@ -219,7 +222,79 @@ export class RefundsService {
     if (!payment || payment.userId.toString() !== userId) {
       throw new NotFoundException('Refund not found');
     }
-    return refund;
+    return this.refreshIfPending(refund);
+  }
+
+  /**
+   * PAY-03: a refund Stripe has not settled yet is asked about again when the
+   * user looks at it, so a missed refund webhook can never leave it PENDING
+   * for ever. A Stripe error keeps the stored answer: reading a refund must
+   * not fail because the payment provider is down.
+   */
+  async refreshIfPending(refund: RefundDocument): Promise<RefundDocument> {
+    if (refund.status !== RefundStatus.PENDING || !refund.stripeRefundId) {
+      return refund;
+    }
+    try {
+      const current = await this.stripe.retrieveRefund(refund.stripeRefundId);
+      return (await this.syncFromStripe(current)) ?? refund;
+    } catch (error) {
+      this.logger.warn(
+        `Could not refresh refund ${refund._id.toString()} from Stripe: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+      return refund;
+    }
+  }
+
+  /**
+   * PAY-03: applies what Stripe now says about a refund (refund.updated,
+   * refund.failed webhooks, or a refresh). Only a refund that is still
+   * PENDING, or a REFUNDED one Stripe later reports as failed, can change,
+   * and the change is one conditional update, so two deliveries of the same
+   * news apply it once. Returns the refund as it now stands, or null when the
+   * Stripe refund is not one of ours.
+   */
+  async syncFromStripe(
+    stripeRefund: Pick<Stripe.Refund, 'id' | 'status' | 'failure_reason'>,
+  ): Promise<RefundDocument | null> {
+    const refund = await this.refundModel
+      .findOne({ stripeRefundId: stripeRefund.id })
+      .exec();
+    if (!refund) {
+      this.logger.warn(`No refund for Stripe refund ${stripeRefund.id}`);
+      return null;
+    }
+    const next = fromStripeRefundStatus(stripeRefund.status ?? null);
+    if (next === refund.status) {
+      return refund;
+    }
+    const from =
+      next === RefundStatus.FAILED
+        ? [RefundStatus.PENDING, RefundStatus.REFUNDED]
+        : [RefundStatus.PENDING];
+    const updated = await this.refundModel
+      .findOneAndUpdate(
+        { _id: refund._id, status: { $in: from } },
+        {
+          $set: {
+            status: next,
+            completedAt: next === RefundStatus.REFUNDED ? new Date() : null,
+            failureMessage:
+              next === RefundStatus.FAILED
+                ? (stripeRefund.failure_reason ?? 'Refund failed at Stripe')
+                : null,
+          },
+        },
+        { returnDocument: 'after' },
+      )
+      .exec();
+    if (updated) {
+      this.logger.log(
+        `Refund ${refund._id.toString()} is now ${next} (Stripe ${stripeRefund.id})`,
+      );
+    }
+    return updated ?? refund;
   }
 
   /**

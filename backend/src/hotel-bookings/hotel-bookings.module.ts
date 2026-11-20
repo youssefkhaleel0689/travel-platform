@@ -16,10 +16,7 @@ import {
   HotelNotificationsAdapter,
   HotelPaymentsAdapter,
 } from './hotel-integration.adapters';
-import {
-  HOTEL_NOTIFICATIONS,
-  HOTEL_PAYMENTS,
-} from './hotel-integration.ports';
+import { HOTEL_NOTIFICATIONS, HOTEL_PAYMENTS } from './hotel-integration.ports';
 
 /**
  * Hotel reservations (HTL-16 to HTL-23).

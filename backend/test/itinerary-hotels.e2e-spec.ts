@@ -280,6 +280,9 @@ describe('Itinerary hotels, ITN-25 (e2e)', () => {
       guestCount: 1,
     }).expect(400);
 
-    expect(res.body.message).toBe('checkInDate cannot be in the past');
+    expect(res.body.code).toBe('VALIDATION_FAILED');
+    expect(res.body.errors).toEqual([
+      { field: 'checkInDate', messages: ['checkInDate cannot be in the past'] },
+    ]);
   });
 });

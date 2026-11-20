@@ -16,6 +16,11 @@ export enum CancelledBy {
   USER = 'USER',
   /** The airline or hotel. Always a full refund. */
   PROVIDER = 'PROVIDER',
+  /**
+   * The platform itself: a payment succeeded after the booking's hold had
+   * expired, so there is nothing to confirm. Always a full refund (PAY-01).
+   */
+  SYSTEM = 'SYSTEM',
 }
 
 /** Maps a Stripe refund status onto ours. */
