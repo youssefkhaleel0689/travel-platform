@@ -1134,3 +1134,12 @@ Result: 23 screenshots and one webhook log, covering all 20 endpoints C2 owns, w
 Before the PR went up, the payment chain these shots show was run again on the tree develop will have once all three C2 PRs land, with the same real Stripe test key. Every step answered the same way, the signed webhook got a 200, and the 240.00 refund came back REFUNDED, so the evidence still describes the code it documents.
 =========================================================================================
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: GEN-02, GEN-05, GEN-07, FLT-06 (pre-release audit)
+Prompt:
+Before the release to main, check the whole project for edge cases and anything that answers an error badly, and fix what is found.
+How the output was used:
+Claude checked the global error filter by booting a small app against it. A Mongoose ValidationError (a schema rule the DTO let through), a VersionError (two requests saving the same document) and a BSONError (a malformed id passed to new ObjectId) all answered 500; they now answer 400 VALIDATION_FAILED with field names only, 409 CONCURRENT_UPDATE and 400 INVALID_ID, and 413/415/423/429/503 get named codes. A huge page number made MongoDB reject the skip and answered 500; page, returnPage and itinerariesPage are now capped at 100000. FLT-06 still wrote only a log line where GEN-07 asks for an audit entry; it now records FLIGHT_CANCELLED through AuditService. It also checked malformed JSON (already 400), background jobs (all catch their errors), cookie flags and regex escaping, which needed no change. Verified in the cloud: tsc clean, lint 0 errors, 112 suites / 1683 unit tests. e2e runs on my machine before the merge.
+================================================
