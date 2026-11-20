@@ -440,6 +440,16 @@ export class HotelsService {
     return assignment ? assignment.hotelId.toHexString() : null;
   }
 
+  // ACC-15: the user ids of every moderator assigned to this hotel, so the
+  // admin module can notify them. Read-only; a malformed id has none.
+  async findModeratorIds(hotelId: string): Promise<string[]> {
+    if (!Types.ObjectId.isValid(hotelId)) return [];
+    const rows = await this.assignmentModel
+      .find({ hotelId }, { moderatorId: 1 })
+      .lean<Pick<HotelModeratorAssignment, 'moderatorId'>[]>();
+    return rows.map((row) => row.moderatorId.toHexString());
+  }
+
   // Throws 403 unless the caller is a HOTEL_MODERATOR assigned to this hotel,
   // and 404 if the hotel does not exist (ACC-11). Reuse it in every moderator
   // route: rooms, availability, policies, reservations (B2).

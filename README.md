@@ -18,6 +18,7 @@ travel-platform/
 |-- docs/
 |   |-- requirements/   project description (PDF)
 |   |-- api/
+|       |-- openapi.yaml    the API contract, generated (see "API document (OpenAPI)")
 |-- AI_PROMPTS.txt  log of AI prompts (required by the project)
 |-- README.md
 ~~~
@@ -69,6 +70,10 @@ Check that it works:
 | `ADMIN_EMAIL` | Only for `npm run seed:admin` | Email of the admin account the seed creates (see "Admin account (ACC-18)"). Not needed to start the app |
 | `ADMIN_PASSWORD` | Only for `npm run seed:admin` | Password of that admin; it must pass the password rules. Not needed to start the app |
 | `ADMIN_NAME` | No | Name of that admin; empty or unset means `Platform Admin`; at most 100 characters |
+| `STRIPE_SECRET_KEY` | For `test:e2e` | Stripe **test mode** secret key (`sk_test_...`). Any placeholder runs the tests, which stand in for Stripe's HTTP API; a real test key is only needed to demonstrate a live payment. Unset, every payment endpoint answers 503 `PAYMENTS_UNAVAILABLE` |
+| `STRIPE_WEBHOOK_SECRET` | For `test:e2e` | Any `whsec_...` value; `stripe listen` prints a real one. The payment e2e suites sign their own deliveries with whatever the app verifies against, so unset they stop with a message saying so, and at runtime every webhook delivery is rejected |
+| `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
+| `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
 
 Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
 
@@ -80,8 +85,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 **Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
 
-| `STRIPE_SECRET_KEY` | No | Stripe **test mode** secret key (`sk_test_...`). Without it the payment endpoints answer 503 and everything else works, so only the people demonstrating payments need one |
-| `STRIPE_WEBHOOK_SECRET` | No | The `whsec_...` printed by `stripe listen`. Without it every webhook delivery is rejected, because an unverified event is never trusted |
+**`npm run test:e2e` needs both Stripe values set to something.** `backend/.env.example` ships placeholders that work, so copying it is enough:
+
+~~~
+STRIPE_SECRET_KEY=sk_test_placeholder
+STRIPE_WEBHOOK_SECRET=whsec_local_test_only
+~~~
+
+Neither is a secret and no request leaves your machine during the tests: the payment suites stand in for Stripe's HTTP API and sign their own webhook deliveries with whatever the app verifies against. Without them the payment suites fail - the webhook ones stop with a message naming the variable, and an unset secret key makes every payment endpoint answer 503 before a test reaches its assertion. The trade-off of the placeholder secret key is that a *real* payment call then reaches Stripe and is refused, so you get 503 `STRIPE_UNAVAILABLE` rather than the clearer 503 `PAYMENTS_UNAVAILABLE`; leave it empty if you prefer the second message and are not running the payment tests.
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -93,6 +104,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `npm run build` | Compile and catch TypeScript errors |
 | `npm run seed` | Build, then load the reference data into MongoDB (needs `.env`) |
 | `npm run seed:admin` | Build, then create the admin account from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` (it boots the app, so it also needs `MONGODB_URI` and `JWT_SECRET`). Safe to run again: an existing admin is left unchanged |
+| `npm run openapi` | Build, then write the OpenAPI document Swagger UI serves to `docs/api/openapi.yaml` (needs `.env`: the app connects to MongoDB). See "API document (OpenAPI)" |
 | `npm run test:e2e -- <name>` | Run the e2e test files whose name contains `<name>` (needs `.env` when the test uses the database) |
 
 ### Troubleshooting
@@ -107,14 +119,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `ADMIN_PASSWORD is required` | `ADMIN_PASSWORD` is missing from `backend/.env` or empty |
 | `ADMIN_PASSWORD: password must ...` (for example `ADMIN_PASSWORD: password must contain at least one digit`) | The password breaks the rule named after the colon (see the password rules in "Accounts and authentication"); the value itself is never printed |
 | `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
-| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
-| `501 BOOKING_TYPE_UNAVAILABLE` | No booking module provides a `BookingsPort` yet; expected until A1 or B2 lands |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Copy it from `.env.example`; `npm run test:e2e` needs it |
+| `501 BOOKING_TYPE_UNAVAILABLE` | A booking type whose module provides no `BookingsPort`. Flights and hotels both provide one now, so this should no longer appear; if it does, that module stopped being `@Global()` and the gateway cannot see its port |
 | `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a moderator of a provider type whose module is not wired (both airline and hotel are wired now) |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `querySrv ECONNREFUSED` | Your machine's DNS resolver will not answer the SRV lookup `mongodb+srv://` needs. Use the non-SRV form of the string (`mongodb://host1,host2,host3/db?replicaSet=...&authSource=admin&ssl=true`) in your own `.env` |
 | `Cannot GET /` | Expected: all routes start with `/api` |
-| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Copy it from `.env.example`; `npm run test:e2e` needs it |
 
 ## API error format
 
@@ -255,8 +267,27 @@ Rules:
 
 - Use codes and messages the endpoint really returns (read your service and the filter), and the endpoint's real path with an example id.
 - When one status can return several codes, give one example per code; Swagger UI shows them in a dropdown named by code. Two examples with the same code in one response are refused.
-- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, and like every e2e test that boots `AppModule` it needs both `MONGODB_URI` and `JWT_SECRET` in `backend/.env`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`.
+- `test/swagger-docs.e2e-spec.ts` (part of `npm run test:e2e`; it boots the app, and like every e2e test that boots `AppModule` it needs both `MONGODB_URI` and `JWT_SECRET` in `backend/.env`) fails for any error response without its own example whose `statusCode` matches the response status. The failure names the endpoint and status, for example `GET /api/airlines/{id} 404: no example (use ApiErrorResponse)`. It also fails when an operation refers to a security scheme the document does not define, naming the method, path and key (see "API document (OpenAPI)").
 - Branches that already document errors with `type: ErrorResponseDto` must switch to `ApiErrorResponse` after merging `develop`.
+
+### API document (OpenAPI)
+
+`docs/api/openapi.yaml` is the OpenAPI 3 document that Swagger UI serves at `/api/docs`, exported from the NestJS decorators (code-first: the decorators are the only source). It is the contract the frontend works against: open it in Swagger Editor, or generate a typed client from it.
+
+To regenerate it, run inside `backend/`:
+
+~~~
+npm run openapi
+~~~
+
+It builds, creates the app without starting the HTTP server, writes the file and prints its path with the number of paths and operations. It needs `backend/.env`, because creating the app connects to MongoDB.
+
+Rules:
+
+- Never edit the file by hand: change the decorators and regenerate.
+- For Milestone 1 the team leader regenerates it, which avoids merge conflicts in a large generated file. If two branches change it, resolve the conflict by regenerating, not by merging lines.
+- The document's configuration (title, version, security schemes) lives only in `buildSwaggerDocument` (`src/swagger.setup.ts`), shared by `main.ts`, the export and `test/swagger-docs.e2e-spec.ts`, so all three describe the same API.
+- Security schemes: the `access_token` cookie is registered under two keys, `cookie` and `access_token`, so both `@ApiCookieAuth()` and `@ApiCookieAuth('access_token')` are valid. `swagger-docs.e2e-spec.ts` fails, naming the method, path and key, if an operation refers to a scheme the document does not define.
 
 ## Pagination (GEN-05)
 
@@ -330,12 +361,15 @@ Feature modules:
 | `hotels` | Hotels, rooms, availability, room holds, reviews |
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
-| `blog` | Posts, comments, likes |
-| `administration` | Moderator accounts, account suspension, moderation of reports, audit log |
+| `blog` | Posts, comments, likes, tags, author pages |
+| `administration` | Moderator accounts, account suspension, provider deactivation (ACC-15) |
+| `media` | The shared image-upload service (GEN-08) |
+| `audit` | The append-only admin audit log (GEN-07) |
+| `moderation` | Content reports and admin moderation (GEN-09, GEN-10) |
 
 Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
-Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`); `uploads/` is planned. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
+Shared code: `src/common/` holds code used by several modules. It contains `auth/` (the shared `Role` and `UserStatus` enums and the `@Public`, `@Roles`, `@CurrentUser` and `@OptionalUser` decorators), `bookings/` (the GEN-11 lifecycle and `BookingsPort`), `providers/` (the ACC-13 `ModeratorAssignmentPort`), `dto/` (`ErrorResponseDto`), `filters/` (`AllExceptionsFilter`), `money/` (the platform currency and the Stripe conversion), `pagination/`, `reference-data/`, `swagger/` (`ApiErrorResponse`), `time/` (airport time zones) and `validation/` (`validationExceptionFactory`). Image uploads live in the feature module `src/media/` (GEN-08), because the service needs its own Mongoose collection. Feature modules may import `common/`, but `common/` never imports a feature module, so there are no import cycles.
 
 Notifications were planned for `src/common/notifications/` but live in the feature module `src/notifications/` instead: GEN-01 has four endpoints, and a controller needs the guards and DTO wiring that a feature module provides. Other modules use it the normal way, through its exported `NotificationsService`.
 
@@ -916,9 +950,9 @@ Booking flow:
 1. `POST /api/flight-bookings` (FLT-19, FLT-21) validates passengers and baggage and returns the summary. Nothing is stored.
 2. `POST /api/flight-bookings/hold` (FLT-22) takes the same body, re-validates and re-prices it, and in one transaction holds every segment and creates the `PENDING_PAYMENT` booking with `holdExpiresAt` 10 minutes ahead.
 3. Policies are accepted (PAY-02) and the booking is paid (PAY-01) with the booking id.
-4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released.
+4. The verified Stripe webhook confirms it (FLT-23), or the hold expires and the seats are released. Both are described under "Flight bookings" below.
 
-The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
+The `flightBookings` collection (`schemas/flight-booking.schema.ts`) stores a snapshot of each segment (with its cabin price), the passengers (each with its own `_id`, `dateOfBirth` as `YYYY-MM-DD`), baggage, prices in USD, the airline policy it was booked under (`policySnapshot`, PAY-02) and the cancellation. Indexes: `userId + status` (FLT-25), `status + holdExpiresAt` (hold expiry), `segments.flightId + status` (FLT-06, FLT-29), and a unique `bookingReference` that only applies once the reference is set.
 
 Rules:
 
@@ -1001,13 +1035,13 @@ A `ROUND_TRIP` fills `inbound` with the flights back from `arrivalAirportId` to 
 | A date before today at the airport the flight leaves from | 400 `DEPARTURE_DATE_IN_PAST` on `departureDate` or `returnDate` |
 | No flight matches | 200 with `items: []` ("no flights found") |
 
-Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. ITN-26 passes every airport of the itinerary's first city:
+Other modules search one leg through `FlightSearchService`, exported by `FlightsModule`. A leg can leave from and land at several airports, which is how ITN-26 searches every airport of a city (see "Flight search from an itinerary" below):
 
 ~~~
 const flights = await this.flightSearch.searchLeg({
-  departureAirportId: dto.originAirportId,
-  arrivalAirportIds: cityAirports.map((airport) => airport.id),
-  departureDate: itinerary.startDate,
+  departureAirportIds: [query.originAirportId],
+  arrivalAirportIds: await this.referenceData.listAirportIdsInCity(cityId),
+  departureDate: '2026-12-20',
   dateField: 'departureDate',
   seats: dto.adults + dto.children,
   sortBy: FlightSortBy.PRICE,
@@ -1023,6 +1057,150 @@ Rules:
 - Search never returns the seat counters, and its results are not a reservation: the hold (FLT-22) checks the seats again. For a round trip, the hold must also check that the return flight leaves after the outbound flight lands.
 
 The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the real endpoint on the shared database: it creates two airlines named `KE e2e search ...` with an unused two-digit IATA code and flights numbered `KE5xxx` in January 2099, and deletes only those. Run it with `npm run test:e2e -- flight-search`.
+
+## Flight search from an itinerary (ITN-26)
+
+`GET /api/itineraries/:id/flights` searches flights from an airport the user chooses to **any airport in the city of the itinerary's first day**, one way or round trip. It lives in `src/flights/itinerary-flights/` (its own `ItineraryFlightsModule`, because it needs both `FlightsModule` and `ItinerariesModule` and neither should import the other) but sits under `/itineraries` with D1's auth and ownership answers.
+
+| Parameter | Default | Rules |
+| --- | --- | --- |
+| `originAirportId` | required | A seeded airport, not in the itinerary's first city |
+| `departureDate` | the itinerary's start date | `YYYY-MM-DD` on the origin airport's calendar, not before today there |
+| `tripType` | `ONE_WAY` | `ONE_WAY` or `ROUND_TRIP` |
+| `returnDate` | the date of the itinerary's last day | `ROUND_TRIP` only, not before `departureDate` |
+| `adults`, `children`, `infants`, `cabin`, `minPrice`, `maxPrice`, `sortBy`, `sortOrder`, `page`, `returnPage` | as in search | The same fields and rules as `GET /api/flights/search` (the DTO is built from search's with `OmitType`) |
+
+- The itinerary is read with D1's `ItinerariesService.findOwnedOrThrow`, so another account's itinerary, a missing one and a malformed id all answer 404 `ITINERARY_NOT_FOUND`. Day dates come from D1's `dateOfDay(startDate, index)`.
+- The destination airports are `ReferenceDataService.listAirportIdsInCity(cityId)`. The outbound leg flies from the origin to any of them; a round trip flies back from any of them to the origin. Results, sorting, paging and `DEPARTURE_DATE_IN_PAST` are search's own (`searchLeg`), unchanged.
+- The response is search's two pages plus what the itinerary decided: `destinationCityId`, `destinationAirportIds`, `departureDate` and `returnDate` (null one way).
+
+| Case | Result |
+| --- | --- |
+| The itinerary has no day yet | 409 `ITINERARY_HAS_NO_DAYS` |
+| The first city has no seeded airport | 409 `NO_AIRPORT_IN_CITY` |
+| The origin airport is in that city | 400 `ORIGIN_IN_DESTINATION_CITY` on `originAirportId` |
+| A chosen `departureDate` after the itinerary's last day, with the default return date | 400 `RETURN_BEFORE_DEPARTURE` on `returnDate` |
+
+The unit tests are next to the code. `test/itinerary-flights.e2e-spec.ts` creates its itineraries through D1's own endpoints and checks the defaults, a round trip, chosen dates, the 404, the 400 and the 409 on the shared database. It creates one airline named "KE e2e itinerary flights" with an unused two-digit IATA code from 70 up, flights numbered `KE8xxx` in March 2099 and `test_c2_` accounts with their itineraries, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-flights`.
+
+## Activity images (ITN-12)
+
+| Method | Path | Who |
+| --- | --- | --- |
+| POST | `/api/activities/:id/images` | The itinerary's owner. Multipart, field `file` |
+| GET | `/api/activities/:id/images/:imageId` | The owner, and anyone when the itinerary is public and not hidden by moderation |
+| DELETE | `/api/activities/:id/images/:imageId` | The owner |
+
+- The file goes through the shared media store (`MediaService`, GEN-08), so the rules are the same as for blog images: JPG or PNG checked on the bytes, 5 MB, at most 5 per activity (409 `IMAGE_LIMIT_REACHED`).
+- Another account's activity is the same 404 `ACTIVITY_NOT_FOUND` as a missing one (ACC-11); a private itinerary's image answers 404 to everyone but its owner.
+- Each activity lists its images (`id`, `url`, `mimeType`, `sizeBytes`, `uploadedAt`) in every itinerary view, public ones included.
+- Deleting an activity, a day or an itinerary also deletes the stored files (after the save; a failure is only logged). A clone starts without images, so it never shares a file with the original.
+- `test/itinerary-images.e2e-spec.ts` writes only `test_c2_` accounts, their itineraries and their images, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-images`.
+
+## Flight details (FLT-17)
+
+`GET /api/flights/:id` is public, like search, so a guest can open the details page from a search result. It returns:
+
+- the airline (`id`, `name`, `iataCode`), the flight number and the `status`;
+- both airports as seeded (name, city, country, time zone);
+- local departure and arrival times in each airport's own time zone (GEN-06), the UTC times and the duration;
+- every cabin with its price per seat, `seatsRemaining` (total minus booked minus held, never below 0) and its baggage allowance;
+- the airline's terms from `AirlinePoliciesService.getForAirline()`: extra-bag price and limit, and the cancellation tiers from the most days before departure to the fewest. An airline without a policy shows `null` extra bags and no tiers, the same terms a booking would get.
+
+The seat counters themselves are never returned. A flight of an airline that is not `ACTIVE` answers 404 `FLIGHT_NOT_FOUND`, the same as a missing flight or a malformed id, because search hides it too (ACC-15). A cancelled or departed flight is still shown, with its status, so an old link explains itself.
+
+`FlightDetailsController` is the last controller in `flights.module.ts` on purpose: routes match in the order they are registered, and `GET /flights/:id` registered before search would take `GET /flights/search` as a flight with the id `search`. `test/flight-details.e2e-spec.ts` checks the full response for a guest, the three 404s and that search still answers. It creates two airlines named "KE e2e details ..." with unused two-digit IATA codes from 30 up, a policy and flights numbered `KE7xxx` in March 2099, and deletes exactly those.
+
+## Flight bookings (FLT-19, FLT-21, FLT-22, FLT-23)
+
+The code is in `src/flights/flight-bookings/`. Every route is for a signed-in traveller (`@Roles(Role.USER)`): a moderator or an admin gets 403.
+
+| Endpoint | Requirement | Notes |
+| --- | --- | --- |
+| `POST /api/flight-bookings` | FLT-19, FLT-21 | The summary: checks and prices the request and stores nothing (200) |
+| `POST /api/flight-bookings/hold` | FLT-22 | The same body: holds the seats for 10 minutes and creates the `PENDING_PAYMENT` booking (201) |
+| `GET /api/flight-bookings/:id` | FLT-22, ACC-11 | One of your bookings, with its status, `holdExpiresAt` and, once paid, its `bookingReference` |
+| `GET /api/flight-bookings/:id/e-ticket` | FLT-23, ACC-11 | The e-ticket of one of your CONFIRMED (or COMPLETED) bookings, as a PDF download |
+
+The body of both POST routes:
+
+~~~
+{
+  "tripType": "ROUND_TRIP",                                // optional, ONE_WAY by default
+  "outbound": { "flightId": "...", "cabin": "ECONOMY" },
+  "inbound": { "flightId": "...", "cabin": "ECONOMY" },    // only for a ROUND_TRIP
+  "passengers": [
+    {
+      "fullName": "Khaled Elshitany",
+      "dateOfBirth": "2004-03-10",
+      "passengerType": "ADULT",                            // ADULT, CHILD or INFANT
+      "documentNumber": "A12345678",
+      "extraBags": { "count": 1, "weightKg": 20 }          // optional
+    }
+  ]
+}
+~~~
+
+Prices, seats and the status never come from the client: the server reads them from the flights and the airline every time, and the hold prices the request again instead of trusting the summary.
+
+Rules, in the order they are checked:
+
+- **The body** (400 `VALIDATION_FAILED`): 1 to 18 passengers, at least one adult, no more infants than adults and at most 9 adults and children. `documentNumber` is 5 to 30 letters and digits, stored upper-case. A rule between two values stays silent while one of them is invalid, so each mistake gives one error.
+- **The flights**: each must exist (404 `FLIGHT_NOT_FOUND`), be `SCHEDULED`, not have departed and belong to an `ACTIVE` airline (409 `FLIGHT_NOT_BOOKABLE`), offer the cabin (400 `CABIN_NOT_OFFERED`) and have a seat for every adult and child (409 `SEAT_UNAVAILABLE`, on `outbound.cabin` or `inbound.cabin`).
+- **A round trip**: the return flies the same route backwards (400 `ROUND_TRIP_ROUTE_MISMATCH`) and leaves after the outbound flight lands (400 `RETURN_BEFORE_ARRIVAL`).
+- **Passenger types** (FLT-12): the type must match the age on the outbound departure date, adult 12 and over, child 2 to 11, infant under 2 (400 `PASSENGER_TYPE_MISMATCH`, on the passenger's `passengerType` or `dateOfBirth`).
+- **Extra bags** (FLT-21): only when the airline sells them, up to its limit per passenger, and no heavier than the lighter cabin's `maxBagWeightKg` on a round trip (400 `EXTRA_BAGS_NOT_ALLOWED`).
+
+Prices: adults and children pay the cabin price, an infant sits on a lap (no seat) and pays 10% of it, rounded half up. An extra bag costs the airline's price once per segment, so a round trip charges it twice. All amounts are decimal strings in USD through `common/money`; nothing goes through a float.
+
+The hold runs in one transaction (`connection.transaction`): the flights and the airline are read with the transaction's session, every segment is held through `SeatInventoryService`, and the booking is created with snapshots of the segments, the passengers, the bags, the prices and the airline policy. If any step fails, nothing is held and nothing is stored. The response is the summary plus `id`, `status`, `holdExpiresAt`, `bookingReference` (null until paid) and `createdAt`. `documentNumber` is personal data, so every response masks it to its last four characters (`•••••5678`).
+
+`GET /api/flight-bookings/:id` uses `findOwnedOrThrow`: another account's booking, a missing one and a malformed id all answer the same 404 `BOOKING_NOT_FOUND`, so ids cannot be probed.
+
+### The airline policy
+
+The booking takes the **outbound** airline's policy, because FLT-12 cancels a round trip with the outbound tier, and stores it in `policySnapshot`. That snapshot is what PAY-02 shows and what a later cancellation (FLT-26) uses, so an airline editing its policy never changes an existing booking.
+
+`FlightBookingPolicyReader` reads it with `AirlinePoliciesService.getForAirline()` (FLT-08, FLT-09) and copies the version, the extra-bag price and limit and the cancellation tiers, nothing else. An airline that has never defined a policy gets version 0: no extra bags for sale (they answer "this airline does not sell extra bags") and no cancellation tiers. A stored policy starts at version 1, so 0 always means "no policy".
+
+### Connected to payments (GEN-11)
+
+`FlightBookingsPortAdapter` is the flights side of the `BookingsPort` described under "Booking lifecycle and the BookingsPort". Payments never reads `flightBookings` itself.
+
+| Method | What it does |
+| --- | --- |
+| `findPayable` | The total and currency from the price snapshot, `holdExpiresAt` only while `PENDING_PAYMENT`, and the airline as the provider |
+| `findPolicies` | The booking's `policySnapshot`, with its `version` as `policyVersion` |
+| `confirmAfterPayment` | In one transaction: `PENDING_PAYMENT` -> `CONFIRMED` with `confirmedAt`, `paymentId` and a new `bookingReference`, and the held seats become booked seats. A repeated call returns the same reference and moves nothing; once the hold has run out it is refused with 409 `HOLD_EXPIRED` |
+| `releaseHold` | In one transaction: `PENDING_PAYMENT` -> `EXPIRED` with `expiredAt`, and the held seats go back. It only matches a `PENDING_PAYMENT` booking, so a second call changes nothing |
+| `hasUpcomingConfirmedBookings` | A `CONFIRMED` booking with a segment that has not departed (ACC-12) |
+
+The booking reference is 6 random characters (`crypto.randomInt`) from A to Z and 2 to 9 without 0, O, 1 and I, which are easy to misread: about a billion values. The unique index on `bookingReference` refuses a clash, and the confirmation is retried with a new reference, up to three times. Payments sends the `BOOKING_CONFIRMED` notification (GEN-01) itself; `confirmAfterPayment` also returns an optional one-line `summary` of what was booked, which the notice adds after the reference (see "E-ticket and the confirmation notice" below).
+
+`FlightBookingsModule` is `@Global()` and exports only `FLIGHT_BOOKINGS_PORT`. `BookingsGateway` is created inside `BookingsModule` (`common/`), and a provider is only visible to the modules that import the module exporting it. `common/` must never import a feature module, so `BookingsModule` cannot import this one; a global module's exports are visible everywhere, `BookingsModule` included. Exported from an ordinary module instead, the gateway's optional port stays undefined and every flight payment answers 501. `test/flight-bookings.e2e-spec.ts` checks that `gateway.supports(BookingType.FLIGHT)` is true and that `GET /api/bookings/flight/:id/policies` returns the snapshot.
+
+### E-ticket and the confirmation notice (FLT-23)
+
+After the verified Stripe webhook, `confirmAfterPayment` does the first three parts of FLT-23 in one transaction: CONFIRMED, held seats become booked seats, and a unique booking reference. The rest:
+
+- **The notice.** `BookingConfirmation` has an optional `summary` that payments' webhook adds to the `BOOKING_CONFIRMED` message: "Your flight booking K7Q2PX is confirmed: KD100 CAI to DXB on 20 Dec 2026, 08:30; 3 passengers. 434.98 USD was paid." Times are local to each departure airport. It is built after the transaction commits, and a failure there only leaves the summary out: a paid booking is never un-confirmed by a notice. Hotels need not set it; without it the notice is the reference and the amount.
+- **The e-ticket.** `GET /api/flight-bookings/:id/e-ticket` answers `application/pdf` with `Content-Disposition: attachment; filename="e-ticket-<reference>.pdf"`. It is built on every download from the booking response itself (`e-ticket/e-ticket.view.ts` turns it into printable lines, `e-ticket/e-ticket.pdf.ts` draws them with [pdfkit](https://pdfkit.org)), so it is never out of date and nothing is stored: `ticketFileUrl` stays null. It shows the reference, each flight with its airline and airport names and local times, the duration, cabin and baggage, the passengers with their document numbers masked, the price and the cancellation tiers.
+- **Who gets it.** Only the owner (`findOwnedOrThrow`, the same 404 for anyone else), and only once the booking is CONFIRMED or COMPLETED. Before payment, or after a cancellation or expiry, it is 409 `TICKET_NOT_AVAILABLE`.
+- **Fonts.** The PDF uses the built-in Helvetica, which only covers Windows-1252 characters (Latin letters, accents, `•`). Anything else, such as Arabic letters in a name, is printed as `?` rather than as broken glyphs. Passport names are in Latin letters, so this is rare.
+- **The confirmation page** is the frontend's: `GET /api/flight-bookings/:id` already returns the CONFIRMED status and the reference.
+
+### Hold expiry
+
+`FlightHoldExpiryService` runs every minute (`@Cron`; `ScheduleModule.forRoot()` is registered once, in `PaymentsModule`). It finds up to 100 `PENDING_PAYMENT` bookings past `holdExpiresAt`, oldest first (the `status + holdExpiresAt` index), and calls `releaseHold` with `HOLD_EXPIRED` for each.
+
+Payments' own sweep only looks at bookings with an open payment, so without this job a hold the user never started paying for would keep its seats for good. When both reach the same booking, the first one releases the seats and the second changes nothing. A hold keeps its seats for 11 minutes at most, one failing booking is logged without stopping the rest, and a run is skipped while the previous one is still going.
+
+### Tests
+
+Unit: `dto/flight-booking-request.dto.spec.ts` (through the real `ValidationPipe`), `flight-booking-pricing.spec.ts`, `flight-bookings.service.spec.ts`, `flight-booking-policy.reader.spec.ts`, `e-ticket/e-ticket.view.spec.ts`, `e-ticket/e-ticket.pdf.spec.ts`, `flight-bookings-port.adapter.spec.ts` and `flight-hold-expiry.service.spec.ts`.
+
+`test/flight-bookings.e2e-spec.ts` runs against the shared database: 401 and 403, a summary that stores nothing, a full return flight reported before anything is held, the 201 hold, a rollback when the second segment cannot be held, 6 simultaneous holds for 3 free seats giving exactly 3, the owner-only `GET`, the policies endpoint through the real gateway, confirmation (reference, held to booked, idempotent, the notice summary), the e-ticket (409 before payment, the PDF after it, 404 for another account), ACC-12, a release that happens once, the expiry job, and extra bags priced from a real airline policy while older bookings keep the version they were made under. It creates one airline named "KE e2e booking" with an unused two-digit IATA code from 50 up, flights numbered `KE6xxx` in February 2099 `test_c2_` accounts and that airline's policy, and deletes exactly those. Run it with `npm run test:e2e -- flight-bookings`.
+
 ## Account management (ACC-07a, ACC-08, ACC-09, ACC-12, ACC-13, ACC-14, ACC-16)
 
 Login, the cookie and the guards are described under "Accounts and
@@ -1039,6 +1217,7 @@ of them.
 | `PATCH /api/admin/accounts/:id/reactivate` | ACC-16, ACC-15 | Also clears a login lockout |
 | `POST /api/admin/users/:id/reset-password` | ACC-07a | Returns a temporary password once; stored only as a hash |
 | `POST /api/admin/moderators` | ACC-13 | Admin only; creates an airline or hotel moderator linked to exactly one provider |
+| `GET /api/admin/bookings` | ACC-17 | Admin only, read-only; every flight booking and hotel reservation in one list, filtered by type, status, the days they were made and the booking reference. Both booking modules implement `listForAdmin`, so both types appear (see "Booking lifecycle and the BookingsPort") |
 
 Rules worth knowing before you touch these:
 
@@ -1151,6 +1330,37 @@ on top of the `HotelsService` that `HotelsModule` exports. A provider type whose
 module is not wired would answer **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of
 the app refusing to start.
 
+## Provider deactivation (ACC-15)
+
+ACC-15 has two halves. The moderator-account half is `PATCH /api/admin/accounts/:id/suspend` and `/reactivate` (see "Account management"). This is the provider half: an admin deactivates or reactivates a hotel or an airline.
+
+| Endpoint | Notes |
+| --- | --- |
+| `PATCH /api/admin/providers/:type/:id/deactivate` | `ACTIVE` -> `DEACTIVATED`, sets `deactivatedAt` |
+| `PATCH /api/admin/providers/:type/:id/reactivate` | `DEACTIVATED` -> `ACTIVE`, clears `deactivatedAt` |
+
+`:type` is `hotel` or `airline`. Both endpoints are admin-only and answer `{ type, id, name, status, deactivatedAt, notifiedUsers }`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_FAILED` | `:type` is not `hotel` or `airline` (field error on `type`) |
+| 404 | `HOTEL_NOT_FOUND` / `AIRLINE_NOT_FOUND` | No such provider, or a malformed id (same answer, ACC-11) |
+| 409 | `HOTEL_ALREADY_DEACTIVATED` / `AIRLINE_ALREADY_DEACTIVATED` | Deactivating twice |
+| 409 | `HOTEL_ALREADY_ACTIVE` / `AIRLINE_ALREADY_ACTIVE` | Reactivating an active provider |
+
+What happens, in this order:
+
+1. The status changes through the owner's own service (`HotelsService.deactivate` / `reactivate`, `AirlinesService.deactivate` / `reactivate`), in one conditional update, so two admins cannot both succeed. Administration never touches the `hotels` or `airlines` collection.
+2. The audit log gets `PROVIDER_DEACTIVATED` or `PROVIDER_REACTIVATED`, entity `HOTEL` or `AIRLINE`, with `before` and `after` `{ status }` (GEN-07).
+3. In-app notifications (GEN-01) go to the provider's moderators and to every user with an upcoming `CONFIRMED` booking with it: a hotel stay that has not checked out, or a flight of that airline that has not departed. Deactivation uses `PROVIDER_SUSPENDED`, reactivation `PROVIDER_REACTIVATED`. Users are told their confirmed booking remains valid. `notifiedUsers` is how many accounts were sent one.
+
+Rules:
+
+- **Confirmed bookings stay valid.** Nothing is written to a booking. The users to notify come from read-only methods: `HotelBookingsService.findUserIdsWithUpcomingConfirmedStays` and `FlightBookingsService.findUserIdsWithUpcomingConfirmedFlights` (exported by `FlightBookingsModule` for this one caller).
+- **Hiding is already done by the status.** Flight search, flight details and flight holds only use `ACTIVE` airlines; hotel search, the public hotel profile and hotel holds only use `ACTIVE` hotels (`findActiveByCityOrCountry`, `getActiveHotelOrThrow`). ACC-15 adds no new check to them.
+- **The status change is the source of truth.** If finding the users or notifying them fails, a warning is logged and the answer is still 200 (with `notifiedUsers: 0`).
+- `test/admin-providers.e2e-spec.ts` covers the whole flow on the shared database, with its own airline, hotel, moderators and bookings, and deletes them afterwards.
+
 ## Notifications (GEN-01)
 
 `GET /api/notifications` (paginated, `?unreadOnly=true`), `GET /api/notifications/unread-count`, `PATCH /api/notifications/:id/read` and `PATCH /api/notifications/read-all`. Every route works on the account in the cookie.
@@ -1214,7 +1424,7 @@ export class FlightsModule {}
 
 The module that provides a port must be `@Global()`. `BookingsGateway` lives in `BookingsModule` under `src/common/`, which must not import a feature module, and Nest only resolves a provider from a module's own imports or from a global module. Without `@Global()` the gateway's optional port stays empty and that booking type answers 501. `HotelBookingsModule` does this for `HOTEL_BOOKINGS_PORT`.
 
-`BookingsPort` has five methods:
+`BookingsPort` has six methods:
 
 | Method | Used by | Must |
 | --- | --- | --- |
@@ -1223,8 +1433,13 @@ The module that provides a port must be `@Global()`. `BookingsGateway` lives in 
 | `confirmAfterPayment(bookingId, paymentId)` | PAY-01 | Be idempotent, refuse once the hold has expired, and convert the hold in one atomic step |
 | `releaseHold(bookingId, reason)` | PAY-01 | Release once only, however often it is called |
 | `hasUpcomingConfirmedBookings(userId)` | ACC-12 | Say whether the account has a confirmed booking that has not happened yet |
+| `listForAdmin(filter)` | ACC-17 | **Optional.** Return the newest `filter.limit` bookings matching the filter **and** how many match in all, ordered by `createdAt` descending with the booking id as the tie-break. Read-only, and not filtered by user |
 
 Both ports are optional, so the app runs with neither, one or both wired in. A booking type whose module is not connected answers **501 `BOOKING_TYPE_UNAVAILABLE`** with a clear message, rather than the app refusing to start or a 500 that looks like a bug in payments.
+
+`listForAdmin` is the only optional method of the six, because the admin list arrived after both booking modules did: a port that has not implemented it still satisfies the interface and still works for payments and ACC-12, and its booking type simply does not appear in the admin list yet. Implementing it is what puts flight bookings and hotel reservations into `GET /api/admin/bookings`.
+
+The admin list (ACC-17) is also the one exception to that 501: a module that is not wired in, or whose port does not implement `listForAdmin`, has no bookings to report, so `BookingsGateway.listForAdmin` skips it instead of throwing. An admin list must not break because a module is still being built. It asks every wired module for its newest `page x 10` rows, merges them and keeps the page it needs - a row on page n cannot be older than the nth newest row of either module - and adds the two counts together for `meta.totalItems`. That is why `listForAdmin` takes a limit rather than a page, and why its order has to be the same in both modules.
 
 Returning the booking's own policy snapshot rather than the provider's current policy is what makes acceptance stable: a provider editing its policy during the 10-minute hold cannot invalidate an acceptance the user has already given, and a later edit never changes what an existing booking agreed to.
 
@@ -1311,21 +1526,51 @@ await this.refunds.issueForCancellation({
 
 ### Environment and running it locally
 
-`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **optional**: without them every other module works normally and only the payment endpoints answer 503 `PAYMENTS_UNAVAILABLE`, so a teammate who is not working on payments does not need a Stripe account. Use test-mode keys only, never a live key.
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` need **no Stripe account**: the placeholders in `.env.example` run the app and the whole test suite, and only a real demonstration of a live payment needs test-mode keys of your own. `npm run test:e2e` does need both set to something (see "Environment variables"). Use test-mode keys only, never a live key.
 
-To demonstrate a payment end to end, forward Stripe's webhooks to the local server and copy the `whsec_` it prints into `.env`:
+To demonstrate a payment end to end against Stripe itself:
+
+**What it needs.** A real Stripe **test-mode** secret key in `backend/.env` (the
+`sk_test_placeholder` from `.env.example` cannot reach Stripe, so payments answer
+503), and the Stripe CLI: `npm install -g @stripe/cli`, Stripe's own package. Sign
+the CLI in with `stripe login`, or give it the key in a `STRIPE_API_KEY`
+environment variable.
+
+**1. Get the webhook signing secret** and put it in `backend/.env` as
+`STRIPE_WEBHOOK_SECRET`, then restart the server:
 
 ~~~
-stripe listen --forward-to localhost:3000/api/payments/webhook
+stripe listen --print-secret
 ~~~
 
-Then confirm the PaymentIntent with a test card, using the `clientSecret` from `POST /api/payments`:
+**2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe payment_intents confirm pi_xxx --payment-method pm_card_visa
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
 ~~~
 
-The booking is confirmed when the webhook arrives, not when the command returns. `POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
+`--events` is not optional any more: current CLIs refuse to start without it
+(`must specify events to forward using --events`). These three are the ones the
+webhook handles.
+
+**3. Pay**, with the `stripePaymentIntentId` that `POST /api/payments` returns:
+
+~~~
+stripe payment_intents confirm pi_xxx --payment-method=pm_card_visa --return-url=https://example.com/return
+~~~
+
+`--return-url` is required too. Our PaymentIntents use automatic payment methods,
+and Stripe refuses to confirm one of those without it (`you must provide a
+return_url`); a card never actually redirects there.
+
+The booking is confirmed when the webhook arrives — the `stripe listen` window
+logs `[200] POST .../api/payments/webhook` — not when the command returns.
+
+**To see a refund as well**, cancel the confirmed booking. A refund is only created
+for a non-zero tier, and a hotel with no cancellation policy refunds 0%, so pick one
+that has tiers and book far enough ahead to be inside one.
+
+`POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
 
 ### Tests
 
@@ -1342,6 +1587,110 @@ The booking is confirmed when the webhook arrives, not when the command returns.
 | `test/refunds.e2e-spec.ts` | PAY-03 |
 
 The webhook signature verification is tested for real, because it is local crypto: a delivery signed with the right secret confirms the booking, while an unsigned one, one signed with another secret and one whose body was changed after signing are all refused. Stripe's HTTP API and the `BookingsPort` are stood in for, so these suites need no Stripe account and no booking module.
+
+## Image uploads (GEN-08)
+
+`MediaService` (`src/media/`) is the shared upload service. It accepts one JPG or PNG of at most 5 MB (the type is read from the file's first bytes, not its name), allows 5 images per post, activity or hotel and 1 logo per airline, stores the file under `UPLOADS_DIR` and records it in `mediaMetadata`. The owning module checks access and serves the image from its own route.
+
+~~~
+@Module({ imports: [MediaModule] })
+
+@Post(':id/images')
+@ApiImageUpload('/api/activities/6720f1c2a1b2c3d4e5f60718/images', 'activity')
+addImage(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser,
+         @UploadedFile() file: UploadedImage | undefined) { ... }
+
+// in the service, after your own owner check
+this.media.storeImage({ ownerId: user.userId, targetType: MediaTargetType.ACTIVITY,
+  targetId: id, file, urlFor: (imageId) => `/api/activities/${id}/images/${imageId}` });
+~~~
+
+Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPLOAD`; 409 `IMAGE_LIMIT_REACHED`; 404 `IMAGE_NOT_FOUND`.
+
+## Audit log (GEN-07)
+
+`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation, provider deactivation and reactivation (ACC-15) and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
+
+~~~
+await this.audit.record({
+  actorId: admin.userId,
+  action: AuditAction.PROVIDER_DEACTIVATED,
+  entityType: AuditEntityType.HOTEL,
+  entityId: hotelId,
+  before: { status: 'ACTIVE' },
+  after: { status: 'DEACTIVATED' },
+});
+~~~
+
+In e2e tests, remove your own audit rows with the driver (`connection.collection('auditLogs').deleteMany({ actorId })`).
+
+## Blog (BLG-01 to BLG-10, BLG-12)
+
+`src/blog/` owns `posts`, `comments` and `likes`. Reading is public; only the author can change a post or comment (ACC-11).
+
+| Endpoint | Requirement |
+| --- | --- |
+| `POST /api/posts`, `PATCH` / `DELETE /api/posts/:id` | BLG-01, BLG-04, BLG-08 |
+| `GET /api/posts` (`keyword`, `tag`, `page`) | BLG-02, BLG-09 |
+| `GET /api/posts/mine` | BLG-03 |
+| `GET /api/posts/:id`, `GET /api/posts/:id/comments` | BLG-02 |
+| `POST /api/posts/:id/comments`, `PATCH` / `DELETE /api/comments/:id` | BLG-05, BLG-07 |
+| `POST` / `DELETE /api/posts/:id/like` | BLG-06 |
+| `POST /api/posts/:id/images`, `GET` / `DELETE /api/posts/:id/images/:imageId` | BLG-10 |
+| `GET /api/tags/:tag/posts` | BLG-08 |
+| `GET /api/authors/:id` | BLG-12 |
+
+- Drafts and hidden posts are visible only to the author and admins; anyone else gets 404. Posts of a deactivated account are hidden and its comments show "Deleted user".
+- A unique `(postId, userId)` index allows one like per user. Like and comment counters change in the same transaction, and search sorts on their sum.
+- Tags are stored lower case without duplicates, at most 5 of 30 characters.
+- The author page reads public itineraries through `PublicItinerariesService.listByAuthor`.
+
+Tests: `test/blog.e2e-spec.ts`.
+
+## Reports and moderation (GEN-09, GEN-10)
+
+`src/moderation/` owns the `reports` collection. It never reads or writes the reported content itself: each owner implements `ContentModerationPort` (`src/common/moderation/content-moderation.port.ts`), the same pattern as `BookingsPort`.
+
+| Endpoint | Who | Requirement |
+| --- | --- | --- |
+| `POST /api/reports` | Any logged-in user | GEN-09 |
+| `GET /api/admin/reports?status=OPEN&targetType=` | Admin | GEN-09, GEN-10 |
+| `PATCH /api/admin/reports/:id` `{ decision: DISMISS \| HIDE \| DELETE }` | Admin | GEN-10 |
+| `PATCH /api/admin/content/:type/:id/hide` and `/restore` | Admin | GEN-10 |
+| `DELETE /api/admin/content/:type/:id` | Admin | GEN-10 |
+
+`:type` is `post`, `comment`, `review` or `itinerary`, in any letter case.
+
+Rules worth knowing:
+
+- **Once per item** is a unique `(reporterId, targetType, targetId)` index: a second report answers 409 `ALREADY_REPORTED`. You cannot report your own content (400), or content you cannot see (404, so a report cannot probe for drafts). `reason` is a closed list; `OTHER` requires `details`.
+- **States** (`applyModeration`, shared by every owner): VISIBLE and HIDDEN switch both ways; either can become DELETED; DELETED is final (409 `INVALID_MODERATION_CHANGE`). The update filters on the state it read, so two admins acting at once get 409 `MODERATION_CONFLICT` instead of overwriting each other. Repeating an action changes nothing and logs nothing.
+- **Hidden** content is visible only to its author and admins; **deleted** content only to admins (a soft delete, so the audit trail still points at something). Only VISIBLE content appears in public lists, search, comment counts and hotel ratings.
+- **Resolving** with HIDE or DELETE acts on the item and closes every open report on it; acting on an item directly closes them too. Every decision is written to the audit log (GEN-07).
+- **Owners**: posts and comments come from `BlogModule`; reviews and itineraries through two small methods each on `ReviewsService` and `PublicItinerariesService` (`findForModeration`, `moderate`). Hiding a review recomputes the hotel rating. A hidden itinerary drops out of public search, the public view, cloning and author pages; a deleted one also disappears for its owner. Itineraries saved before this change have no `moderationState` and count as VISIBLE.
+
+Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
+
+## Optional bonus features (FLT-27, FLT-28, ITN-27, ITN-28, BLG-13, GEN-01-B, BON-02)
+
+Built by Zeyad after the 110 mandatory endpoints were merged; reviewed and fixed before the merge. HTL-26 (moderator replies to reviews) came earlier with #30.
+
+| Method | Path | Requirement | Who |
+| --- | --- | --- | --- |
+| PATCH | `/api/flight-bookings/:id/change-flight` | FLT-27 | Owner of a Confirmed booking |
+| POST | `/api/flight-bookings/:id/change-flight/apply` | FLT-27 | Owner, after paying the difference |
+| PATCH | `/api/flight-bookings/:id/seat` | FLT-28 | Owner of a Confirmed booking |
+| POST | `/api/itineraries/:id/days/:dayId/bookings` | ITN-27 | Itinerary owner |
+| DELETE | `/api/itineraries/:id/days/:dayId/bookings/:bookingType/:bookingId` | ITN-27 | Itinerary owner |
+| GET | `/api/itineraries/:id/pdf?currency=` | ITN-28 | Itinerary owner |
+| PATCH, DELETE | `/api/posts/:id/itinerary` | BLG-13 | Post author |
+| POST, DELETE | `/api/favourites/hotels/:hotelId`, `/api/favourites/itineraries/:itineraryId` | BON-02 | Registered user |
+| GET | `/api/favourites` | BON-02 | Registered user |
+
+- **FLT-27:** same route and cabin only, on a SCHEDULED future flight of an ACTIVE airline, not the flight already booked, and a round trip must still land before the return leaves. The difference is computed per passenger with the booking's own rule (infants pay 10%). A higher fare opens a PaymentIntent and the change is applied by `/apply` once Stripe says it succeeded, to the segment and at the price that were quoted. A lower fare is applied at once and the difference refunded. Seats, every passenger's fare and the booking totals change in one transaction, so a later FLT-26 refund reads the new total.
+- **FLT-28:** one document per chosen seat in `flightSeatClaims`, unique per flight, cabin and seat. Two bookings picking the same seat at once: the database lets one win and the other gets 409 `SEAT_ALREADY_TAKEN`. A claim left by a cancelled or changed booking is taken over.
+- **ITN-27:** only your own Confirmed or Completed booking (another account's is 404, ACC-11), once per itinerary. Hotels count as accommodation and flights as intercity transport in the budget summary, at the price snapshot taken when linking. A public itinerary view does not show the links.
+- **GEN-01-B:** off unless `SMTP_ENABLE=true` (see `.env.example`); with it off no email work is done at all. An email failure is logged and never fails the request.
 
 ## Team workflow
 

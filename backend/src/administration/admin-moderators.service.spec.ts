@@ -3,6 +3,9 @@ import { Role, UserStatus } from '../common/auth/auth.enums';
 import { PasswordService } from '../auth/password/password.service';
 import { UsersService } from '../auth/users/users.service';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
+import { AuditAction } from '../audit/audit-action.enum';
+import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../notifications/email.service';
 import { AdminModeratorsService } from './admin-moderators.service';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 
@@ -17,6 +20,8 @@ describe('AdminModeratorsService (ACC-13)', () => {
   let assignments: jest.Mocked<
     Pick<ModeratorAssignmentsGateway, 'assertAssignable' | 'assign'>
   >;
+  let audit: jest.Mocked<Pick<AuditService, 'record'>>;
+  let email: jest.Mocked<Pick<EmailService, 'sendModeratorInvitation'>>;
   let service: AdminModeratorsService;
 
   function profile(overrides: Record<string, unknown> = {}) {
@@ -64,10 +69,15 @@ describe('AdminModeratorsService (ACC-13)', () => {
       assign: jest.fn().mockResolvedValue(undefined),
     };
 
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
+    email = { sendModeratorInvitation: jest.fn().mockResolvedValue(undefined) };
+
     service = new AdminModeratorsService(
       users as unknown as UsersService,
       passwords as unknown as PasswordService,
       assignments as unknown as ModeratorAssignmentsGateway,
+      audit as unknown as AuditService,
+      email as unknown as EmailService,
     );
   });
 
@@ -95,6 +105,15 @@ describe('AdminModeratorsService (ACC-13)', () => {
     );
     expect(result.account.id).toBe(MODERATOR_ID);
     expect(result.account.role).toBe(Role.AIRLINE_MODERATOR);
+    // GEN-07, without the temporary password.
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorId: ADMIN_ID,
+        action: AuditAction.MODERATOR_CREATED,
+        entityId: MODERATOR_ID,
+        after: { role: Role.AIRLINE_MODERATOR, providerId: AIRLINE_ID },
+      }),
+    );
     expect(result.account.mustChangePassword).toBe(true);
     expect(result.providerId).toBe(AIRLINE_ID);
     expect(result.temporaryPassword).toBe('Tmpabcde12349');

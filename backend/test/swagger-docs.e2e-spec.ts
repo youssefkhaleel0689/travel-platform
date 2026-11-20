@@ -4,13 +4,11 @@
 // src/common/swagger/ instead.
 import { INestApplication } from '@nestjs/common';
 import {
-  DocumentBuilder,
   getSchemaPath,
   MediaTypeObject,
   OpenAPIObject,
   OperationObject,
   PathItemObject,
-  SwaggerModule,
 } from '@nestjs/swagger';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -18,6 +16,7 @@ import type { Connection } from 'mongoose';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
+import { buildSwaggerDocument } from './../src/swagger.setup';
 import { ErrorResponseDto } from './../src/common/dto/error-response.dto';
 
 // Connecting to Atlas can take longer than Jest's default 5 seconds.
@@ -75,6 +74,32 @@ function errorResponses(document: OpenAPIObject): ErrorResponseEntry[] {
   return entries;
 }
 
+// Every security scheme key used by an operation, or by the whole document (top-level
+// security), as "<where>: <key>" pairs.
+function securityReferences(
+  document: OpenAPIObject,
+): { where: string; key: string }[] {
+  const references: { where: string; key: string }[] = [];
+  for (const requirement of document.security ?? []) {
+    for (const key of Object.keys(requirement)) {
+      references.push({ where: 'top-level security', key });
+    }
+  }
+  for (const [path, item] of Object.entries(document.paths)) {
+    for (const method of METHODS) {
+      const operation: OperationObject | undefined = (item as PathItemObject)[
+        method
+      ];
+      for (const requirement of operation?.security ?? []) {
+        for (const key of Object.keys(requirement)) {
+          references.push({ where: `${method.toUpperCase()} ${path}`, key });
+        }
+      }
+    }
+  }
+  return references;
+}
+
 // The example bodies of one response: the response-level example or every named example.
 function exampleBodies(media: MediaTypeObject): unknown[] {
   if (media.examples) {
@@ -114,16 +139,8 @@ describe('Swagger document (e2e)', () => {
       Object.values(connection.models).map((model) => model.init()),
     );
 
-    // Same configuration as main.ts.
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Travel Platform API')
-      .setDescription(
-        'REST API for the Travel Planning & Booking Platform. Auth uses an httpOnly cookie.',
-      )
-      .setVersion('1.0')
-      .addCookieAuth('access_token')
-      .build();
-    document = SwaggerModule.createDocument(app, swaggerConfig);
+    // The same document main.ts serves at /api/docs and npm run openapi exports.
+    document = buildSwaggerDocument(app);
   }, CONNECT_TIMEOUT_MS);
 
   // Also closes the MongoDB connection. Awaited, with the same timeout as the connect, so
@@ -151,6 +168,20 @@ describe('Swagger document (e2e)', () => {
         }
       }
     }
+    expect(problems).toEqual([]);
+  });
+
+  it('defines every security scheme an operation refers to', () => {
+    const defined = Object.keys(document.components?.securitySchemes ?? {});
+    const references = securityReferences(document);
+    expect(references.length).toBeGreaterThan(0);
+
+    const problems = references
+      .filter(({ key }) => !defined.includes(key))
+      .map(
+        ({ where, key }) =>
+          `${where}: security scheme '${key}' is not defined (see buildSwaggerDocument)`,
+      );
     expect(problems).toEqual([]);
   });
 });

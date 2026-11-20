@@ -34,6 +34,25 @@ export interface UserProfile {
   deactivatedAt: Date | null;
 }
 
+/**
+ * ACC-17: who owns a booking, for an admin-only list. Separate from UserBrief
+ * on purpose: that one is also used for public author pages, and an email
+ * address must never reach one of those.
+ */
+export interface UserContact {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface UserBrief {
+  id: string;
+  name: string;
+  role: Role;
+  status: UserStatus;
+  createdAt: Date;
+}
+
 /** ACC-09: the only three fields an account may edit on itself. */
 export interface ProfileUpdateInput {
   name?: string;
@@ -168,6 +187,76 @@ export class UsersService {
     }
     const user = await this.userModel.findById(id).lean<User>().exec();
     return user ? this.toUserProfile(user) : null;
+  }
+
+  // D2: names of many accounts in one query (post authors, audit actors).
+  async findBriefsByIds(ids: string[]): Promise<Map<string, UserBrief>> {
+    const unique = [...new Set(ids)].filter((id) => OBJECT_ID.test(id));
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const users = await this.userModel
+      .find({ _id: { $in: unique.map((id) => new Types.ObjectId(id)) } })
+      .select('name role status createdAt')
+      .lean<Pick<User, '_id' | 'name' | 'role' | 'status' | 'createdAt'>[]>()
+      .exec();
+    return new Map(
+      users.map((user) => [
+        user._id.toString(),
+        {
+          id: user._id.toString(),
+          name: user.name,
+          role: user.role,
+          status: user.status,
+          createdAt: user.createdAt,
+        },
+      ]),
+    );
+  }
+
+  // ACC-17: name and email of the accounts that own a page of bookings, in
+  // one query. Admin-only callers: the email is never shown to other users.
+  async findContactsByIds(ids: string[]): Promise<Map<string, UserContact>> {
+    const unique = [...new Set(ids)].filter((id) => OBJECT_ID.test(id));
+    if (unique.length === 0) {
+      return new Map();
+    }
+    const users = await this.userModel
+      .find({ _id: { $in: unique.map((id) => new Types.ObjectId(id)) } })
+      .select('name email')
+      .lean<Pick<User, '_id' | 'name' | 'email'>[]>()
+      .exec();
+    return new Map(
+      users.map((user) => [
+        user._id.toString(),
+        { id: user._id.toString(), name: user.name, email: user.email },
+      ]),
+    );
+  }
+
+  // BLG-09: ids of accounts whose name contains the text (search by author).
+  async findIdsByNameFragment(fragment: string, limit = 500): Promise<string[]> {
+    const term = fragment.trim();
+    if (term === '') {
+      return [];
+    }
+    const users = await this.userModel
+      .find({ name: new RegExp(escapeRegExp(term), 'i') })
+      .select('_id')
+      .limit(limit)
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return users.map((user) => user._id.toString());
+  }
+
+  // ACC-12: the blog hides posts of deactivated accounts with these ids.
+  async findIdsByStatus(status: UserStatus): Promise<string[]> {
+    const users = await this.userModel
+      .find({ status })
+      .select('_id')
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return users.map((user) => user._id.toString());
   }
 
   async findByEmail(email: string): Promise<UserProfile | null> {

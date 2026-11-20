@@ -14,7 +14,7 @@ import {
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-export class CancellationTierDto {
+export class HotelCancellationTierDto {
   @ApiProperty({ example: 7, description: 'Integer >= 0' })
   @Type(() => Number)
   @IsInt()
@@ -41,12 +41,12 @@ export class UpsertHotelPolicyDto {
   checkOutTime!: string;
 
   @ApiProperty({
-    type: [CancellationTierDto],
+    type: [HotelCancellationTierDto],
     description: 'Unique daysBeforeCheckIn thresholds',
   })
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
-  @Type(() => CancellationTierDto)
-  cancellationTiers!: CancellationTierDto[];
+  @Type(() => HotelCancellationTierDto)
+  cancellationTiers!: HotelCancellationTierDto[];
 }

@@ -5,7 +5,10 @@ import { Role } from '../common/auth/auth.enums';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
 import type { ModeratorRole } from '../common/providers/moderator-assignments.gateway';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
+import { AuditAction, AuditEntityType } from '../audit/audit-action.enum';
+import { AuditService } from '../audit/audit.service';
 import { ModeratorCreatedDto } from './dto/moderator-created.dto';
+import { EmailService } from '../notifications/email.service';
 
 /**
  * ACC-13: an admin creates a hotel or airline moderator account linked to
@@ -38,6 +41,8 @@ export class AdminModeratorsService {
     private readonly users: UsersService,
     private readonly passwords: PasswordService,
     private readonly assignments: ModeratorAssignmentsGateway,
+    private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
 
   async create(
@@ -75,6 +80,22 @@ export class AdminModeratorsService {
       await this.rollback(profile.id);
       throw error;
     }
+
+    await this.audit.record({
+      actorId: actingAdminId,
+      action: AuditAction.MODERATOR_CREATED,
+      entityType: AuditEntityType.ACCOUNT,
+      entityId: profile.id,
+      after: { role, providerId },
+    });
+
+    // GEN-01-B: the invitation (including the temporary password) goes by
+    // email. Best effort only: account creation has already succeeded.
+    await this.email.sendModeratorInvitation(
+      profile.email,
+      profile.name,
+      temporaryPassword,
+    );
 
     return ModeratorCreatedDto.from(profile, providerId, temporaryPassword);
   }

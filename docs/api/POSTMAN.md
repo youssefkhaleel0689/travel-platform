@@ -1,8 +1,8 @@
 # Manual API testing with Postman (C2 endpoints)
 
 How to exercise the account, notification and payment endpoints by hand:
-ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, GEN-01, GEN-11 and
-PAY-01 to PAY-04.
+ACC-07a, ACC-08, ACC-09, ACC-11, ACC-12, ACC-14, ACC-16, ACC-17, GEN-01,
+GEN-11 and PAY-01 to PAY-04.
 
 Swagger UI at `http://localhost:3000/api/docs` is what Milestone 1 is graded
 through and is enough for a quick look. Postman is better for a repeatable
@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 77 requests in 11 folders, 174 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 94 requests in 12 folders, 217 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -104,13 +104,15 @@ where naming the reason is useful and safe.
 | `userEmail` / `userPassword` | Folder 20 request 01 registers it for you |
 | `targetEmail` / `targetPassword` | Folder 50 request 01 registers it, on a **generated** address; the folder suspends and resets this one, never your test user |
 | `throwawayEmail` / `throwawayPassword` | Folder 60 request 01 registers it, on a **generated** address; the folder deactivates it for good |
+| `bookingsUserEmail` / `bookingsUserPassword` | Folder 65 request 01 registers it, on a **generated** address; it only proves a traveller cannot read the admin booking list |
 | `adminEmail` / `adminPassword` | Copy them from `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` after `npm run seed:admin` |
 
 Keep the `test_c2_` prefix on every address: the shared-database rules require
 test data to be prefixed, and it makes your rows easy to find and delete.
 
-`targetEmail`, `throwawayEmail` and the two moderator addresses are generated
-per run, so folders 50, 55 and 60 need no editing between runs. They have to
+`targetEmail`, `throwawayEmail`, `bookingsUserEmail` and the two moderator
+addresses are generated per run, so folders 50, 55, 60 and 65 need no editing
+between runs. They have to
 be: folder 50 leaves its target on a temporary password and folder 60
 deactivates its account permanently, so a fixed address makes each folder work
 exactly once. With a fixed one, folder 60 then fails outright with
@@ -133,8 +135,9 @@ Run the folders in order. Each row says what the folder proves.
 | 30 Change password | ACC-08 | The current password is required; the rules are enforced; the caller stays signed in while other sessions do not |
 | 40 Notifications | GEN-01 | Pages of 10, the unread filter, marking read twice is harmless, another account's notification is a 404 |
 | 50 Admin accounts | ACC-07a, ACC-14, ACC-16 | Role enforcement, search and filters, a regex matched literally, suspension revoking sessions, the self and admin refusals, a one-time temporary password |
-| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; hotel moderators answer 501 until HTL-01 |
+| 55 Create a moderator | ACC-13 | An account linked to exactly one airline, on a temporary password it cannot use for anything else until it replaces it; the body names the provider by role (`airlineId` or `hotelId`) and refuses the other one; the route cannot mint an ADMIN; a hotel moderator for a hotel that does not exist is a 404, and signing in afterwards proves the account it had already created was undone |
 | 60 Account deactivation | ACC-12 | `confirm: true` is required; the row survives with a date; the cookie dies |
+| 65 Admin bookings | ACC-17 | One list over both booking collections: the row shape (reference, user, provider, dates, amount, status), the type, status, day-range and reference filters, and a traveller refused with 403 |
 | 70 Policies | PAY-02 | The booking's own terms and the version the user must echo back |
 | 80 Payments | PAY-01 | The amount is never taken from the client; the webhook refuses anything Stripe did not sign |
 | 90 Refunds | PAY-03 | A refund can be read but never created through the API |
@@ -165,42 +168,94 @@ Run the folders in order. Each row says what the folder proves.
   browsers, or Postman plus Swagger), change the password in one, and the other
   cookie stops working while yours keeps going.
 
-## 5. What needs a booking module
+## 5. The booking-backed requests
 
-Folders 70 to 90 reach bookings through `BookingsPort`, which neither the
-flights nor the hotels module provides yet. Once you can sign in, they answer:
+Folders 70 to 90 reach bookings through `BookingsPort`. Flights and hotels both
+provide one now, so these requests no longer answer the
 
 ~~~
-501  { "code": "BOOKING_TYPE_UNAVAILABLE",
-       "message": "HOTEL bookings are not available yet: the module that owns
-                   them has not been connected to payments" }
+501  { "code": "BOOKING_TYPE_UNAVAILABLE", ... }
 ~~~
 
-That is deliberate — a clear 501 rather than a 500 that looks like a bug in
-payments. The collection asserts the 501 so a run stays green; each request's
-description says what to change when A1 or B2 wires its port in.
+they did before those modules landed. They still use a booking id that does not
+exist, so the answer is 404 `NOT_FOUND` — the same one a booking belonging to
+somebody else gets, because ids are never probeable (ACC-11).
+
+Each of them also asserts that the status is **not** 501, which is the point of
+keeping them: a module that provides a port must be `@Global()`, and the day one
+stops being, `BookingsGateway` can no longer see its port and these go back to
+501. That turns a silent regression into a failing request.
+
+Driving a payment end to end needs a real reservation on hold — a hotel, a
+room, availability and a hold, all of them B2's endpoints. That belongs in its
+own folder and is not here yet.
+
+### Folder 65 and the optional port method
+
+The admin list is the one C2 endpoint whose rows come from somebody else's
+collections: flight bookings (A1) and hotel reservations (B2), read through
+`BookingsPort` and merged into one page, newest first.
+
+`listForAdmin` is **optional** on that port, and **both shipped adapters
+implement it**, so folder 65 lists the real bookings on the database (the
+contract is in the README under "Booking lifecycle and the BookingsPort").
+Its shape, order and filter assertions run over whatever rows come back, so
+they hold on any data, and request 05 checks the page holds exactly
+`min(10, totalItems)` rows. Request 10b looks up the reference of request 05's
+first row, in lower case, and expects exactly that booking; it skips itself on
+a database with no bookings. A module whose port did not implement the method
+would simply be absent: the route still answers `200` with the GEN-05 `meta`,
+never a 501, because an admin list must not break while a module is being
+built. The rows this folder reads are never changed by it: ACC-17 is
+read-only, and a booking is cancelled through the module that owns it.
 
 ## 6. Driving the webhook for real
 
 Postman cannot produce a valid Stripe signature, so the two webhook requests
-only cover the refusals. For the success path, use the Stripe CLI with
-test-mode keys:
+only cover the refusals. For the success path, use the Stripe CLI.
+
+**What it needs.** A real Stripe **test-mode** secret key in `backend/.env` (the
+`sk_test_placeholder` from `.env.example` cannot reach Stripe, so payments answer
+503), and the Stripe CLI: `npm install -g @stripe/cli`, Stripe's own package. Sign
+the CLI in with `stripe login`, or give it the key in a `STRIPE_API_KEY`
+environment variable.
+
+**1. Get the webhook signing secret** and put it in `backend/.env` as
+`STRIPE_WEBHOOK_SECRET`, then restart the server:
 
 ~~~
-stripe listen --forward-to localhost:3000/api/payments/webhook
+stripe listen --print-secret
 ~~~
 
-Copy the `whsec_...` it prints into `STRIPE_WEBHOOK_SECRET` in `backend/.env`
-and restart the server. Then, with the `clientSecret` from `POST /api/payments`:
+**2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe payment_intents confirm pi_xxx --payment-method pm_card_visa
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
 ~~~
 
-The booking is confirmed when the webhook arrives, not when that command
-returns. `POST /api/payments/webhook` is deliberately excluded from Swagger: a
-request without Stripe's signature can only fail, so a "Try it out" button
-would mislead.
+`--events` is not optional any more: current CLIs refuse to start without it
+(`must specify events to forward using --events`). These three are the ones the
+webhook handles.
+
+**3. Pay**, with the `stripePaymentIntentId` that `POST /api/payments` returns:
+
+~~~
+stripe payment_intents confirm pi_xxx --payment-method=pm_card_visa --return-url=https://example.com/return
+~~~
+
+`--return-url` is required too. Our PaymentIntents use automatic payment methods,
+and Stripe refuses to confirm one of those without it (`you must provide a
+return_url`); a card never actually redirects there.
+
+The booking is confirmed when the webhook arrives — the `stripe listen` window
+logs `[200] POST .../api/payments/webhook` — not when the command returns.
+
+**To see a refund as well**, cancel the confirmed booking. A refund is only created
+for a non-zero tier, and a hotel with no cancellation policy refunds 0%, so pick one
+that has tiers and book far enough ahead to be inside one.
+
+`POST /api/payments/webhook` is deliberately excluded from Swagger: a request
+without Stripe's signature can only fail, so a "Try it out" button would mislead.
 
 ## 7. Running the whole collection at once
 
@@ -219,7 +274,7 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
-A clean full run is **77 requests, 174 assertions, 0 failures** and exits 0.
+A clean full run is **94 requests, 217 assertions, 0 failures** and exits 0.
 One assertion skips itself and says so: folder 40 request 06 needs a
 notification to mark as read, and the test user has none until an admin
 suspends it in folder 50, which runs later. Marking one read is covered by
@@ -238,8 +293,8 @@ above fixed.
 | `403 FORBIDDEN` | A `USER` cookie on an admin route. Sign in as the seeded admin |
 | `403 PASSWORD_CHANGE_REQUIRED` | The account is on a temporary password. Call `PATCH /api/auth/change-password` first |
 | `403 ACCOUNT_SUSPENDED` / `ACCOUNT_DEACTIVATED` on login | Exactly what it says; a deactivated account cannot be brought back by an admin |
-| `501 BOOKING_TYPE_UNAVAILABLE` | No booking module is wired in. Expected until A1 or B2 lands |
-| `501 PROVIDER_TYPE_UNAVAILABLE` | Folder 55 asked for a `HOTEL_MODERATOR`. Expected until the hotels module lands (HTL-01) |
+| `501 BOOKING_TYPE_UNAVAILABLE` | A booking type whose module provides no port. Both provide one now, so this means that module stopped being `@Global()` |
+| `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a provider type whose port is unwired. Both are wired now, so this means `AdministrationModule` stopped providing one |
 | `409` on folder 55 request 02 | The random two-character IATA code was already taken. Send the request again |
 | `400` on `providerId` | Correct since the role-specific body landed: name the provider with `airlineId` or `hotelId` instead, matching `role` |
 | `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Expected unless you are working on payments |
@@ -264,6 +319,9 @@ are outside the `users` collection:
   rows first, then the airline, then the accounts. The airline holds a
   two-character IATA code, and the pool is small, so leaving it behind makes
   the next run collide more often.
+
+Folder 65 creates one plain account (`test_c2_acc17_*`) and nothing else: it
+only reads bookings, so it leaves no bookings, airlines or hotels behind.
 
 **Keep the seeded admin.** `ADMIN_EMAIL` in `backend/.env` is itself a
 `test_c2_*` address, so a sweep of "every `test_c2_` account" takes the admin

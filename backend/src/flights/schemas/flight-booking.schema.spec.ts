@@ -65,6 +65,21 @@ const infant = {
   seatRequired: false,
 };
 
+// The outbound airline's policy when the seats were held.
+function policySnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    airlineId: new Types.ObjectId(),
+    version: 3,
+    extraBagPrice: '50.00',
+    maxExtraBagsPerPassenger: 2,
+    cancellationTiers: [
+      { daysBeforeDeparture: 7, refundPercentage: 80 },
+      { daysBeforeDeparture: 1, refundPercentage: 20 },
+    ],
+    ...overrides,
+  };
+}
+
 // A valid one-way booking for one adult and one infant (one seat).
 function booking(overrides: Record<string, unknown> = {}) {
   return {
@@ -85,11 +100,8 @@ function booking(overrides: Record<string, unknown> = {}) {
       subtotal: '219.99',
       baggageTotal: '50.00',
       total: '269.99',
-      baggagePolicySnapshot: {
-        extraBagPrice: '50.00',
-        maxExtraBagsPerPassenger: 2,
-      },
     },
+    policySnapshot: policySnapshot(),
     ...overrides,
   };
 }
@@ -134,6 +146,82 @@ describe('FlightBooking schema (FLT-22)', () => {
       expect(FlightBookingSchema.path('priceSnapshot.total').instance).toBe(
         'Decimal128',
       );
+    });
+  });
+
+  describe('id references', () => {
+    // Through Nest's @Prop, `type: Types.ObjectId` gives a Mixed path that casts nothing,
+    // so ownerFilter's string user id would match no booking (README conventions).
+    it.each([
+      'userId',
+      'policyAcceptanceId',
+      'paymentId',
+      'policySnapshot.airlineId',
+      'cancellation.cancelledBy',
+      'cancellation.refundId',
+    ])('declares %s as an ObjectId', (path) => {
+      expect(FlightBookingSchema.path(path).instance).toBe('ObjectId');
+    });
+
+    it.each([
+      ['segments', 'flightId'],
+      ['segments', 'airlineId'],
+      ['baggage', 'passengerId'],
+    ])('declares %s.%s as an ObjectId', (array, path) => {
+      const items = FlightBookingSchema.path(
+        array,
+      ) as Schema.Types.DocumentArray;
+      expect(items.schema.path(path).instance).toBe('ObjectId');
+    });
+
+    it('casts a user id given as a string, as ownerFilter passes it', () => {
+      const userId = new Types.ObjectId().toString();
+      const doc = new FlightBookingModel(booking({ userId }));
+      expect(doc.userId).toBeInstanceOf(Types.ObjectId);
+      expect(doc.userId.toString()).toBe(userId);
+    });
+  });
+
+  describe('policy snapshot (FLT-08, FLT-09, PAY-02)', () => {
+    it('accepts an airline that had not defined a policy yet', async () => {
+      const none = policySnapshot({
+        version: 0,
+        extraBagPrice: null,
+        maxExtraBagsPerPassenger: null,
+        cancellationTiers: [],
+      });
+      await expect(
+        errorPaths(booking({ policySnapshot: none, baggage: [] })),
+      ).resolves.toEqual([]);
+    });
+
+    it('requires the snapshot', async () => {
+      await expect(
+        errorPaths(booking({ policySnapshot: undefined })),
+      ).resolves.toEqual(['policySnapshot']);
+    });
+
+    it('rejects a fractional version, a zero bag price and a fractional bag limit', async () => {
+      const bad = policySnapshot({
+        version: 1.5,
+        extraBagPrice: '0',
+        maxExtraBagsPerPassenger: 1.5,
+      });
+      await expect(
+        errorPaths(booking({ policySnapshot: bad })),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          'policySnapshot.version',
+          'policySnapshot.extraBagPrice',
+          'policySnapshot.maxExtraBagsPerPassenger',
+        ]),
+      );
+    });
+
+    it('stores the bag price as Decimal128', () => {
+      expect(
+        FlightBookingSchema.path('policySnapshot.extraBagPrice').instance,
+      ).toBe('Decimal128');
     });
   });
 
@@ -247,6 +335,16 @@ describe('FlightBooking schema (FLT-22)', () => {
       ];
       await expect(errorPaths(booking({ baggage }))).resolves.toEqual([
         'baggage',
+      ]);
+    });
+
+    it('rejects an amount that is not a number', async () => {
+      const passengers = [
+        { ...adult, fareAmount: Types.Decimal128.fromString('NaN') },
+        infant,
+      ];
+      await expect(errorPaths(booking({ passengers }))).resolves.toEqual([
+        'passengers.0.fareAmount',
       ]);
     });
 

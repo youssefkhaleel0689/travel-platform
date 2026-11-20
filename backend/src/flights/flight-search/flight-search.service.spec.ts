@@ -42,7 +42,7 @@ const AIRPORTS: Record<string, AirportDto> = {
 
 function criteria(overrides: Partial<LegCriteria> = {}): LegCriteria {
   return {
-    departureAirportId: 'JFK',
+    departureAirportIds: ['JFK'],
     arrivalAirportIds: ['CAI'],
     departureDate: '2026-11-20',
     dateField: 'departureDate',
@@ -237,7 +237,7 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
     // In Tokyo it is already 2026-11-21, so the 20th is in the past there.
     const error = await failure(
       service.searchLeg(
-        criteria({ departureAirportId: 'NRT', departureDate: '2026-11-20' }),
+        criteria({ departureAirportIds: ['NRT'], departureDate: '2026-11-20' }),
       ),
     );
 
@@ -263,12 +263,73 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
     expect(flightModel.aggregate).toHaveBeenCalledTimes(1);
   });
 
+  // ITN-26 searches back from every airport of a city.
+  it('searches from several departure airports at once', async () => {
+    const { service, flightModel } = setup();
+    await service.searchLeg(
+      criteria({
+        departureAirportIds: ['NRT', 'JFK'],
+        departureDate: '2026-11-20',
+      }),
+    );
+
+    expect(pipelineOf(flightModel)[0]).toMatchObject({
+      $match: { departureAirportId: { $in: ['NRT', 'JFK'] } },
+    });
+  });
+
+  it('refuses a date only when it is past at every departure airport', async () => {
+    const { service, flightModel } = setup();
+    // Past in Tokyo (already the 21st) but still today in New York.
+    await service.searchLeg(
+      criteria({
+        departureAirportIds: ['NRT', 'JFK'],
+        departureDate: '2026-11-20',
+      }),
+    );
+    expect(flightModel.aggregate).toHaveBeenCalledTimes(1);
+
+    const error = await failure(
+      service.searchLeg(
+        criteria({
+          departureAirportIds: ['NRT', 'JFK'],
+          departureDate: '2026-11-19',
+        }),
+      ),
+    );
+    // Named after the airport where "today" is earliest, so the message is true.
+    expect(error.getResponse()).toMatchObject({
+      code: 'DEPARTURE_DATE_IN_PAST',
+      message: 'departureDate must not be before today at JFK',
+    });
+  });
+
+  it('gives each result the local time of the airport it leaves from', async () => {
+    const { service } = setup({
+      matches: [
+        match({
+          departureAirportId: 'NRT',
+          departureAtUtc: new Date('2026-11-22T01:00:00.000Z'),
+        }),
+      ],
+    });
+
+    const [flight] = await service.searchLeg(
+      criteria({
+        departureAirportIds: ['JFK', 'NRT'],
+        departureDate: '2026-11-22',
+      }),
+    );
+
+    expect(flight.departureLocalTime).toBe('2026-11-22T10:00:00+09:00');
+  });
+
   it('puts the error on the field that holds the date (return leg)', async () => {
     const { service } = setup();
     const error = await failure(
       service.searchLeg(
         criteria({
-          departureAirportId: 'NRT',
+          departureAirportIds: ['NRT'],
           arrivalAirportIds: ['JFK'],
           departureDate: '2026-11-19',
           dateField: 'returnDate',
@@ -306,7 +367,7 @@ describe('FlightSearchService.searchLeg (FLT-11)', () => {
 
     expect(pipelineOf(flightModel)[0]).toEqual({
       $match: {
-        departureAirportId: 'JFK',
+        departureAirportId: { $in: ['JFK'] },
         arrivalAirportId: { $in: ['CAI', 'NRT'] },
         departureDateKey: '2026-11-20',
         status: FlightStatus.SCHEDULED,
@@ -495,7 +556,7 @@ describe('FlightSearchService.search (FLT-12)', () => {
 
     expect(searchLeg).toHaveBeenCalledTimes(1);
     expect(searchLeg).toHaveBeenCalledWith({
-      departureAirportId: 'JFK',
+      departureAirportIds: ['JFK'],
       arrivalAirportIds: ['NRT'],
       departureDate: '2026-11-20',
       dateField: 'departureDate',
@@ -529,7 +590,7 @@ describe('FlightSearchService.search (FLT-12)', () => {
 
     expect(searchLeg).toHaveBeenCalledTimes(2);
     expect(searchLeg).toHaveBeenLastCalledWith({
-      departureAirportId: 'NRT',
+      departureAirportIds: ['NRT'],
       arrivalAirportIds: ['JFK'],
       departureDate: '2026-11-27',
       dateField: 'returnDate',

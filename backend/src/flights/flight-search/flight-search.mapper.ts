@@ -1,5 +1,6 @@
 import type { Types } from 'mongoose';
 import { toAirportLocalIso } from '../../common/time/airport-time';
+import { durationMinutes } from '../flights/flight.mapper';
 import type { CabinCategory } from '../schemas/flight.schema';
 import type {
   FlightSearchAirlineDto,
@@ -27,14 +28,6 @@ export interface FlightMatch {
   arrivalAtUtc: Date;
   cabins: CabinMatch[];
   lowestPrice: Types.Decimal128;
-}
-
-const MINUTE_MS = 60_000;
-
-// TODO(FLT-03): use durationMinutes from flights/flight.mapper.ts once Marawan's PR is
-// merged; it is the same function.
-function durationMinutes(departure: Date, arrival: Date): number {
-  return Math.round((arrival.getTime() - departure.getTime()) / MINUTE_MS);
 }
 
 // Fields are listed one by one so the seat counters and airlineId are never exposed.

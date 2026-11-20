@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -25,6 +26,30 @@ function toAirlineDto(doc: Airline): AirlineDto {
     updatedAt: doc.updatedAt.toISOString(),
   };
 }
+
+/**
+ * An airline after an ACC-15 status change: what the admin endpoint reports. Kept apart
+ * from AirlineDto so deactivatedAt does not become part of the public FLT-01 shape.
+ */
+export interface AirlineStatusChange {
+  id: string;
+  name: string;
+  status: AirlineStatus;
+  deactivatedAt: string | null;
+}
+
+function toStatusChange(doc: Airline): AirlineStatusChange {
+  return {
+    id: doc._id.toString(),
+    name: doc.name,
+    status: doc.status,
+    deactivatedAt: doc.deactivatedAt ? doc.deactivatedAt.toISOString() : null,
+  };
+}
+
+// A 24-character hex id. Anything else cannot name an airline, so it is a 404 like a
+// missing one rather than a cast error.
+const OBJECT_ID = /^[0-9a-f]{24}$/i;
 
 function airlineNotFound(): NotFoundException {
   return new NotFoundException({
@@ -151,6 +176,88 @@ export class AirlinesService {
       moderatorId: new Types.ObjectId(moderatorId),
       airlineId: airline,
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Provider status (ACC-15). Called by the admin module from
+  // PATCH /api/admin/providers/airline/:id/deactivate|reactivate, which also writes the
+  // audit log (GEN-07) and sends the notifications. Same rules as HotelsService.
+  // ------------------------------------------------------------------
+
+  /**
+   * ACTIVE -> DEACTIVATED in one conditional update, so two admins cannot both succeed.
+   * 404 AIRLINE_NOT_FOUND for a missing or malformed id, 409 AIRLINE_ALREADY_DEACTIVATED
+   * when it already is. Flights and bookings are not touched: search, details and holds
+   * skip a DEACTIVATED airline, and CONFIRMED bookings stay valid.
+   */
+  async deactivate(airlineId: string): Promise<AirlineStatusChange> {
+    return this.changeStatus(
+      airlineId,
+      AirlineStatus.ACTIVE,
+      { status: AirlineStatus.DEACTIVATED, deactivatedAt: new Date() },
+      new ConflictException({
+        code: 'AIRLINE_ALREADY_DEACTIVATED',
+        message: 'Airline is already deactivated',
+      }),
+    );
+  }
+
+  /** DEACTIVATED -> ACTIVE; 404 as above, 409 AIRLINE_ALREADY_ACTIVE when it already is. */
+  async reactivate(airlineId: string): Promise<AirlineStatusChange> {
+    return this.changeStatus(
+      airlineId,
+      AirlineStatus.DEACTIVATED,
+      { status: AirlineStatus.ACTIVE, deactivatedAt: null },
+      new ConflictException({
+        code: 'AIRLINE_ALREADY_ACTIVE',
+        message: 'Airline is already active',
+      }),
+    );
+  }
+
+  /**
+   * ACC-15: the user ids of the airline's moderators, to notify them. Read-only. The
+   * assignment paths are Mixed (see schema-id-paths.spec.ts), so the id is passed as an
+   * ObjectId: a string would match nothing.
+   */
+  async findModeratorIds(airlineId: string): Promise<string[]> {
+    if (!OBJECT_ID.test(airlineId)) {
+      return [];
+    }
+    const rows = await this.assignmentModel
+      .find({ airlineId: new Types.ObjectId(airlineId) }, { moderatorId: 1 })
+      .lean<Pick<AirlineModeratorAssignment, 'moderatorId'>[]>()
+      .exec();
+    return rows.map((row) => row.moderatorId.toString());
+  }
+
+  private async changeStatus(
+    airlineId: string,
+    from: AirlineStatus,
+    to: Pick<Airline, 'status' | 'deactivatedAt'>,
+    alreadyThere: ConflictException,
+  ): Promise<AirlineStatusChange> {
+    if (!OBJECT_ID.test(airlineId)) {
+      throw airlineNotFound();
+    }
+    const id = new Types.ObjectId(airlineId);
+    const updated = await this.airlineModel
+      .findOneAndUpdate(
+        { _id: id, status: from },
+        { $set: to },
+        { returnDocument: 'after' },
+      )
+      .lean<Airline>()
+      .exec();
+    if (updated) {
+      return toStatusChange(updated);
+    }
+    // Nothing matched: either there is no such airline, or it is already in `to`.
+    const exists = await this.airlineModel.exists({ _id: id }).exec();
+    if (!exists) {
+      throw airlineNotFound();
+    }
+    throw alreadyThere;
   }
 
   // True for an admin, and for a moderator assigned to this airline. Guests and other roles: false.

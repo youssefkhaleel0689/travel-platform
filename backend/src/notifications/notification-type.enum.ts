@@ -15,6 +15,8 @@ export enum NotificationType {
   ACCOUNT_SUSPENDED = 'ACCOUNT_SUSPENDED',
   /** ACC-15: an admin deactivated the hotel or airline. */
   PROVIDER_SUSPENDED = 'PROVIDER_SUSPENDED',
+  /** ACC-15: an admin reactivated the hotel or airline. */
+  PROVIDER_REACTIVATED = 'PROVIDER_REACTIVATED',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);
