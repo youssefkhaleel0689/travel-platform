@@ -8,6 +8,7 @@ import { ModerationState } from '../common/moderation/moderation-state';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { paginateQuery } from '../common/pagination/paginate';
 import { escapeRegExp } from '../common/validation/escape-regexp';
+import { PublicItinerariesService } from '../itineraries/public-itineraries.service';
 import { MediaTargetType } from '../media/media.constants';
 import {
   ImageFile,
@@ -61,6 +62,7 @@ export class PostsService {
     private readonly comments: CommentsService,
     private readonly media: MediaService,
     private readonly users: UsersService,
+    private readonly publicItineraries: PublicItinerariesService,
   ) {}
 
   async create(user: AuthenticatedUser, dto: CreatePostDto): Promise<PostDetailDto> {
@@ -227,6 +229,7 @@ export class PostsService {
     dto.author = authors.get(post.authorId.toString())!;
     dto.tags = post.tags;
     dto.images = images.map(toImageDto);
+    dto.itineraryId = post.itineraryId ? post.itineraryId.toString() : null;
     dto.likeCount = post.likeCount;
     dto.commentCount = post.commentCount;
     if (viewer) {
@@ -272,6 +275,38 @@ export class PostsService {
   ): Promise<void> {
     await this.findOwnedPost(id, user);
     await this.media.removeFromTarget(MediaTargetType.POST, id, imageId);
+  }
+
+  /** BLG-13: attach one of the author's own PUBLIC itineraries. */
+  async attachItinerary(
+    id: string,
+    user: AuthenticatedUser,
+    itineraryId: string,
+  ): Promise<PostDetailDto> {
+    const post = await this.findOwnedPost(id, user);
+    await this.publicItineraries.assertAttachableFor(user.userId, itineraryId);
+    await this.postModel
+      .updateOne(
+        { _id: post._id, ...ownerFilter(user, 'authorId') },
+        { $set: { itineraryId: new Types.ObjectId(itineraryId) } },
+      )
+      .exec();
+    return this.getPost(id, user);
+  }
+
+  /** BLG-13: detach the itinerary without deleting either document. */
+  async detachItinerary(
+    id: string,
+    user: AuthenticatedUser,
+  ): Promise<PostDetailDto> {
+    const post = await this.findOwnedPost(id, user);
+    await this.postModel
+      .updateOne(
+        { _id: post._id, ...ownerFilter(user, 'authorId') },
+        { $set: { itineraryId: null } },
+      )
+      .exec();
+    return this.getPost(id, user);
   }
 
   async openImage(

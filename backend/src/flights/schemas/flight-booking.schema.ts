@@ -49,6 +49,17 @@ const isPositiveDecimal = decimalAtLeast(0, false);
 const isNonNegativeDecimal = decimalAtLeast(0, true);
 const isWholeNumber = (value: number): boolean => Number.isInteger(value);
 
+/** FLT-28: a chosen seat for one passenger on one flight segment. */
+@Schema({ _id: false, versionKey: false })
+export class SeatAssignment {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  passengerId: Types.ObjectId;
+
+  @Prop({ type: String, required: true, match: /^[1-9]\d*[A-F]$/ })
+  seatNumber: string;
+}
+export const SeatAssignmentSchema = SchemaFactory.createForClass(SeatAssignment);
+
 // One flight of the booking with the flight and cabin as they were when it was held.
 // Later price or schedule edits (FLT-05) never change an existing booking.
 @Schema({ _id: false, versionKey: false })
@@ -106,9 +117,43 @@ export class FlightSegment {
 
   @Prop({ type: Number, required: true, min: 0.1 })
   maxBagWeightKg: number;
+
+  // FLT-28: chosen seats for this segment, one per seat-requiring passenger.
+  @Prop({ type: [SeatAssignmentSchema], default: [] })
+  seatAssignments?: SeatAssignment[];
 }
 
 export const FlightSegmentSchema = SchemaFactory.createForClass(FlightSegment);
+
+/** FLT-27: a paid-for flight change waiting for the Stripe webhook/caller. */
+@Schema({ _id: false, versionKey: false })
+export class PendingFlightChange {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  newFlightId: Types.ObjectId;
+
+  // Which segment changes (0 outbound, 1 return) and the new cabin price per
+  // seat agreed when the difference was quoted, so applying the paid change
+  // never re-reads a price that may have moved since.
+  @Prop({ type: Number, required: true, min: 0, max: 1 })
+  segmentIndex: number;
+
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
+  newCabinPrice: Types.Decimal128;
+
+  @Prop({ type: String, required: true })
+  amountDifference: string;
+
+  @Prop({ type: String, required: true, uppercase: true, length: 3 })
+  currency: string;
+
+  @Prop({ type: String, required: true })
+  stripePaymentIntentId: string;
+
+  @Prop({ type: Date, required: true })
+  requestedAt: Date;
+}
+export const PendingFlightChangeSchema =
+  SchemaFactory.createForClass(PendingFlightChange);
 
 // Keeps its own _id so baggage[].passengerId can point to it.
 @Schema({ versionKey: false })
@@ -376,6 +421,10 @@ export class FlightBooking {
     default: BookingStatus.PENDING_PAYMENT,
   })
   status: BookingStatus;
+
+  // FLT-27: set while a fare-difference PaymentIntent is still open.
+  @Prop({ type: PendingFlightChangeSchema, default: null })
+  pendingChange?: PendingFlightChange | null;
 
   // Created + 10 minutes (HOLD_MINUTES). After it, the booking can only become EXPIRED.
   @Prop({ type: Date, required: true })

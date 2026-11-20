@@ -125,6 +125,13 @@ export class PostDetailDto {
   @ApiProperty({ type: [PostImageDto] })
   images: PostImageDto[];
 
+  @ApiPropertyOptional({
+    example: '6720f1c2a1b2c3d4e5f60718',
+    nullable: true,
+    description: 'BLG-13: public itinerary attached to this post, if any',
+  })
+  itineraryId: string | null;
+
   @ApiProperty({ example: 4 })
   likeCount: number;
 
