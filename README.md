@@ -1476,19 +1476,49 @@ await this.refunds.issueForCancellation({
 
 `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` need **no Stripe account**: the placeholders in `.env.example` run the app and the whole test suite, and only a real demonstration of a live payment needs test-mode keys of your own. `npm run test:e2e` does need both set to something (see "Environment variables"). Use test-mode keys only, never a live key.
 
-To demonstrate a payment end to end, forward Stripe's webhooks to the local server and copy the `whsec_` it prints into `.env`:
+To demonstrate a payment end to end against Stripe itself:
+
+**What it needs.** A real Stripe **test-mode** secret key in `backend/.env` (the
+`sk_test_placeholder` from `.env.example` cannot reach Stripe, so payments answer
+503), and the Stripe CLI: `npm install -g @stripe/cli`, Stripe's own package. Sign
+the CLI in with `stripe login`, or give it the key in a `STRIPE_API_KEY`
+environment variable.
+
+**1. Get the webhook signing secret** and put it in `backend/.env` as
+`STRIPE_WEBHOOK_SECRET`, then restart the server:
 
 ~~~
-stripe listen --forward-to localhost:3000/api/payments/webhook
+stripe listen --print-secret
 ~~~
 
-Then confirm the PaymentIntent with a test card, using the `clientSecret` from `POST /api/payments`:
+**2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe payment_intents confirm pi_xxx --payment-method pm_card_visa
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
 ~~~
 
-The booking is confirmed when the webhook arrives, not when the command returns. `POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
+`--events` is not optional any more: current CLIs refuse to start without it
+(`must specify events to forward using --events`). These three are the ones the
+webhook handles.
+
+**3. Pay**, with the `stripePaymentIntentId` that `POST /api/payments` returns:
+
+~~~
+stripe payment_intents confirm pi_xxx --payment-method=pm_card_visa --return-url=https://example.com/return
+~~~
+
+`--return-url` is required too. Our PaymentIntents use automatic payment methods,
+and Stripe refuses to confirm one of those without it (`you must provide a
+return_url`); a card never actually redirects there.
+
+The booking is confirmed when the webhook arrives — the `stripe listen` window
+logs `[200] POST .../api/payments/webhook` — not when the command returns.
+
+**To see a refund as well**, cancel the confirmed booking. A refund is only created
+for a non-zero tier, and a hotel with no cancellation policy refunds 0%, so pick one
+that has tiers and book far enough ahead to be inside one.
+
+`POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
 
 ### Tests
 
