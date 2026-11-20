@@ -239,6 +239,46 @@ describe('AllExceptionsFilter', () => {
       expect(setHeader).not.toHaveBeenCalled();
     });
 
+    it('turns a Mongoose ValidationError into 400 VALIDATION_FAILED with field names only', () => {
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      const invalid = Object.assign(new Error('total: 0 is not > 0'), {
+        name: 'ValidationError',
+        errors: { 'priceSnapshot.total': { message: 'secret-0.00 rejected' } },
+      });
+      const { status, body } = run(invalid);
+      expect(status).toBe(400);
+      expect(body).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        errors: [{ field: 'priceSnapshot.total', messages: ['invalid value'] }],
+      });
+      expect(JSON.stringify(body)).not.toContain('secret-0.00');
+    });
+
+    it('turns a Mongoose VersionError into 409 CONCURRENT_UPDATE', () => {
+      const lost = Object.assign(new Error('No matching document'), {
+        name: 'VersionError',
+      });
+      const { status, body } = run(lost);
+      expect(status).toBe(409);
+      expect(body).toMatchObject({ code: 'CONCURRENT_UPDATE' });
+    });
+
+    it('turns a BSONError (malformed id) into 400 INVALID_ID, not 500', () => {
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      const bson = Object.assign(new Error('input must be a 24 character hex string'), {
+        name: 'BSONError',
+      });
+      const { status, body } = run(bson);
+      expect(status).toBe(400);
+      expect(body).toMatchObject({ code: 'INVALID_ID' });
+    });
+
+    it('names a 413 PAYLOAD_TOO_LARGE', () => {
+      expect(run(new HttpException('request entity too large', 413)).body.code).toBe(
+        'PAYLOAD_TOO_LARGE',
+      );
+    });
+
     it('turns an unknown error into 500 INTERNAL_ERROR without details', () => {
       const unknown = Object.assign(new Error('db password in here'), {
         details: { leaked: true },

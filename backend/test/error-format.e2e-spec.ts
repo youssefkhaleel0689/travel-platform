@@ -303,7 +303,7 @@ describe('API error format (e2e)', () => {
 
     expect(res.body).toEqual({
       statusCode: 503,
-      code: 'HTTP_503',
+      code: 'SERVICE_UNAVAILABLE',
       error: 'Service Unavailable',
       message: 'Payment provider unavailable',
       path: '/api/test/unavailable',
