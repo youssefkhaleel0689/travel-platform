@@ -40,6 +40,11 @@ export class ItineraryBudgetSummaryService {
           cost: a.cost ? moneyText(a.cost) : null,
           currency: a.currency ?? null,
         })),
+        bookingLinks: (d.bookingLinks ?? []).map((link) => ({
+          bookingType: link.bookingType,
+          amount: moneyText(link.amount),
+          currency: link.currency,
+        })),
       })),
       transportCosts: doc.transportCosts.map((t) => ({
         amount: moneyText(t.amount),

@@ -22,6 +22,12 @@ export interface SummaryDayInput {
   city: string;
   budgetEntries: { category: string; amount: string; currency: string }[];
   activities: { cost?: string | null; currency?: string | null }[];
+  // ITN-27: confirmed bookings linked to the day feed the budget.
+  bookingLinks?: {
+    bookingType: string;
+    amount: string;
+    currency: string;
+  }[];
 }
 
 export interface SummaryTransportInput {
@@ -79,6 +85,15 @@ export function computeBudgetSummary(input: {
           convert(activity.cost, activity.currency),
         );
       }
+    }
+    // ITN-27: linked hotel reservations count as accommodation, flights as
+    // intercity transport. The amount is the snapshot taken when linking.
+    for (const link of day.bookingLinks ?? []) {
+      const category: SummaryCategory =
+        link.bookingType === 'HOTEL' ? 'accommodation' : 'intercity_transport';
+      totals[category] = totals[category].plus(
+        convert(link.amount, link.currency),
+      );
     }
   }
   for (const cost of transportCosts) {

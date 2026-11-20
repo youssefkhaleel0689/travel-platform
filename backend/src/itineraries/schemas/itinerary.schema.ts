@@ -89,6 +89,31 @@ export class BudgetEntry {
 }
 export const BudgetEntrySchema = SchemaFactory.createForClass(BudgetEntry);
 
+/** ITN-27: a confirmed booking linked to a day, with its price snapshot. */
+@Schema({ _id: true })
+export class BookingLink {
+  _id: Types.ObjectId;
+
+  @Prop({ required: true, enum: ['FLIGHT', 'HOTEL'] })
+  bookingType: 'FLIGHT' | 'HOTEL';
+
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  bookingId: Types.ObjectId;
+
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
+  amount: Types.Decimal128;
+
+  @Prop({ required: true, uppercase: true, length: 3 })
+  currency: string;
+
+  @Prop({ trim: true, maxlength: 100 })
+  reference?: string;
+
+  @Prop({ trim: true, maxlength: 200 })
+  label?: string;
+}
+export const BookingLinkSchema = SchemaFactory.createForClass(BookingLink);
+
 // A day has no stored number or date: both are derived from its position
 // in `days` and the itinerary startDate, so reorder/delete can never leave
 // them inconsistent.
@@ -107,6 +132,9 @@ export class ItineraryDay {
 
   @Prop({ type: [BudgetEntrySchema], default: [] })
   budgetEntries: BudgetEntry[];
+
+  @Prop({ type: [BookingLinkSchema], default: [] })
+  bookingLinks: BookingLink[];
 }
 export const ItineraryDaySchema = SchemaFactory.createForClass(ItineraryDay);
 

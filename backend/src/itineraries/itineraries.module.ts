@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BookingsModule } from '../common/bookings/bookings.module';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
 import { MediaModule } from '../media/media.module';
@@ -14,6 +15,8 @@ import { DaysService } from './days.service';
 import { ItinerariesController } from './itineraries.controller';
 import { ItinerariesService } from './itineraries.service';
 import { ItineraryBudgetSummaryService } from './itinerary-budget-summary.service';
+import { ItineraryBookingLinksController } from './itinerary-booking-links.controller';
+import { ItineraryBookingLinksService } from './itinerary-booking-links.service';
 import { ItineraryPdfController } from './itinerary-pdf.controller';
 import { ItineraryPdfService } from './itinerary-pdf.service';
 import { PublicItinerariesController } from './public-itineraries.controller';
@@ -25,6 +28,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     MongooseModule.forFeature([
       { name: Itinerary.name, schema: ItinerarySchema },
     ]),
+    BookingsModule,
     ExchangeRatesModule,
     ReferenceDataModule,
     // ITN-12: activity images through the shared media store (GEN-08).
@@ -39,6 +43,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     BudgetSummaryController,
     PublicItinerariesController,
     ItineraryPdfController,
+    ItineraryBookingLinksController,
   ],
   providers: [
     ItinerariesService,
@@ -48,6 +53,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     ItineraryBudgetSummaryService,
     PublicItinerariesService,
     ItineraryPdfService,
+    ItineraryBookingLinksService,
   ],
   exports: [ItinerariesService, PublicItinerariesService],
 })
