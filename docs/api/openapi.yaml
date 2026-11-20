@@ -29,6 +29,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -277,6 +278,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -691,7 +693,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponseDto'
               example:
                 statusCode: 413
-                code: HTTP_413
+                code: PAYLOAD_TOO_LARGE
                 error: Payload Too Large
                 message: File too large
                 path: /api/hotels/6720f1c2a1b2c3d4e5f60718/photos
@@ -860,6 +862,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -919,6 +922,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -966,6 +970,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -1019,6 +1024,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -1151,6 +1157,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -2273,6 +2280,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -2569,6 +2577,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -3111,6 +3120,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -3715,6 +3725,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -5160,6 +5171,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -5649,6 +5661,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -5829,6 +5842,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -5998,6 +6012,157 @@ paths:
       summary: Search flights, one-way or round trip (FLT-11, FLT-12, FLT-15)
       tags:
         - Flights
+  /api/admin/audit-logs:
+    get:
+      description: 'Newest first, pages of 10 (GEN-05). Suspensions, reactivations, password resets, moderator creation, provider deactivation and every moderation decision (hide, restore, delete, dismiss) are recorded. Read-only: rows can never be changed or removed.'
+      operationId: AuditLogsController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            maximum: 100000
+            default: 1
+            example: 1
+            type: integer
+        - name: action
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - ACCOUNT_SUSPENDED
+              - ACCOUNT_REACTIVATED
+              - ACCOUNT_PASSWORD_RESET
+              - MODERATOR_CREATED
+              - PROVIDER_DEACTIVATED
+              - PROVIDER_REACTIVATED
+              - CONTENT_HIDDEN
+              - CONTENT_RESTORED
+              - CONTENT_DELETED
+              - REPORT_DISMISSED
+              - FLIGHT_CANCELLED
+        - name: entityType
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - ACCOUNT
+              - HOTEL
+              - AIRLINE
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+              - REPORT
+              - FLIGHT
+        - name: entityId
+          required: false
+          in: query
+          description: Only rows about this post, comment, account, ...
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: actorId
+          required: false
+          in: query
+          description: Only rows written by this admin
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60701
+            type: string
+        - name: from
+          required: false
+          in: query
+          description: Only rows at or after this instant (ISO 8601)
+          schema:
+            format: date-time
+            example: '2026-11-01T00:00:00.000Z'
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: Only rows at or before this instant (ISO 8601)
+          schema:
+            format: date-time
+            example: '2026-11-30T23:59:59.999Z'
+            type: string
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: action
+                    messages:
+                      - 'action must be one of the following values: ...'
+                path: /api/admin/audit-logs
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/audit-logs
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/audit-logs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/audit-logs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List the audit log of admin actions (GEN-07)
+      tags:
+        - Administration
   /api/flight-bookings/hold:
     post:
       description: Same body as the summary. In one transaction it checks and prices the request again, holds a seat per adult and child on every segment and creates the booking in PENDING_PAYMENT with holdExpiresAt 10 minutes ahead. If any segment is full, no seat is held at all. Then accept the policies (GET and POST /api/bookings/flight/{id}/policies) and pay (POST /api/payments). An unpaid hold expires and its seats are released.
@@ -6354,1082 +6519,71 @@ paths:
       summary: Download the e-ticket of a confirmed booking (FLT-23)
       tags:
         - Flight bookings
-  /api/admin/accounts:
-    get:
-      description: Pages of 10, newest registration first (GEN-05). search matches a fragment of the name or the email, case-insensitively and literally; role and status narrow the list further.
-      operationId: AdminAccountsController_listAccounts
-      parameters:
-        - name: page
-          required: false
-          in: query
-          description: Page number, starting at 1. Page size is fixed at 10.
-          schema:
-            minimum: 1
-            default: 1
-            example: 1
-            type: integer
-        - name: search
-          required: false
-          in: query
-          description: 'Case-insensitive fragment of the name or the email. Matched literally: regular-expression characters have no special meaning.'
-          schema:
-            example: taher
-            type: string
-        - name: role
-          required: false
-          in: query
-          schema:
-            type: string
-            enum:
-              - USER
-              - ADMIN
-              - AIRLINE_MODERATOR
-              - HOTEL_MODERATOR
-        - name: status
-          required: false
-          in: query
-          schema:
-            type: string
-            enum:
-              - ACTIVE
-              - SUSPENDED
-              - DEACTIVATED
-      responses:
-        '200':
-          description: A page of results (page size 10).
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageDto'
-                  - type: object
-                    properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/AdminAccountDto'
-        '400':
-          description: Bad page, unknown role or status, or unknown query parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Bad page, unknown role or status, or unknown query parameter
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: List every account (ACC-14)
-      tags:
-        - Administration
-  /api/admin/accounts/{id}/suspend:
+  /api/flight-bookings/{id}/seat:
     patch:
-      description: The account can no longer sign in and its open sessions end at once, while its existing bookings stay valid. The owner gets an in-app notification (GEN-01). Suspending twice changes nothing.
-      operationId: AdminAccountsController_suspend
+      description: Seat labels are row + letter A-F (for example 12A). The row must fit the booked cabin and the seat must not be taken by another confirmed booking on the same flight.
+      operationId: SeatSelectionController_select
       parameters:
         - name: id
           required: true
           in: path
           schema:
-            example: 6720f1c2a1b2c3d4e5f60718
             type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminAccountDto'
-        '400':
-          description: Own account, or an account its owner deactivated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Own account, or an account its owner deactivated
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No such account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 404
-                code: NOT_FOUND
-                error: Not Found
-                message: Account not found
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: Suspend an account (ACC-16, ACC-15)
-      tags:
-        - Administration
-  /api/admin/accounts/{id}/reactivate:
-    patch:
-      description: The account can sign in again, and any login lockout is cleared. An account its owner deactivated (ACC-12) cannot be reactivated here.
-      operationId: AdminAccountsController_reactivate
-      parameters:
-        - name: id
-          required: true
-          in: path
-          schema:
-            example: 6720f1c2a1b2c3d4e5f60718
-            type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminAccountDto'
-        '400':
-          description: Own account, or an account its owner deactivated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Own account, or an account its owner deactivated
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No such account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 404
-                code: NOT_FOUND
-                error: Not Found
-                message: Account not found
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: Reactivate a suspended account (ACC-16, ACC-15)
-      tags:
-        - Administration
-  /api/admin/users/{id}/reset-password:
-    post:
-      description: Returns the temporary password once; it is stored only as a hash and is never shown again. Every session of the account ends, and until it sets its own password the only endpoint it can reach is PATCH /api/auth/change-password.
-      operationId: AdminAccountsController_resetPassword
-      parameters:
-        - name: id
-          required: true
-          in: path
-          schema:
-            example: 6720f1c2a1b2c3d4e5f60718
-            type: string
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TemporaryPasswordDto'
-        '400':
-          description: Own account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Own account
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/accounts
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No such account
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 404
-                code: NOT_FOUND
-                error: Not Found
-                message: Account not found
-                path: /api/admin/accounts
-                timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: Reset an account's password to a temporary one (ACC-07a)
-      tags:
-        - Administration
-  /api/admin/bookings:
-    get:
-      description: 'Pages of 10, newest booking first (GEN-05). Flight bookings and hotel reservations live in two collections owned by two modules; both are read through the shared BookingsPort, which both implement, and merged into one page. A module whose port did not implement the optional listForAdmin would simply be absent, and this route would still answer a page, never a 501. type, status, the from/to day range (the day each booking was made, in UTC) and the exact booking reference narrow the list. Read-only: a booking is cancelled through the module that owns it.'
-      operationId: AdminBookingsController_listBookings
-      parameters:
-        - name: page
-          required: false
-          in: query
-          description: Page number, starting at 1. Page size is fixed at 10.
-          schema:
-            minimum: 1
-            default: 1
-            example: 1
-            type: integer
-        - name: type
-          required: false
-          in: query
-          description: Only flight bookings or only hotel reservations.
-          schema:
-            type: string
-            enum:
-              - FLIGHT
-              - HOTEL
-        - name: status
-          required: false
-          in: query
-          description: The GEN-11 lifecycle state of the booking.
-          schema:
-            type: string
-            enum:
-              - PENDING_PAYMENT
-              - CONFIRMED
-              - COMPLETED
-              - EXPIRED
-              - CANCELLED
-        - name: from
-          required: false
-          in: query
-          description: First day of the range, in UTC. Bookings made on this day are included.
-          schema:
-            example: '2026-11-01'
-            type: string
-        - name: to
-          required: false
-          in: query
-          description: Last day of the range, in UTC. The whole day is included, so from and to may name the same day.
-          schema:
-            example: '2026-11-30'
-            type: string
-        - name: reference
-          required: false
-          in: query
-          description: 'The exact booking reference, which a confirmed booking carries. Case is ignored; an unpaid booking has none and can never match. Both shapes in use are covered: a 6-character flight reference (K7M2QX) and a hotel one (HTL-8F2A19C04B).'
-          schema:
-            example: K7M2QX
-            type: string
-      responses:
-        '200':
-          description: A page of results (page size 10).
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageDto'
-                  - type: object
-                    properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/AdminBookingDto'
-        '400':
-          description: Bad page, unknown type or status, a day that is not YYYY-MM-DD, a bad reference, or an unknown query parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                VALIDATION_FAILED:
-                  summary: Validation failed
-                  value:
-                    statusCode: 400
-                    code: VALIDATION_FAILED
-                    error: Bad Request
-                    message: Validation failed
-                    path: /api/admin/bookings
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                INVALID_DATE_RANGE:
-                  summary: from must not be later than to
-                  value:
-                    statusCode: 400
-                    code: INVALID_DATE_RANGE
-                    error: Bad Request
-                    message: from must not be later than to
-                    path: /api/admin/bookings
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/bookings
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/bookings
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/bookings
-                    timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: List every flight and hotel booking (ACC-17)
-      tags:
-        - Administration
-  /api/admin/moderators:
-    post:
-      description: 'Creates the account and links it to exactly one airline or hotel, which must already exist and must not be deactivated. Name it with airlineId when role is AIRLINE_MODERATOR, or with hotelId when role is HOTEL_MODERATOR; sending the id that does not match the role is a 400. The temporary password is returned once: either the one sent in the body or, if none was sent, a generated one. Until the moderator replaces it through PATCH /api/auth/change-password, every other endpoint answers 403 PASSWORD_CHANGE_REQUIRED (ACC-07a).'
-      operationId: AdminModeratorsController_create
-      parameters: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateModeratorDto'
-            examples:
-              airline:
-                summary: Airline moderator
-                value:
-                  name: Omar Fathy
-                  email: omar@airline.example.com
-                  role: AIRLINE_MODERATOR
-                  airlineId: 6720f1c2a1b2c3d4e5f60718
-                  password: Welcome2026
-              hotel:
-                summary: Hotel moderator
-                value:
-                  name: Omar Fathy
-                  email: omar@hotel.example.com
-                  role: HOTEL_MODERATOR
-                  hotelId: 6720f1c2a1b2c3d4e5f60718
-                  password: Welcome2026
+              $ref: '#/components/schemas/SelectSeatsDto'
       responses:
-        '201':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModeratorCreatedDto'
-        '400':
-          description: Invalid body, unknown field, a role other than the two moderator roles, a provider id that does not match the role, or a deactivated provider
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                VALIDATION_FAILED:
-                  summary: Validation failed
-                  value:
-                    statusCode: 400
-                    code: VALIDATION_FAILED
-                    error: Bad Request
-                    message: Validation failed
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PROVIDER_DEACTIVATED:
-                  summary: This airline is deactivated and cannot be given a moderator
-                  value:
-                    statusCode: 400
-                    code: PROVIDER_DEACTIVATED
-                    error: Bad Request
-                    message: This airline is deactivated and cannot be given a moderator
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/moderators
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No airline has that airlineId, or no hotel has that hotelId
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                AIRLINE_NOT_FOUND:
-                  summary: Airline not found
-                  value:
-                    statusCode: 404
-                    code: AIRLINE_NOT_FOUND
-                    error: Not Found
-                    message: Airline not found
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                HOTEL_NOT_FOUND:
-                  summary: Hotel not found
-                  value:
-                    statusCode: 404
-                    code: HOTEL_NOT_FOUND
-                    error: Not Found
-                    message: Hotel not found
-                    path: /api/admin/moderators
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '409':
-          description: The email is already registered
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 409
-                code: EMAIL_ALREADY_REGISTERED
-                error: Conflict
-                message: email is already registered
-                path: /api/admin/moderators
-                timestamp: '2026-11-12T10:00:00.000Z'
+        '200':
+          description: The seats assigned to the segment
       security:
         - cookie: []
-      summary: Create an airline or hotel moderator account (ACC-13)
+      summary: Choose seats on one segment of a confirmed booking (FLT-28)
       tags:
-        - Administration
-  /api/admin/providers/{type}/{id}/deactivate:
+        - Flight bookings - Seats
+  /api/flight-bookings/{id}/change-flight:
     patch:
-      description: Its listings are hidden from search and cannot be booked; existing CONFIRMED bookings stay valid and are not changed. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
-      operationId: AdminProvidersController_deactivate
+      description: Same route and cabin, subject to seat availability. A higher fare opens a Stripe PaymentIntent for the difference; a lower fare is refunded and the change is applied immediately.
+      operationId: ChangeFlightController_request
       parameters:
-        - name: type
-          required: true
-          in: path
-          description: Which kind of provider the id names
-          schema:
-            enum:
-              - hotel
-              - airline
-            type: string
-            example: hotel
         - name: id
           required: true
           in: path
-          description: The hotel or airline id
           schema:
-            example: 6720f1c2a1b2c3d4e5f60788
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeFlightDto'
       responses:
         '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminProviderStatusDto'
-        '400':
-          description: type is not hotel or airline
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Validation failed
-                errors:
-                  - field: type
-                    messages:
-                      - type must be hotel or airline
-                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/deactivate
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No hotel or airline with this id, or a malformed id
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                HOTEL_NOT_FOUND:
-                  summary: Hotel not found
-                  value:
-                    statusCode: 404
-                    code: HOTEL_NOT_FOUND
-                    error: Not Found
-                    message: Hotel not found
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                AIRLINE_NOT_FOUND:
-                  summary: Airline not found
-                  value:
-                    statusCode: 404
-                    code: AIRLINE_NOT_FOUND
-                    error: Not Found
-                    message: Airline not found
-                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '409':
-          description: The provider is already deactivated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                HOTEL_ALREADY_DEACTIVATED:
-                  summary: Hotel is already deactivated
-                  value:
-                    statusCode: 409
-                    code: HOTEL_ALREADY_DEACTIVATED
-                    error: Conflict
-                    message: Hotel is already deactivated
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                AIRLINE_ALREADY_DEACTIVATED:
-                  summary: Airline is already deactivated
-                  value:
-                    statusCode: 409
-                    code: AIRLINE_ALREADY_DEACTIVATED
-                    error: Conflict
-                    message: Airline is already deactivated
-                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
+          description: Either the applied change or a payment intent
       security:
         - cookie: []
-      summary: Deactivate a hotel or an airline (ACC-15)
+      summary: Change a confirmed flight to another flight on the same route (FLT-27)
       tags:
-        - Administration
-  /api/admin/providers/{type}/{id}/reactivate:
-    patch:
-      description: Its listings can be searched and booked again. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
-      operationId: AdminProvidersController_reactivate
+        - Flight bookings - Change
+  /api/flight-bookings/{id}/change-flight/apply:
+    post:
+      operationId: ChangeFlightController_apply
       parameters:
-        - name: type
-          required: true
-          in: path
-          description: Which kind of provider the id names
-          schema:
-            enum:
-              - hotel
-              - airline
-            type: string
-            example: hotel
         - name: id
           required: true
           in: path
-          description: The hotel or airline id
           schema:
-            example: 6720f1c2a1b2c3d4e5f60788
             type: string
       responses:
         '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AdminProviderStatusDto'
-        '400':
-          description: type is not hotel or airline
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Validation failed
-                errors:
-                  - field: type
-                    messages:
-                      - type must be hotel or airline
-                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/reactivate
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '404':
-          description: No hotel or airline with this id, or a malformed id
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                HOTEL_NOT_FOUND:
-                  summary: Hotel not found
-                  value:
-                    statusCode: 404
-                    code: HOTEL_NOT_FOUND
-                    error: Not Found
-                    message: Hotel not found
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                AIRLINE_NOT_FOUND:
-                  summary: Airline not found
-                  value:
-                    statusCode: 404
-                    code: AIRLINE_NOT_FOUND
-                    error: Not Found
-                    message: Airline not found
-                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-        '409':
-          description: The provider is already active
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                HOTEL_ALREADY_ACTIVE:
-                  summary: Hotel is already active
-                  value:
-                    statusCode: 409
-                    code: HOTEL_ALREADY_ACTIVE
-                    error: Conflict
-                    message: Hotel is already active
-                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                AIRLINE_ALREADY_ACTIVE:
-                  summary: Airline is already active
-                  value:
-                    statusCode: 409
-                    code: AIRLINE_ALREADY_ACTIVE
-                    error: Conflict
-                    message: Airline is already active
-                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
-                    timestamp: '2026-11-12T10:00:00.000Z'
+          description: The applied change
       security:
         - cookie: []
-      summary: Reactivate a hotel or an airline (ACC-15)
+      summary: Apply a paid flight change after Stripe confirms the fare difference (FLT-27)
       tags:
-        - Administration
-  /api/admin/audit-logs:
-    get:
-      description: 'Newest first, pages of 10 (GEN-05). Suspensions, reactivations, password resets, moderator creation, provider deactivation and every moderation decision (hide, restore, delete, dismiss) are recorded. Read-only: rows can never be changed or removed.'
-      operationId: AuditLogsController_list
-      parameters:
-        - name: page
-          required: false
-          in: query
-          description: Page number, starting at 1. Page size is fixed at 10.
-          schema:
-            minimum: 1
-            default: 1
-            example: 1
-            type: integer
-        - name: action
-          required: false
-          in: query
-          schema:
-            type: string
-            enum:
-              - ACCOUNT_SUSPENDED
-              - ACCOUNT_REACTIVATED
-              - ACCOUNT_PASSWORD_RESET
-              - MODERATOR_CREATED
-              - PROVIDER_DEACTIVATED
-              - PROVIDER_REACTIVATED
-              - CONTENT_HIDDEN
-              - CONTENT_RESTORED
-              - CONTENT_DELETED
-              - REPORT_DISMISSED
-        - name: entityType
-          required: false
-          in: query
-          schema:
-            type: string
-            enum:
-              - ACCOUNT
-              - HOTEL
-              - AIRLINE
-              - POST
-              - COMMENT
-              - REVIEW
-              - ITINERARY
-              - REPORT
-        - name: entityId
-          required: false
-          in: query
-          description: Only rows about this post, comment, account, ...
-          schema:
-            example: 6720f1c2a1b2c3d4e5f60718
-            type: string
-        - name: actorId
-          required: false
-          in: query
-          description: Only rows written by this admin
-          schema:
-            example: 6720f1c2a1b2c3d4e5f60701
-            type: string
-        - name: from
-          required: false
-          in: query
-          description: Only rows at or after this instant (ISO 8601)
-          schema:
-            format: date-time
-            example: '2026-11-01T00:00:00.000Z'
-            type: string
-        - name: to
-          required: false
-          in: query
-          description: Only rows at or before this instant (ISO 8601)
-          schema:
-            format: date-time
-            example: '2026-11-30T23:59:59.999Z'
-            type: string
-      responses:
-        '200':
-          description: A page of results (page size 10).
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/PageDto'
-                  - type: object
-                    properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/AuditLogDto'
-        '400':
-          description: Validation failed, with one entry per invalid field
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 400
-                code: VALIDATION_FAILED
-                error: Bad Request
-                message: Validation failed
-                errors:
-                  - field: action
-                    messages:
-                      - 'action must be one of the following values: ...'
-                path: /api/admin/audit-logs
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '401':
-          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 401
-                code: UNAUTHENTICATED
-                error: Unauthorized
-                message: Authentication required
-                path: /api/admin/audit-logs
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              examples:
-                FORBIDDEN:
-                  summary: You do not have permission to do this
-                  value:
-                    statusCode: 403
-                    code: FORBIDDEN
-                    error: Forbidden
-                    message: You do not have permission to do this
-                    path: /api/admin/audit-logs
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                PASSWORD_CHANGE_REQUIRED:
-                  summary: A new password must be set before continuing
-                  value:
-                    statusCode: 403
-                    code: PASSWORD_CHANGE_REQUIRED
-                    error: Forbidden
-                    message: A new password must be set before continuing
-                    path: /api/admin/audit-logs
-                    timestamp: '2026-11-12T10:00:00.000Z'
-      security:
-        - cookie: []
-      summary: List the audit log of admin actions (GEN-07)
-      tags:
-        - Administration
+        - Flight bookings - Change
   /api/bookings/{type}/{id}/policies:
     get:
       description: The terms this booking carries, taken when it was created, so a later provider edit never changes them. An airline sends its baggage rules and cancellation tiers; a hotel sends its cancellation tiers and its check-in and check-out times. accepted says whether these exact terms have already been accepted.
@@ -8080,6 +7234,936 @@ paths:
       summary: Refund status (PAY-03)
       tags:
         - Payments and policies
+  /api/admin/accounts:
+    get:
+      description: Pages of 10, newest registration first (GEN-05). search matches a fragment of the name or the email, case-insensitively and literally; role and status narrow the list further.
+      operationId: AdminAccountsController_listAccounts
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            maximum: 100000
+            default: 1
+            example: 1
+            type: integer
+        - name: search
+          required: false
+          in: query
+          description: 'Case-insensitive fragment of the name or the email. Matched literally: regular-expression characters have no special meaning.'
+          schema:
+            example: taher
+            type: string
+        - name: role
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - USER
+              - ADMIN
+              - AIRLINE_MODERATOR
+              - HOTEL_MODERATOR
+        - name: status
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - ACTIVE
+              - SUSPENDED
+              - DEACTIVATED
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminAccountDto'
+        '400':
+          description: Bad page, unknown role or status, or unknown query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Bad page, unknown role or status, or unknown query parameter
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List every account (ACC-14)
+      tags:
+        - Administration
+  /api/admin/accounts/{id}/suspend:
+    patch:
+      description: The account can no longer sign in and its open sessions end at once, while its existing bookings stay valid. The owner gets an in-app notification (GEN-01). Suspending twice changes nothing.
+      operationId: AdminAccountsController_suspend
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccountDto'
+        '400':
+          description: Own account, or an account its owner deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Own account, or an account its owner deactivated
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: NOT_FOUND
+                error: Not Found
+                message: Account not found
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Suspend an account (ACC-16, ACC-15)
+      tags:
+        - Administration
+  /api/admin/accounts/{id}/reactivate:
+    patch:
+      description: The account can sign in again, and any login lockout is cleared. An account its owner deactivated (ACC-12) cannot be reactivated here.
+      operationId: AdminAccountsController_reactivate
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccountDto'
+        '400':
+          description: Own account, or an account its owner deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Own account, or an account its owner deactivated
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: NOT_FOUND
+                error: Not Found
+                message: Account not found
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Reactivate a suspended account (ACC-16, ACC-15)
+      tags:
+        - Administration
+  /api/admin/users/{id}/reset-password:
+    post:
+      description: Returns the temporary password once; it is stored only as a hash and is never shown again. Every session of the account ends, and until it sets its own password the only endpoint it can reach is PATCH /api/auth/change-password.
+      operationId: AdminAccountsController_resetPassword
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporaryPasswordDto'
+        '400':
+          description: Own account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Own account
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/accounts
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: NOT_FOUND
+                error: Not Found
+                message: Account not found
+                path: /api/admin/accounts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Reset an account's password to a temporary one (ACC-07a)
+      tags:
+        - Administration
+  /api/admin/bookings:
+    get:
+      description: 'Pages of 10, newest booking first (GEN-05). Flight bookings and hotel reservations live in two collections owned by two modules; both are read through the shared BookingsPort, which both implement, and merged into one page. A module whose port did not implement the optional listForAdmin would simply be absent, and this route would still answer a page, never a 501. type, status, the from/to day range (the day each booking was made, in UTC) and the exact booking reference narrow the list. Read-only: a booking is cancelled through the module that owns it.'
+      operationId: AdminBookingsController_listBookings
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            maximum: 100000
+            default: 1
+            example: 1
+            type: integer
+        - name: type
+          required: false
+          in: query
+          description: Only flight bookings or only hotel reservations.
+          schema:
+            type: string
+            enum:
+              - FLIGHT
+              - HOTEL
+        - name: status
+          required: false
+          in: query
+          description: The GEN-11 lifecycle state of the booking.
+          schema:
+            type: string
+            enum:
+              - PENDING_PAYMENT
+              - CONFIRMED
+              - COMPLETED
+              - EXPIRED
+              - CANCELLED
+        - name: from
+          required: false
+          in: query
+          description: First day of the range, in UTC. Bookings made on this day are included.
+          schema:
+            example: '2026-11-01'
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: Last day of the range, in UTC. The whole day is included, so from and to may name the same day.
+          schema:
+            example: '2026-11-30'
+            type: string
+        - name: reference
+          required: false
+          in: query
+          description: 'The exact booking reference, which a confirmed booking carries. Case is ignored; an unpaid booking has none and can never match. Both shapes in use are covered: a 6-character flight reference (K7M2QX) and a hotel one (HTL-8F2A19C04B).'
+          schema:
+            example: K7M2QX
+            type: string
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminBookingDto'
+        '400':
+          description: Bad page, unknown type or status, a day that is not YYYY-MM-DD, a bad reference, or an unknown query parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_DATE_RANGE:
+                  summary: from must not be later than to
+                  value:
+                    statusCode: 400
+                    code: INVALID_DATE_RANGE
+                    error: Bad Request
+                    message: from must not be later than to
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List every flight and hotel booking (ACC-17)
+      tags:
+        - Administration
+  /api/admin/moderators:
+    post:
+      description: 'Creates the account and links it to exactly one airline or hotel, which must already exist and must not be deactivated. Name it with airlineId when role is AIRLINE_MODERATOR, or with hotelId when role is HOTEL_MODERATOR; sending the id that does not match the role is a 400. The temporary password is returned once: either the one sent in the body or, if none was sent, a generated one. Until the moderator replaces it through PATCH /api/auth/change-password, every other endpoint answers 403 PASSWORD_CHANGE_REQUIRED (ACC-07a).'
+      operationId: AdminModeratorsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModeratorDto'
+            examples:
+              airline:
+                summary: Airline moderator
+                value:
+                  name: Omar Fathy
+                  email: omar@airline.example.com
+                  role: AIRLINE_MODERATOR
+                  airlineId: 6720f1c2a1b2c3d4e5f60718
+                  password: Welcome2026
+              hotel:
+                summary: Hotel moderator
+                value:
+                  name: Omar Fathy
+                  email: omar@hotel.example.com
+                  role: HOTEL_MODERATOR
+                  hotelId: 6720f1c2a1b2c3d4e5f60718
+                  password: Welcome2026
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModeratorCreatedDto'
+        '400':
+          description: Invalid body, unknown field, a role other than the two moderator roles, a provider id that does not match the role, or a deactivated provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PROVIDER_DEACTIVATED:
+                  summary: This airline is deactivated and cannot be given a moderator
+                  value:
+                    statusCode: 400
+                    code: PROVIDER_DEACTIVATED
+                    error: Bad Request
+                    message: This airline is deactivated and cannot be given a moderator
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/moderators
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No airline has that airlineId, or no hotel has that hotelId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/moderators
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The email is already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: EMAIL_ALREADY_REGISTERED
+                error: Conflict
+                message: email is already registered
+                path: /api/admin/moderators
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Create an airline or hotel moderator account (ACC-13)
+      tags:
+        - Administration
+  /api/admin/providers/{type}/{id}/deactivate:
+    patch:
+      description: Its listings are hidden from search and cannot be booked; existing CONFIRMED bookings stay valid and are not changed. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_deactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_DEACTIVATED:
+                  summary: Hotel is already deactivated
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Hotel is already deactivated
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_DEACTIVATED:
+                  summary: Airline is already deactivated
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Airline is already deactivated
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Deactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
+  /api/admin/providers/{type}/{id}/reactivate:
+    patch:
+      description: Its listings can be searched and booked again. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_reactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_ACTIVE:
+                  summary: Hotel is already active
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Hotel is already active
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_ACTIVE:
+                  summary: Airline is already active
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Airline is already active
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Reactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
   /api/itineraries:
     post:
       description: Creates a private itinerary owned by the logged-in user. Countries must be seeded country codes.
@@ -8167,6 +8251,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -10152,6 +10237,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -10399,6 +10485,230 @@ paths:
       summary: Clone a public itinerary into my own private copy, keeping attribution (ITN-21)
       tags:
         - Itineraries - Public
+  /api/itineraries/{id}/pdf:
+    get:
+      description: Owner only. The document includes the days, city groups, transport costs and the budget converted to the requested display currency.
+      operationId: ItineraryPdfController_export
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: currency
+          required: true
+          in: query
+          description: 'Display currency: one of the seeded currencies (GET /api/currencies); others give 400 UNSUPPORTED_CURRENCY'
+          schema:
+            example: EGP
+            type: string
+      responses:
+        '200':
+          description: The itinerary, downloaded as itinerary-<title>.pdf
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/{id}/pdf
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/{id}/pdf
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/{id}/pdf
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '503':
+          description: 'FXRatesAPI is unreachable and no rates were ever cached (ITN-18); with cached rates the answer is 200 with stale: true'
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 503
+                code: EXCHANGE_RATES_UNAVAILABLE
+                error: Service Unavailable
+                message: Exchange rates are currently unavailable. Please try again later.
+                path: /api/exchange-rates
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+        - cookie: []
+      summary: Export your itinerary as a PDF (ITN-28)
+      tags:
+        - Itineraries - Export
+  /api/itineraries/{id}/days/{dayId}/bookings:
+    post:
+      description: The booking must be yours and CONFIRMED or COMPLETED. Its total is snapshotted into the day and counted in the budget (hotel as accommodation, flight as intercity transport).
+      operationId: ItineraryBookingLinksController_link
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkBookingDto'
+      responses:
+        '200':
+          description: The updated itinerary
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+        - cookie: []
+      summary: Link a confirmed flight or hotel booking to an itinerary day (ITN-27)
+      tags:
+        - Itineraries - Bookings
+  /api/itineraries/{id}/days/{dayId}/bookings/{bookingType}/{bookingId}:
+    delete:
+      operationId: ItineraryBookingLinksController_unlink
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: dayId
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: bookingType
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated itinerary
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/{id}/days/{dayId}/bookings
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+        - cookie: []
+      summary: Unlink a booking from an itinerary day (ITN-27)
+      tags:
+        - Itineraries - Bookings
   /api/exchange-rates:
     get:
       description: 'Open to guests: rates are not private. The backend fetches FXRatesAPI at most once a day and caches the answer; the API key never leaves the server.'
@@ -10443,6 +10753,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -10701,6 +11012,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -10786,6 +11098,9 @@ paths:
                       - field: guestCount
                         messages:
                           - guestCount must not be less than 1
+                      - field: checkInDate
+                        messages:
+                          - checkInDate cannot be in the past
                     path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
                     timestamp: '2026-11-12T10:00:00.000Z'
                 UNKNOWN_CITY_GROUP:
@@ -10795,15 +11110,6 @@ paths:
                     code: UNKNOWN_CITY_GROUP
                     error: Bad Request
                     message: 'cityGroup must be between 1 and 2: this itinerary has 2 city groups'
-                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
-                    timestamp: '2026-11-12T10:00:00.000Z'
-                BAD_REQUEST:
-                  summary: checkInDate cannot be in the past
-                  value:
-                    statusCode: 400
-                    code: BAD_REQUEST
-                    error: Bad Request
-                    message: checkInDate cannot be in the past
                     path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
                     timestamp: '2026-11-12T10:00:00.000Z'
         '401':
@@ -10863,6 +11169,126 @@ paths:
       summary: Search hotels for one of the itinerary's city groups (ITN-25)
       tags:
         - Itineraries
+  /api/favourites/hotels/{hotelId}:
+    post:
+      operationId: FavouritesController_saveHotel
+      parameters:
+        - name: hotelId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavouriteDto'
+      security:
+        - cookie: []
+      summary: Save a hotel to your favourites (BON-02)
+      tags:
+        - Favourites (BON-02)
+    delete:
+      operationId: FavouritesController_removeHotel
+      parameters:
+        - name: hotelId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavouriteDto'
+      security:
+        - cookie: []
+      summary: Remove a hotel from your favourites (BON-02)
+      tags:
+        - Favourites (BON-02)
+  /api/favourites/itineraries/{itineraryId}:
+    post:
+      operationId: FavouritesController_saveItinerary
+      parameters:
+        - name: itineraryId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavouriteDto'
+      security:
+        - cookie: []
+      summary: Save a PUBLIC itinerary to your favourites (BON-02)
+      tags:
+        - Favourites (BON-02)
+    delete:
+      operationId: FavouritesController_removeItinerary
+      parameters:
+        - name: itineraryId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavouriteDto'
+      security:
+        - cookie: []
+      summary: Remove an itinerary from your favourites (BON-02)
+      tags:
+        - Favourites (BON-02)
+  /api/favourites:
+    get:
+      description: Newest first, 10 per page. Optional type filter. /api/favourites
+      operationId: FavouritesController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            maximum: 100000
+            default: 1
+            example: 1
+            type: integer
+        - name: type
+          required: false
+          in: query
+          description: Only hotels or only itineraries
+          schema:
+            type: string
+            enum:
+              - HOTEL
+              - ITINERARY
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FavouriteDto'
+      security:
+        - cookie: []
+      summary: List your favourite hotels and itineraries (BON-02)
+      tags:
+        - Favourites (BON-02)
   /api/posts:
     post:
       description: Title and body are required; up to 5 tags. Add images afterwards with POST /api/posts/{id}/images (BLG-10).
@@ -10942,6 +11368,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -11004,6 +11431,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -11259,6 +11687,156 @@ paths:
       summary: Delete your post (BLG-04)
       tags:
         - Blog
+  /api/posts/{id}/itinerary:
+    patch:
+      description: Only the post author may do this, and the itinerary must be PUBLIC, not hidden and owned by the same account. Use DELETE /api/posts/{id}/itinerary to detach it.
+      operationId: PostsController_attachItinerary
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachItineraryDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostDetailDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: itineraryId
+                    messages:
+                      - itineraryId must be a MongoDB id
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: |-
+            No such post, or it is not yours
+
+            No such public itinerary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Public itinerary not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Attach your public itinerary to your post (BLG-13)
+      tags:
+        - Blog
+    delete:
+      operationId: PostsController_detachItinerary
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostDetailDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or it is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/itinerary
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Detach the itinerary from your post (BLG-13)
+      tags:
+        - Blog
   /api/posts/{id}/comments:
     get:
       description: 10 per page. Drafts and posts an admin hid are visible only to their author and to admins; anyone else gets the same 404 as for a post that does not exist.
@@ -11277,6 +11855,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -11984,6 +12563,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -12039,6 +12619,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -12205,6 +12786,7 @@ paths:
           description: Page number, starting at 1. Page size is fixed at 10.
           schema:
             minimum: 1
+            maximum: 100000
             default: 1
             example: 1
             type: integer
@@ -14724,6 +15306,77 @@ components:
         - durationMinutes
         - cabins
         - policy
+    AuditLogDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60730
+        actorId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60701
+        actorName:
+          type: object
+          example: Platform Admin
+          nullable: true
+          description: Name of the admin who acted; null if that account is gone
+        action:
+          type: string
+          enum:
+            - ACCOUNT_SUSPENDED
+            - ACCOUNT_REACTIVATED
+            - ACCOUNT_PASSWORD_RESET
+            - MODERATOR_CREATED
+            - PROVIDER_DEACTIVATED
+            - PROVIDER_REACTIVATED
+            - CONTENT_HIDDEN
+            - CONTENT_RESTORED
+            - CONTENT_DELETED
+            - REPORT_DISMISSED
+            - FLIGHT_CANCELLED
+          example: CONTENT_HIDDEN
+        entityType:
+          type: string
+          enum:
+            - ACCOUNT
+            - HOTEL
+            - AIRLINE
+            - POST
+            - COMMENT
+            - REVIEW
+            - ITINERARY
+            - REPORT
+            - FLIGHT
+          example: POST
+        entityId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        before:
+          type: object
+          additionalProperties: true
+          nullable: true
+          example:
+            moderationState: VISIBLE
+        after:
+          type: object
+          additionalProperties: true
+          nullable: true
+          example:
+            moderationState: HIDDEN
+            reportId: 6720f1c2a1b2c3d4e5f60740
+        createdAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+      required:
+        - id
+        - actorId
+        - actorName
+        - action
+        - entityType
+        - entityId
+        - before
+        - after
+        - createdAt
     SegmentChoiceDto:
       type: object
       properties:
@@ -15083,341 +15736,44 @@ components:
         - holdExpiresAt
         - bookingReference
         - createdAt
-    AdminAccountDto:
+    SeatAssignmentInputDto:
       type: object
       properties:
-        id:
+        passengerId:
           type: string
           example: 6720f1c2a1b2c3d4e5f60718
-        name:
+        seatNumber:
           type: string
-          example: Taher Khalaf
-        email:
-          type: string
-          example: taher@example.com
-        role:
-          type: string
-          enum:
-            - USER
-            - ADMIN
-            - AIRLINE_MODERATOR
-            - HOTEL_MODERATOR
-          example: USER
-        status:
-          type: string
-          enum:
-            - ACTIVE
-            - SUSPENDED
-            - DEACTIVATED
-          example: ACTIVE
-        createdAt:
-          type: string
-          example: '2026-11-03T10:00:00.000Z'
-          description: Registration date
-        mustChangePassword:
-          type: boolean
-          example: false
-          description: true while the account still owes a password change (ACC-07a)
-        suspendedAt:
-          type: object
-          nullable: true
-          example: null
-          description: When an admin suspended the account (ACC-16)
-        deactivatedAt:
-          type: object
-          nullable: true
-          example: null
-          description: When the owner deactivated the account (ACC-12)
+          example: 12A
+          pattern: ^[1-9][0-9]*[A-F]$
       required:
-        - id
-        - name
-        - email
-        - role
-        - status
-        - createdAt
-        - mustChangePassword
-    TemporaryPasswordDto:
+        - passengerId
+        - seatNumber
+    SelectSeatsDto:
       type: object
       properties:
-        userId:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60718
-        email:
-          type: string
-          example: taher@example.com
-        temporaryPassword:
-          type: string
-          example: Tmp3f9a2c74e9
-          description: Shown once. The account must set its own password at next login before it can use anything else.
-        message:
-          type: string
-          example: Give this password to the account owner. It cannot be shown again.
-      required:
-        - userId
-        - email
-        - temporaryPassword
-        - message
-    AdminBookingUserDto:
-      type: object
-      properties:
-        id:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60718
-        name:
-          type: object
-          nullable: true
-          example: Taher Khalaf
-          description: null when the account has since been deleted
-        email:
-          type: object
-          nullable: true
-          example: taher@example.com
-          description: null when the account has since been deleted
-      required:
-        - id
-    AdminBookingProviderDto:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - AIRLINE
-            - HOTEL
-          example: AIRLINE
-        id:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60719
-        name:
-          type: object
-          nullable: true
-          example: KD Airways
-          description: null when the airline or hotel row has since been removed
-      required:
-        - type
-        - id
-    AdminBookingDto:
-      type: object
-      properties:
-        id:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60720
-        type:
-          type: string
-          enum:
-            - FLIGHT
-            - HOTEL
-          example: FLIGHT
-        reference:
-          type: object
-          nullable: true
-          example: K7M2QX
-          description: Generated on payment, so null while the booking is unpaid
-        user:
-          $ref: '#/components/schemas/AdminBookingUserDto'
-        provider:
-          $ref: '#/components/schemas/AdminBookingProviderDto'
-        startsAt:
-          type: string
-          example: '2026-12-20T06:30:00.000Z'
-          description: Departure of the first flight, or the check-in day
-        endsAt:
-          type: string
-          example: '2026-12-20T10:30:00.000Z'
-          description: Arrival of the last flight, or the check-out day
-        amount:
-          type: string
-          example: '420.00'
-          description: 'A string, never a number: money is Decimal128 (PAY-04)'
-        currency:
-          type: string
-          example: USD
-        status:
-          type: string
-          enum:
-            - PENDING_PAYMENT
-            - CONFIRMED
-            - COMPLETED
-            - EXPIRED
-            - CANCELLED
-          example: CONFIRMED
-        bookedAt:
-          type: string
-          example: '2026-11-19T08:00:00.000Z'
-          description: When the booking was made; the list is newest first
-      required:
-        - id
-        - type
-        - user
-        - provider
-        - startsAt
-        - endsAt
-        - amount
-        - currency
-        - status
-        - bookedAt
-    CreateModeratorDto:
-      type: object
-      properties:
-        name:
-          type: string
-          example: Omar Fathy
-          maxLength: 100
-        email:
-          type: string
-          example: omar@airline.example.com
-          maxLength: 254
-          description: Stored trimmed and lower-cased. Must not be registered yet.
-        role:
-          type: string
-          enum:
-            - AIRLINE_MODERATOR
-            - HOTEL_MODERATOR
-          example: AIRLINE_MODERATOR
-          description: 'Which kind of provider this moderator manages. It also decides which provider id the body has to carry: airlineId or hotelId.'
-        airlineId:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60718
-          description: The one airline this moderator manages. Required when role is AIRLINE_MODERATOR, and rejected otherwise. It must already exist and must not be deactivated.
-        hotelId:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60718
-          description: The one hotel this moderator manages. Required when role is HOTEL_MODERATOR, and rejected otherwise. It must already exist and must not be deactivated.
-        password:
-          type: string
-          example: Welcome2026
-          format: password
-          description: 'The temporary password, set by the admin. Omit it and the server generates one. Either way it is returned once in the response and the moderator must replace it before it can use anything else (ACC-07a). Same rules as registration: at least 8 characters, with at least one letter and one digit, and at most 72 bytes in UTF-8.'
-      required:
-        - name
-        - email
-        - role
-    ModeratorCreatedDto:
-      type: object
-      properties:
-        account:
-          $ref: '#/components/schemas/AdminAccountDto'
-        providerId:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60718
-          description: The airline or hotel this moderator manages, and only this one
-        temporaryPassword:
-          type: string
-          example: Welcome2026
-          description: Shown once. The moderator must set its own password at first login before it can use anything else.
-        message:
-          type: string
-          example: Give this password to the moderator. It cannot be shown again, and it must be changed at first login.
-      required:
-        - account
-        - providerId
-        - temporaryPassword
-        - message
-    AdminProviderStatusDto:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - hotel
-            - airline
-          example: hotel
-        id:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60788
-        name:
-          type: string
-          example: Nile View Hotel
-        status:
-          type: string
-          enum:
-            - ACTIVE
-            - DEACTIVATED
-          example: DEACTIVATED
-        deactivatedAt:
-          type: string
-          nullable: true
-          example: '2026-11-19T10:00:00.000Z'
-          description: When it was deactivated; null while it is active
-        notifiedUsers:
+        segmentIndex:
           type: number
-          example: 3
-          description: 'Accounts sent an in-app notification: the provider''s moderators and the users with an upcoming CONFIRMED booking with it. 0 if notifying failed; the status change stands either way.'
+          example: 0
+          description: 'Segment index: 0 outbound, 1 return'
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatAssignmentInputDto'
       required:
-        - type
-        - id
-        - name
-        - status
-        - deactivatedAt
-        - notifiedUsers
-    AuditLogDto:
+        - assignments
+    ChangeFlightDto:
       type: object
       properties:
-        id:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60730
-        actorId:
-          type: string
-          example: 6720f1c2a1b2c3d4e5f60701
-        actorName:
-          type: object
-          example: Platform Admin
-          nullable: true
-          description: Name of the admin who acted; null if that account is gone
-        action:
-          type: string
-          enum:
-            - ACCOUNT_SUSPENDED
-            - ACCOUNT_REACTIVATED
-            - ACCOUNT_PASSWORD_RESET
-            - MODERATOR_CREATED
-            - PROVIDER_DEACTIVATED
-            - PROVIDER_REACTIVATED
-            - CONTENT_HIDDEN
-            - CONTENT_RESTORED
-            - CONTENT_DELETED
-            - REPORT_DISMISSED
-          example: CONTENT_HIDDEN
-        entityType:
-          type: string
-          enum:
-            - ACCOUNT
-            - HOTEL
-            - AIRLINE
-            - POST
-            - COMMENT
-            - REVIEW
-            - ITINERARY
-            - REPORT
-          example: POST
-        entityId:
+        newFlightId:
           type: string
           example: 6720f1c2a1b2c3d4e5f60718
-        before:
-          type: object
-          additionalProperties: true
-          nullable: true
-          example:
-            moderationState: VISIBLE
-        after:
-          type: object
-          additionalProperties: true
-          nullable: true
-          example:
-            moderationState: HIDDEN
-            reportId: 6720f1c2a1b2c3d4e5f60740
-        createdAt:
-          type: string
-          example: '2026-11-18T10:00:00.000Z'
+        segmentIndex:
+          type: number
+          example: 0
+          description: 'Segment index: 0 outbound, 1 return'
       required:
-        - id
-        - actorId
-        - actorName
-        - action
-        - entityType
-        - entityId
-        - before
-        - after
-        - createdAt
+        - newFlightId
     BookingPoliciesDto:
       type: object
       properties:
@@ -15753,6 +16109,7 @@ components:
           enum:
             - USER
             - PROVIDER
+            - SYSTEM
           example: USER
           description: A provider cancellation is always refunded in full
         reason:
@@ -15794,6 +16151,272 @@ components:
         - reason
         - refundPercentage
         - requestedAt
+    AdminAccountDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        name:
+          type: string
+          example: Taher Khalaf
+        email:
+          type: string
+          example: taher@example.com
+        role:
+          type: string
+          enum:
+            - USER
+            - ADMIN
+            - AIRLINE_MODERATOR
+            - HOTEL_MODERATOR
+          example: USER
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - SUSPENDED
+            - DEACTIVATED
+          example: ACTIVE
+        createdAt:
+          type: string
+          example: '2026-11-03T10:00:00.000Z'
+          description: Registration date
+        mustChangePassword:
+          type: boolean
+          example: false
+          description: true while the account still owes a password change (ACC-07a)
+        suspendedAt:
+          type: object
+          nullable: true
+          example: null
+          description: When an admin suspended the account (ACC-16)
+        deactivatedAt:
+          type: object
+          nullable: true
+          example: null
+          description: When the owner deactivated the account (ACC-12)
+      required:
+        - id
+        - name
+        - email
+        - role
+        - status
+        - createdAt
+        - mustChangePassword
+    TemporaryPasswordDto:
+      type: object
+      properties:
+        userId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        email:
+          type: string
+          example: taher@example.com
+        temporaryPassword:
+          type: string
+          example: Tmp3f9a2c74e9
+          description: Shown once. The account must set its own password at next login before it can use anything else.
+        message:
+          type: string
+          example: Give this password to the account owner. It cannot be shown again.
+      required:
+        - userId
+        - email
+        - temporaryPassword
+        - message
+    AdminBookingUserDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        name:
+          type: object
+          nullable: true
+          example: Taher Khalaf
+          description: null when the account has since been deleted
+        email:
+          type: object
+          nullable: true
+          example: taher@example.com
+          description: null when the account has since been deleted
+      required:
+        - id
+    AdminBookingProviderDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - AIRLINE
+            - HOTEL
+          example: AIRLINE
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+        name:
+          type: object
+          nullable: true
+          example: KD Airways
+          description: null when the airline or hotel row has since been removed
+      required:
+        - type
+        - id
+    AdminBookingDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60720
+        type:
+          type: string
+          enum:
+            - FLIGHT
+            - HOTEL
+          example: FLIGHT
+        reference:
+          type: object
+          nullable: true
+          example: K7M2QX
+          description: Generated on payment, so null while the booking is unpaid
+        user:
+          $ref: '#/components/schemas/AdminBookingUserDto'
+        provider:
+          $ref: '#/components/schemas/AdminBookingProviderDto'
+        startsAt:
+          type: string
+          example: '2026-12-20T06:30:00.000Z'
+          description: Departure of the first flight, or the check-in day
+        endsAt:
+          type: string
+          example: '2026-12-20T10:30:00.000Z'
+          description: Arrival of the last flight, or the check-out day
+        amount:
+          type: string
+          example: '420.00'
+          description: 'A string, never a number: money is Decimal128 (PAY-04)'
+        currency:
+          type: string
+          example: USD
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - CONFIRMED
+            - COMPLETED
+            - EXPIRED
+            - CANCELLED
+          example: CONFIRMED
+        bookedAt:
+          type: string
+          example: '2026-11-19T08:00:00.000Z'
+          description: When the booking was made; the list is newest first
+      required:
+        - id
+        - type
+        - user
+        - provider
+        - startsAt
+        - endsAt
+        - amount
+        - currency
+        - status
+        - bookedAt
+    CreateModeratorDto:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Omar Fathy
+          maxLength: 100
+        email:
+          type: string
+          example: omar@airline.example.com
+          maxLength: 254
+          description: Stored trimmed and lower-cased. Must not be registered yet.
+        role:
+          type: string
+          enum:
+            - AIRLINE_MODERATOR
+            - HOTEL_MODERATOR
+          example: AIRLINE_MODERATOR
+          description: 'Which kind of provider this moderator manages. It also decides which provider id the body has to carry: airlineId or hotelId.'
+        airlineId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+          description: The one airline this moderator manages. Required when role is AIRLINE_MODERATOR, and rejected otherwise. It must already exist and must not be deactivated.
+        hotelId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+          description: The one hotel this moderator manages. Required when role is HOTEL_MODERATOR, and rejected otherwise. It must already exist and must not be deactivated.
+        password:
+          type: string
+          example: Welcome2026
+          format: password
+          description: 'The temporary password, set by the admin. Omit it and the server generates one. Either way it is returned once in the response and the moderator must replace it before it can use anything else (ACC-07a). Same rules as registration: at least 8 characters, with at least one letter and one digit, and at most 72 bytes in UTF-8.'
+      required:
+        - name
+        - email
+        - role
+    ModeratorCreatedDto:
+      type: object
+      properties:
+        account:
+          $ref: '#/components/schemas/AdminAccountDto'
+        providerId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+          description: The airline or hotel this moderator manages, and only this one
+        temporaryPassword:
+          type: string
+          example: Welcome2026
+          description: Shown once. The moderator must set its own password at first login before it can use anything else.
+        message:
+          type: string
+          example: Give this password to the moderator. It cannot be shown again, and it must be changed at first login.
+      required:
+        - account
+        - providerId
+        - temporaryPassword
+        - message
+    AdminProviderStatusDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - hotel
+            - airline
+          example: hotel
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60788
+        name:
+          type: string
+          example: Nile View Hotel
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DEACTIVATED
+          example: DEACTIVATED
+        deactivatedAt:
+          type: string
+          nullable: true
+          example: '2026-11-19T10:00:00.000Z'
+          description: When it was deactivated; null while it is active
+        notifiedUsers:
+          type: number
+          example: 3
+          description: 'Accounts sent an in-app notification: the provider''s moderators and the users with an upcoming CONFIRMED booking with it. 0 if notifying failed; the status change stands either way.'
+      required:
+        - type
+        - id
+        - name
+        - status
+        - deactivatedAt
+        - notifiedUsers
     CreateItineraryDto:
       type: object
       properties:
@@ -16441,6 +17064,25 @@ components:
         - updatedAt
         - authorId
         - cities
+    LinkBookingDto:
+      type: object
+      properties:
+        bookingType:
+          type: string
+          enum:
+            - FLIGHT
+            - HOTEL
+          example: HOTEL
+        bookingId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        label:
+          type: string
+          example: Nile View Hotel, 3 nights
+          description: Optional name shown in the itinerary and its PDF
+      required:
+        - bookingType
+        - bookingId
     ExchangeRatesResponseDto:
       type: object
       properties:
@@ -16627,6 +17269,32 @@ components:
         - roomCount
         - items
         - meta
+    FavouriteDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        type:
+          type: string
+          enum:
+            - HOTEL
+            - ITINERARY
+          example: HOTEL
+        targetId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60719
+        label:
+          type: string
+          example: Cairo Nile View Hotel
+        createdAt:
+          type: string
+          example: '2026-11-20T10:00:00.000Z'
+      required:
+        - id
+        - type
+        - targetId
+        - label
     CreatePostDto:
       type: object
       properties:
@@ -16787,6 +17455,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PostImageDto'
+        itineraryId:
+          type: object
+          example: 6720f1c2a1b2c3d4e5f60718
+          nullable: true
+          description: 'BLG-13: public itinerary attached to this post, if any'
         likeCount:
           type: number
           example: 4
@@ -16949,6 +17622,15 @@ components:
             - DRAFT
             - PUBLISHED
           description: Publish a draft, or move a published post back to DRAFT
+    AttachItineraryDto:
+      type: object
+      properties:
+        itineraryId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+          description: Id of a PUBLIC itinerary owned by the post author
+      required:
+        - itineraryId
     LikeStatusDto:
       type: object
       properties:
