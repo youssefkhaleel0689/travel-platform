@@ -2227,18 +2227,34 @@ paths:
                 path: /api/hotel-bookings
                 timestamp: '2026-11-12T10:00:00.000Z'
         '403':
-          description: Wrong role (FORBIDDEN)
+          description: Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 403
-                code: FORBIDDEN
-                error: Forbidden
-                message: You do not have permission to do this
-                path: /api/hotel-bookings
-                timestamp: '2026-11-12T10:00:00.000Z'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/hotel-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                EMAIL_NOT_VERIFIED:
+                  summary: Verify your email before making a booking
+                  value:
+                    statusCode: 403
+                    code: EMAIL_NOT_VERIFIED
+                    error: Forbidden
+                    message: Verify your email before making a booking
+                    errors:
+                      - field: email
+                        messages:
+                          - email is not verified
+                    path: /api/hotel-bookings
+                    timestamp: '2026-11-12T10:00:00.000Z'
         '404':
           description: Hotel not found (HOTEL_NOT_FOUND)
           content:
@@ -2709,6 +2725,95 @@ paths:
                 path: /api/auth/register
                 timestamp: '2026-11-12T10:00:00.000Z'
       summary: Register a traveller account (ACC-01)
+      tags:
+        - auth
+  /api/auth/verify-email:
+    get:
+      description: Public. The 64-character token is the one from the email link. It is single-use and expires after 30 minutes. Booking is blocked while the account is unverified when EMAIL_VERIFICATION_REQUIRED=true.
+      operationId: AuthController_verifyEmail
+      parameters:
+        - name: token
+          required: true
+          in: query
+          schema:
+            example: <the 64-hex token from the email link>
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponseDto'
+        '400':
+          description: Invalid, expired or already used token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: INVALID_TOKEN
+                error: Bad Request
+                message: The link is invalid, expired or already used
+                path: /api/auth/verify-email
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Verify an email address from the registration link (ACC-02)
+      tags:
+        - auth
+  /api/auth/forgot-password:
+    post:
+      description: Always answers 202 with the same message, whether or not the account exists. A real account receives a single-use link valid for 30 minutes; a newer request invalidates the older one.
+      operationId: AuthController_forgotPassword
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponseDto'
+      summary: Request a password-reset email (ACC-07)
+      tags:
+        - auth
+  /api/auth/reset-password:
+    post:
+      description: Public. The token comes from the email. On success all sessions of the account are revoked and the user must log in again.
+      operationId: AuthController_resetPassword
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponseDto'
+        '400':
+          description: Invalid, expired or already used token, or a weak password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: INVALID_TOKEN
+                error: Bad Request
+                message: The link is invalid, expired or already used
+                path: /api/auth/reset-password
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Choose a new password with a reset link (ACC-07)
       tags:
         - auth
   /api/auth/login:
@@ -3767,7 +3872,7 @@ paths:
         - Hotel reviews (B2)
   /api/airlines:
     post:
-      description: The airline starts ACTIVE with no logo. The logo is uploaded later (GEN-08).
+      description: The airline starts ACTIVE with no logo. The logo is uploaded with PUT /api/airlines/{id}/logo (GEN-08).
       operationId: AirlinesController_create
       parameters: []
       requestBody:
@@ -3900,7 +4005,7 @@ paths:
       tags:
         - Airlines
     patch:
-      description: Admin, or the airline moderator assigned to this airline. Send at least one field. status and logo cannot be changed here.
+      description: Admin, or the airline moderator assigned to this airline. Send at least one field. status cannot be changed here; the logo has its own endpoint (PUT /api/airlines/{id}/logo).
       operationId: AirlinesController_update
       parameters:
         - name: id
@@ -4014,6 +4119,305 @@ paths:
       security:
         - access_token: []
       summary: Edit an airline's name and codes (FLT-01)
+      tags:
+        - Airlines
+  /api/airlines/{id}/logo:
+    put:
+      description: 'Admin, or the airline moderator assigned to this airline. Multipart, field "file": one JPG or PNG of at most 5 MB. A new logo replaces the old one; a rejected file leaves the old one in place. The response has the URL that serves it, which is also airline.logo.'
+      operationId: AirlineLogoController_setLogo
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: One JPG or PNG image, at most 5 MB
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AirlineLogoDto'
+        '400':
+          description: No file, not a JPG or PNG (checked on the bytes, not the name), larger than 5 MB, or not sent in the "file" field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FILE_REQUIRED:
+                  summary: An image file is required
+                  value:
+                    statusCode: 400
+                    code: FILE_REQUIRED
+                    error: Bad Request
+                    message: An image file is required
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_FILE_TYPE:
+                  summary: Only JPG and PNG images are accepted
+                  value:
+                    statusCode: 400
+                    code: INVALID_FILE_TYPE
+                    error: Bad Request
+                    message: Only JPG and PNG images are accepted
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FILE_TOO_LARGE:
+                  summary: Images must be at most 5 MB
+                  value:
+                    statusCode: 400
+                    code: FILE_TOO_LARGE
+                    error: Bad Request
+                    message: Images must be at most 5 MB
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_UPLOAD:
+                  summary: Send exactly one image in the form field "file"
+                  value:
+                    statusCode: 400
+                    code: INVALID_UPLOAD
+                    error: Bad Request
+                    message: Send exactly one image in the form field "file"
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such airline (AIRLINE_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: AIRLINE_NOT_FOUND
+                error: Not Found
+                message: Airline not found
+                path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: |-
+            Two uploads for the same airline kept replacing each other (CONCURRENT_UPDATE); try again
+
+            The airline already has its maximum number of images
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: IMAGE_LIMIT_REACHED
+                error: Conflict
+                message: An airline can have only 1 image
+                path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Upload or replace the airline logo (FLT-01, GEN-08)
+      tags:
+        - Airlines
+    get:
+      description: Public for ACTIVE airlines. A DEACTIVATED airline’s logo is visible only to an admin or its assigned moderator; others get 404.
+      operationId: AirlineLogoController_getLogo
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: The logo file
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No such airline, or it has no logo
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                LOGO_NOT_FOUND:
+                  summary: This airline has no logo
+                  value:
+                    statusCode: 404
+                    code: LOGO_NOT_FOUND
+                    error: Not Found
+                    message: This airline has no logo
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+            image/png:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                LOGO_NOT_FOUND:
+                  summary: This airline has no logo
+                  value:
+                    statusCode: 404
+                    code: LOGO_NOT_FOUND
+                    error: Not Found
+                    message: This airline has no logo
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Download the airline logo (FLT-01, GEN-08)
+      tags:
+        - Airlines
+    delete:
+      description: Admin, or the airline moderator assigned to this airline. airline.logo goes back to null.
+      operationId: AirlineLogoController_removeLogo
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '204':
+          description: The logo and its file are gone
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such airline, or it has no logo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                LOGO_NOT_FOUND:
+                  summary: This airline has no logo
+                  value:
+                    statusCode: 404
+                    code: LOGO_NOT_FOUND
+                    error: Not Found
+                    message: This airline has no logo
+                    path: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Remove the airline logo (FLT-01, GEN-08)
       tags:
         - Airlines
   /api/airlines/{id}/baggage-policy:
@@ -6280,11 +6684,25 @@ paths:
                 path: /api/flight-bookings/hold
                 timestamp: '2026-11-12T10:00:00.000Z'
         '403':
-          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          description: |-
+            Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)
+
+            The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: EMAIL_NOT_VERIFIED
+                error: Forbidden
+                message: Verify your email before making a booking
+                errors:
+                  - field: email
+                    messages:
+                      - email is not verified
+                path: /api/flight-bookings/hold
+                timestamp: '2026-11-12T10:00:00.000Z'
               examples:
                 FORBIDDEN:
                   summary: You do not have permission to do this
@@ -7604,6 +8022,86 @@ paths:
       security:
         - cookie: []
       summary: Reset an account's password to a temporary one (ACC-07a)
+      tags:
+        - Administration
+  /api/admin/analytics:
+    get:
+      description: Admin only. Counts every booking created in the UTC date range and sums revenue from CONFIRMED and COMPLETED bookings, grouped by airline or hotel.
+      operationId: AdminAnalyticsController_get
+      parameters:
+        - name: from
+          required: true
+          in: query
+          schema:
+            example: '2026-11-01'
+            type: string
+        - name: to
+          required: true
+          in: query
+          schema:
+            example: '2026-11-30'
+            type: string
+        - name: type
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - FLIGHT
+              - HOTEL
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAnalyticsDto'
+        '400':
+          description: A date is not YYYY-MM-DD or not a real day (VALIDATION_FAILED), or from is after to (INVALID_DATE_RANGE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: INVALID_DATE_RANGE
+                error: Bad Request
+                message: from must not be later than to
+                errors:
+                  - field: to
+                    messages:
+                      - to must be on or after from
+                path: /api/admin/analytics?from=2026-11-30&to=2026-11-01
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/analytics?from=2026-11-30&to=2026-11-01
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: Not an admin (FORBIDDEN)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: FORBIDDEN
+                error: Forbidden
+                message: You do not have permission to do this
+                path: /api/admin/analytics?from=2026-11-30&to=2026-11-01
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Bookings and revenue per provider over a period (BON-01)
       tags:
         - Administration
   /api/admin/bookings:
@@ -14004,6 +14502,34 @@ components:
         - status
         - mustChangePassword
         - createdAt
+    MessageResponseDto:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Password changed
+      required:
+        - message
+    ForgotPasswordDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: traveller@example.com
+      required:
+        - email
+    ResetPasswordDto:
+      type: object
+      properties:
+        token:
+          type: string
+          example: <the 64-hex token from the email link>
+        newPassword:
+          type: string
+          example: NewPass123
+      required:
+        - token
+        - newPassword
     LoginDto:
       type: object
       properties:
@@ -14034,14 +14560,6 @@ components:
       required:
         - currentPassword
         - newPassword
-    MessageResponseDto:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Password changed
-      required:
-        - message
     UpdateProfileDto:
       type: object
       properties:
@@ -14242,6 +14760,35 @@ components:
           type: string
           example: MSR
           description: 'ICAO airline code: 3 letters. Unique when present.'
+    AirlineLogoDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60770
+        url:
+          type: string
+          example: /api/airlines/6720f1c2a1b2c3d4e5f60718/logo
+          description: Serves the logo (GET, public for an ACTIVE airline)
+        mimeType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+          example: image/png
+        sizeBytes:
+          type: number
+          example: 24576
+        uploadedAt:
+          format: date-time
+          type: string
+          example: '2026-11-20T10:15:00.000Z'
+      required:
+        - id
+        - url
+        - mimeType
+        - sizeBytes
+        - uploadedAt
     BaggagePolicyDto:
       type: object
       properties:
@@ -16225,6 +16772,66 @@ components:
         - email
         - temporaryPassword
         - message
+    ProviderAnalyticsDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - FLIGHT
+            - HOTEL
+        providerId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        providerName:
+          type: object
+          example: Nile View Hotel
+          nullable: true
+        bookings:
+          type: number
+          example: 12
+        revenue:
+          type: string
+          example: '1450.00'
+        currency:
+          type: string
+          example: USD
+      required:
+        - type
+        - providerId
+        - providerName
+        - bookings
+        - revenue
+        - currency
+    AdminAnalyticsDto:
+      type: object
+      properties:
+        from:
+          type: string
+          example: '2026-11-01'
+        to:
+          type: string
+          example: '2026-11-30'
+        totalBookings:
+          type: number
+          example: 42
+        totalRevenue:
+          type: string
+          example: '5200.00'
+        currency:
+          type: string
+          example: USD
+        byProvider:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderAnalyticsDto'
+      required:
+        - from
+        - to
+        - totalBookings
+        - totalRevenue
+        - currency
+        - byProvider
     AdminBookingUserDto:
       type: object
       properties:
