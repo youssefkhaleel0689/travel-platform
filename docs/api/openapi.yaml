@@ -576,19 +576,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/HotelResponseDto'
         '400':
-          description: No file (FILE_REQUIRED), not a real JPG or PNG (INVALID_FILE_TYPE), or over 5 MB (FILE_TOO_LARGE)
+          description: No file (FILE_REQUIRED), not a real JPG or PNG (INVALID_FILE_TYPE), over 5 MB (FILE_TOO_LARGE), or not exactly one file in "file" (INVALID_UPLOAD)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponseDto'
               examples:
                 FILE_REQUIRED:
-                  summary: A photo file is required
+                  summary: An image file is required
                   value:
                     statusCode: 400
                     code: FILE_REQUIRED
                     error: Bad Request
-                    message: A photo file is required
+                    message: An image file is required
                     errors:
                       - field: file
                         messages:
@@ -619,6 +619,19 @@ paths:
                       - field: file
                         messages:
                           - must be at most 5 MB
+                    path: /api/hotels/6720f1c2a1b2c3d4e5f60718/photos
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_UPLOAD:
+                  summary: Send exactly one image in the form field "file"
+                  value:
+                    statusCode: 400
+                    code: INVALID_UPLOAD
+                    error: Bad Request
+                    message: Send exactly one image in the form field "file"
+                    errors:
+                      - field: file
+                        messages:
+                          - exactly one file is expected in "file"
                     path: /api/hotels/6720f1c2a1b2c3d4e5f60718/photos
                     timestamp: '2026-11-12T10:00:00.000Z'
         '401':
@@ -683,19 +696,6 @@ paths:
                 code: PHOTO_LIMIT_REACHED
                 error: Conflict
                 message: A hotel can have at most 5 photos
-                path: /api/hotels/6720f1c2a1b2c3d4e5f60718/photos
-                timestamp: '2026-11-12T10:00:00.000Z'
-        '413':
-          description: The upload is larger than 5 MB and was stopped while receiving it
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponseDto'
-              example:
-                statusCode: 413
-                code: PAYLOAD_TOO_LARGE
-                error: Payload Too Large
-                message: File too large
                 path: /api/hotels/6720f1c2a1b2c3d4e5f60718/photos
                 timestamp: '2026-11-12T10:00:00.000Z'
       security:
@@ -6448,6 +6448,7 @@ paths:
               - CONTENT_DELETED
               - REPORT_DISMISSED
               - FLIGHT_CANCELLED
+              - REFUND_RETRIED
         - name: entityType
           required: false
           in: query
@@ -6463,6 +6464,7 @@ paths:
               - ITINERARY
               - REPORT
               - FLIGHT
+              - REFUND
         - name: entityId
           required: false
           in: query
@@ -6963,7 +6965,7 @@ paths:
         - Flight bookings - Seats
   /api/flight-bookings/{id}/change-flight:
     patch:
-      description: Same route and cabin, subject to seat availability. A higher fare opens a Stripe PaymentIntent for the difference; a lower fare is refunded and the change is applied immediately.
+      description: Same route and cabin, subject to seat availability. A same or lower fare is applied at once, and a lower fare's difference is refunded as a recorded refund (GET /api/refunds/:id, PAY-03). A higher fare holds the new seats for 10 minutes (holdExpiresAt) and opens a Stripe PaymentIntent for the difference; the change is applied by POST .../change-flight/apply, or automatically once the hold ends if the difference was paid. An unpaid change is released when the hold ends. 409 CHANGE_ALREADY_PENDING while a change is pending; 409 BOOKING_CHANGED when the same change was applied by another request first.
       operationId: ChangeFlightController_request
       parameters:
         - name: id
@@ -6979,7 +6981,7 @@ paths:
               $ref: '#/components/schemas/ChangeFlightDto'
       responses:
         '200':
-          description: Either the applied change or a payment intent
+          description: Either the applied change (with refunded and refundId for a lower fare) or a payment intent with holdExpiresAt
       security:
         - cookie: []
       summary: Change a confirmed flight to another flight on the same route (FLT-27)
@@ -6987,6 +6989,7 @@ paths:
         - Flight bookings - Change
   /api/flight-bookings/{id}/change-flight/apply:
     post:
+      description: 'Applies once: a second call gets 409 BOOKING_CHANGED. 409 PAYMENT_NOT_SUCCEEDED while the difference is unpaid. 409 CHANGE_NO_LONGER_POSSIBLE when the booking or the new flight changed in the meantime: the paid difference is then refunded in full.'
       operationId: ChangeFlightController_apply
       parameters:
         - name: id
@@ -7650,6 +7653,93 @@ paths:
       security:
         - cookie: []
       summary: Refund status (PAY-03)
+      tags:
+        - Payments and policies
+  /api/refunds/{id}/retry:
+    post:
+      description: 'Admin only. Only a FAILED refund can be retried, with the same amount and the same payment; Stripe gets a new idempotency key for each try, because it would only replay the failure for the old one. Two retries at once send it once: the other gets 409. The answer is the refund as it stands after Stripe answered (REFUNDED, PENDING or FAILED again). Recorded in the audit log (GEN-07).'
+      operationId: RefundsController_retry
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60920
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/refunds/6720f1c2a1b2c3d4e5f60920
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/refunds/6720f1c2a1b2c3d4e5f60920
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/refunds/6720f1c2a1b2c3d4e5f60920
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such refund
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: NOT_FOUND
+                error: Not Found
+                message: Refund not found
+                path: /api/refunds/6720f1c2a1b2c3d4e5f60920/retry
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The refund is not FAILED (REFUND_NOT_FAILED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: REFUND_NOT_FAILED
+                error: Conflict
+                message: This refund is REFUNDED and cannot be retried
+                path: /api/refunds/6720f1c2a1b2c3d4e5f60920/retry
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Send a FAILED refund to Stripe again (PAY-03, admin)
       tags:
         - Payments and policies
   /api/admin/accounts:
@@ -15881,6 +15971,7 @@ components:
             - CONTENT_DELETED
             - REPORT_DISMISSED
             - FLIGHT_CANCELLED
+            - REFUND_RETRIED
           example: CONTENT_HIDDEN
         entityType:
           type: string
@@ -15894,6 +15985,7 @@ components:
             - ITINERARY
             - REPORT
             - FLIGHT
+            - REFUND
           example: POST
         entityId:
           type: string
@@ -16659,6 +16751,14 @@ components:
             - SYSTEM
           example: USER
           description: A provider cancellation is always refunded in full
+        kind:
+          type: string
+          enum:
+            - CANCELLATION
+            - FARE_DIFFERENCE
+            - UNCONFIRMED_PAYMENT
+          example: CANCELLATION
+          description: 'CANCELLATION: the booking was cancelled. FARE_DIFFERENCE: a flight booking moved to a cheaper flight (FLT-27). UNCONFIRMED_PAYMENT: a payment the booking could not take, given back in full (PAY-01)'
         reason:
           type: string
           example: Cancelled by the traveller 5 days before check-in
@@ -16695,6 +16795,7 @@ components:
         - currency
         - status
         - cancelledBy
+        - kind
         - reason
         - refundPercentage
         - requestedAt
