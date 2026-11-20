@@ -287,7 +287,10 @@ export class FlightBookingsPortAdapter implements BookingsPort {
         const arrivals = segments.map((segment) =>
           segment.arrivalAtUtc.getTime(),
         );
-        const madeAt = booking.createdAt.getTime();
+        // A bare row may even lack createdAt; the id still carries the time
+        // it was made, and the admin list sorts and shows by it.
+        const madeAtDate = booking.createdAt ?? booking._id.getTimestamp();
+        const madeAt = madeAtDate.getTime();
         const airlineId = airlineOf(booking)?.toString() ?? '';
         return {
           bookingId: booking._id.toString(),
@@ -307,7 +310,7 @@ export class FlightBookingsPortAdapter implements BookingsPort {
             decimal128ToString(booking.priceSnapshot?.total) ?? '0.00',
           currency: booking.priceSnapshot?.currency ?? PLATFORM_CURRENCY,
           status: booking.status,
-          createdAt: booking.createdAt,
+          createdAt: madeAtDate,
         };
       }),
       total,

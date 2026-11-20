@@ -791,5 +791,20 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
       expect(rows[0].providerId).toBe('');
       expect(rows[0].providerName).toBeNull();
     });
+
+    it('takes the time from the id for a row with no createdAt, so the list can still sort it', async () => {
+      const id = new Types.ObjectId();
+      const bare = {
+        _id: id,
+        userId: USER_ID,
+        status: BookingStatus.CONFIRMED,
+      } as unknown as FlightBooking;
+      const { adapter } = adminSetup([bare]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows[0].createdAt).toEqual(id.getTimestamp());
+      expect(rows[0].startsAt).toEqual(id.getTimestamp());
+    });
   });
 });
