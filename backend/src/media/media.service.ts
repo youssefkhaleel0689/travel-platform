@@ -187,10 +187,17 @@ export class MediaService {
     const filter = { targetType, targetId: new Types.ObjectId(targetId) };
     const rows = await this.mediaModel
       .find(filter)
-      .select('storageKey')
-      .lean<{ storageKey: string }[]>()
+      .select('_id storageKey')
+      .lean<{ _id: Types.ObjectId; storageKey: string }[]>()
       .exec();
-    await this.mediaModel.deleteMany(filter).exec();
+    if (rows.length === 0) {
+      return;
+    }
+    // Delete only the rows read above: an image stored in between keeps both
+    // its row and its file (deleting by the filter would orphan the file).
+    await this.mediaModel
+      .deleteMany({ _id: { $in: rows.map((row) => row._id) } })
+      .exec();
     await Promise.all(rows.map((row) => this.deleteFile(row.storageKey)));
   }
 
@@ -237,10 +244,9 @@ export class MediaService {
 }
 
 function toStoredImage(
-  row: Pick<
-    MediaMetadata,
-    'url' | 'mimeType' | 'sizeBytes' | 'uploadedAt'
-  > & { _id: Types.ObjectId },
+  row: Pick<MediaMetadata, 'url' | 'mimeType' | 'sizeBytes' | 'uploadedAt'> & {
+    _id: Types.ObjectId;
+  },
 ): StoredImage {
   return {
     id: row._id.toHexString(),
