@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 79 requests in 11 folders |
+| `postman/travel-platform-c2.postman_collection.json` | 79 requests in 11 folders, 182 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
