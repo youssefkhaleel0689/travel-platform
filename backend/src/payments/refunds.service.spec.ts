@@ -22,8 +22,14 @@ describe('RefundsService (PAY-03)', () => {
   const PAYMENT_ID = '6720f1c2a1b2c3d4e5f60910';
   const REFUND_ID = '6720f1c2a1b2c3d4e5f60920';
 
-  let model: { create: jest.Mock; find: jest.Mock; findById: jest.Mock };
-  let stripe: { createRefund: jest.Mock };
+  let model: {
+    create: jest.Mock;
+    find: jest.Mock;
+    findById: jest.Mock;
+    findOne: jest.Mock;
+    findOneAndUpdate: jest.Mock;
+  };
+  let stripe: { createRefund: jest.Mock; retrieveRefund: jest.Mock };
   let payments: {
     findSucceededForBooking: jest.Mock;
     findById: jest.Mock;
@@ -85,11 +91,14 @@ describe('RefundsService (PAY-03)', () => {
         ),
       find: jest.fn().mockReturnValue(sortExec([])),
       findById: jest.fn().mockReturnValue(exec(refundDoc())),
+      findOne: jest.fn().mockReturnValue(exec(null)),
+      findOneAndUpdate: jest.fn().mockReturnValue(exec(null)),
     };
     stripe = {
       createRefund: jest
         .fn()
         .mockResolvedValue({ id: 're_1', status: 'succeeded' }),
+      retrieveRefund: jest.fn(),
     };
     payments = {
       findSucceededForBooking: jest.fn().mockResolvedValue(paymentDoc()),
@@ -381,5 +390,99 @@ describe('RefundsService (PAY-03)', () => {
       ).resolves.toEqual([]);
       expect(model.find).not.toHaveBeenCalled();
     });
+  });
+
+  describe('a refund Stripe settles later (PAY-03)', () => {
+    it('moves PENDING to REFUNDED with one conditional update', async () => {
+      const pending = refundDoc({ stripeRefundId: 're_9' });
+      model.findOne.mockReturnValue(exec(pending));
+      model.findOneAndUpdate.mockReturnValue(
+        exec({ ...pending, status: RefundStatus.REFUNDED }),
+      );
+
+      const result = await service.syncFromStripe({
+        id: 're_9',
+        status: 'succeeded',
+        failure_reason: null,
+      } as never);
+
+      expect(result?.status).toBe(RefundStatus.REFUNDED);
+      const [filter, update] = model.findOneAndUpdate.mock.calls[0] as [
+        Record<string, unknown>,
+        { $set: Record<string, unknown> },
+      ];
+      expect(filter).toMatchObject({ status: { $in: [RefundStatus.PENDING] } });
+      expect(update.$set.status).toBe(RefundStatus.REFUNDED);
+      expect(update.$set.completedAt).toBeInstanceOf(Date);
+    });
+
+    it("records Stripe's reason when the refund fails", async () => {
+      model.findOne.mockReturnValue(exec(refundDoc({ stripeRefundId: 're_9' })));
+
+      await service.syncFromStripe({
+        id: 're_9',
+        status: 'failed',
+        failure_reason: 'expired_or_canceled_card',
+      } as never);
+
+      const [, update] = model.findOneAndUpdate.mock.calls[0] as [
+        unknown,
+        { $set: Record<string, unknown> },
+      ];
+      expect(update.$set).toMatchObject({
+        status: RefundStatus.FAILED,
+        failureMessage: 'expired_or_canceled_card',
+      });
+    });
+
+    it('changes nothing when the status is already the same', async () => {
+      model.findOne.mockReturnValue(
+        exec(refundDoc({ stripeRefundId: 're_9', status: RefundStatus.REFUNDED })),
+      );
+
+      await service.syncFromStripe({ id: 're_9', status: 'succeeded' } as never);
+
+      expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('asks Stripe again when the owner reads a PENDING refund', async () => {
+      const pending = refundDoc({ stripeRefundId: 're_9' });
+      model.findById.mockReturnValue(exec(pending));
+      model.findOne.mockReturnValue(exec(pending));
+      model.findOneAndUpdate.mockReturnValue(
+        exec({ ...pending, status: RefundStatus.REFUNDED }),
+      );
+      stripe.retrieveRefund.mockResolvedValue({ id: 're_9', status: 'succeeded' });
+
+      const refund = await service.findOwnOrThrow(USER_ID, REFUND_ID);
+
+      expect(stripe.retrieveRefund).toHaveBeenCalledWith('re_9');
+      expect(refund.status).toBe(RefundStatus.REFUNDED);
+    });
+
+    it('keeps the stored answer when Stripe cannot be reached', async () => {
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const pending = refundDoc({ stripeRefundId: 're_9' });
+      model.findById.mockReturnValue(exec(pending));
+      stripe.retrieveRefund.mockRejectedValue(new Error('Stripe down'));
+
+      const refund = await service.findOwnOrThrow(USER_ID, REFUND_ID);
+
+      expect(refund.status).toBe(RefundStatus.PENDING);
+    });
+  });
+
+  it('refunds in full when the platform cancels (SYSTEM)', async () => {
+    await service.issueForCancellation({
+      bookingType: BookingType.HOTEL,
+      bookingId: BOOKING_ID,
+      cancelledBy: CancelledBy.SYSTEM,
+      refundPercentage: 0,
+      reason: 'Payment after the hold expired',
+    });
+
+    expect(stripe.createRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: '420.00' }),
+    );
   });
 });
