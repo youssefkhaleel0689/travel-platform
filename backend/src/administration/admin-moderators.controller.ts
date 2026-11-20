@@ -94,8 +94,7 @@ export class AdminModeratorsController {
       },
       {
         code: 'PROVIDER_DEACTIVATED',
-        message:
-          'This airline is deactivated and cannot be given a moderator',
+        message: 'This airline is deactivated and cannot be given a moderator',
         path: PATH,
       },
     ],

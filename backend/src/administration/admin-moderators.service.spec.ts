@@ -63,7 +63,9 @@ describe('AdminModeratorsService (ACC-13)', () => {
       create: jest.fn().mockResolvedValue(profile()),
       deleteById: jest.fn().mockResolvedValue(undefined),
     };
-    passwords = { generateTemporary: jest.fn().mockReturnValue('Tmpabcde12349') };
+    passwords = {
+      generateTemporary: jest.fn().mockReturnValue('Tmpabcde12349'),
+    };
     assignments = {
       assertAssignable: jest.fn().mockResolvedValue(undefined),
       assign: jest.fn().mockResolvedValue(undefined),

@@ -53,6 +53,11 @@ export class User {
   @Prop({ type: Date, default: null })
   termsAcceptedAt: Date | null;
 
+  // ACC-02: null until the verification link is used. Seeded admins and
+  // admin-created moderators are verified at creation.
+  @Prop({ type: Date, default: null })
+  emailVerifiedAt: Date | null;
+
   // Lockout counter (ACC-05).
   @Prop({ type: Number, required: true, default: 0, min: 0 })
   failedLoginAttempts: number;

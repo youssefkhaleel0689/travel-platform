@@ -40,17 +40,23 @@ describe('AdminBookingsQueryDto (ACC-17)', () => {
     ).toEqual([]);
   });
 
-  it.each(Object.values(BookingStatus))('accepts the status %s', async (status) => {
-    expect(await errorFields({ status })).toEqual([]);
-  });
+  it.each(Object.values(BookingStatus))(
+    'accepts the status %s',
+    async (status) => {
+      expect(await errorFields({ status })).toEqual([]);
+    },
+  );
 
   it.each(['CAR', 'flight', ''])('rejects the type %j', async (type) => {
     expect(await errorFields({ type })).toEqual(['type']);
   });
 
-  it.each(['DRAFT', 'confirmed', ''])('rejects the status %j', async (status) => {
-    expect(await errorFields({ status })).toEqual(['status']);
-  });
+  it.each(['DRAFT', 'confirmed', ''])(
+    'rejects the status %j',
+    async (status) => {
+      expect(await errorFields({ status })).toEqual(['status']);
+    },
+  );
 
   // A day that does not exist is refused, not silently rolled over into the
   // next month, which is what `new Date()` would do.

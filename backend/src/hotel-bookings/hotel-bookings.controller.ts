@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
@@ -25,6 +26,7 @@ import { CurrentUser } from '../common/auth/current-user.decorator';
 import { Roles } from '../common/auth/roles.decorator';
 import { Role } from '../common/auth/auth.enums';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
+import { EmailVerifiedGuard } from '../auth/guards/email-verified.guard';
 
 const BOOKINGS = '/api/hotel-bookings';
 const BOOKING = '/api/hotel-bookings/6af8b9fdbc5624b5a1b41d6b';
@@ -42,6 +44,11 @@ const VALIDATION = {
   errors: [{ field: 'body', messages: ['invalid value'] }],
 };
 const NOT_FOUND = { code: 'NOT_FOUND', message: 'Hotel booking not found' };
+const EMAIL_NOT_VERIFIED = {
+  code: 'EMAIL_NOT_VERIFIED',
+  message: 'Verify your email before making a booking',
+  errors: [{ field: 'email', messages: ['email is not verified'] }],
+};
 
 @ApiTags('Hotel bookings (B2)')
 @ApiCookieAuth()
@@ -50,6 +57,9 @@ export class HotelBookingsController {
   constructor(private readonly service: HotelBookingsService) {}
 
   @Post()
+  // ACC-02: only the route that creates a booking needs a verified email, so
+  // an account can still see and cancel what it already has.
+  @UseGuards(EmailVerifiedGuard)
   @ApiOkResponse({ description: 'The held reservation (PENDING_PAYMENT)' })
   @ApiErrorResponse({
     status: 400,
@@ -63,8 +73,12 @@ export class HotelBookingsController {
   })
   @ApiErrorResponse({
     status: 403,
-    description: 'Wrong role (FORBIDDEN)',
-    examples: [{ ...FORBIDDEN, path: BOOKINGS }],
+    description:
+      'Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)',
+    examples: [
+      { ...FORBIDDEN, path: BOOKINGS },
+      { ...EMAIL_NOT_VERIFIED, path: BOOKINGS },
+    ],
   })
   @ApiErrorResponse({
     status: 404,

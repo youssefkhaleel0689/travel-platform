@@ -13,6 +13,8 @@ import { HotelBookingsModule } from '../hotel-bookings/hotel-bookings.module';
 import { HotelsModule } from '../hotels/hotels.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AdminAccountsController } from './admin-accounts.controller';
+import { AdminAnalyticsController } from './admin-analytics.controller';
+import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminBookingsController } from './admin-bookings.controller';
 import { AdminBookingsService } from './admin-bookings.service';
 import { AdminAccountsService } from './admin-accounts.service';
@@ -62,12 +64,14 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
   ],
   controllers: [
     AdminAccountsController,
+    AdminAnalyticsController,
     AdminBookingsController,
     AdminModeratorsController,
     AdminProvidersController,
   ],
   providers: [
     AdminAccountsService,
+    AdminAnalyticsService,
     AdminBookingsService,
     AdminModeratorsService,
     AdminProvidersService,

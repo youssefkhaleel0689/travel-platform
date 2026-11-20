@@ -34,7 +34,8 @@ export class AdminAccountDto {
 
   @ApiProperty({
     example: false,
-    description: 'true while the account still owes a password change (ACC-07a)',
+    description:
+      'true while the account still owes a password change (ACC-07a)',
   })
   mustChangePassword: boolean;
 
