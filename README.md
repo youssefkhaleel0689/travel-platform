@@ -1506,6 +1506,12 @@ The hold is re-checked before any client secret is handed back, including on a r
 
 A sweep runs every minute (`PaymentExpiryService`) over the open payments. For each one whose booking is no longer payable it cancels the PaymentIntent at Stripe and then releases the hold. A TTL index cannot do this: two things have to happen together and neither is a deletion, and cancelling at Stripe is what makes a late payment impossible rather than merely ignored. Stripe is called before the status is written, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction.
 
+### A payment that succeeds too late, and refunds Stripe settles later
+
+- **Late payment (FLT-22, HTL-18).** The sweep cancels a PaymentIntent when the hold expires, but a payment can still succeed in the gap (the card was charged in minute 9, the webhook arrives in minute 11). The booking module then refuses to confirm with a 409 (`HOLD_EXPIRED`, or the booking is in another state). The webhook no longer leaves the customer charged with no booking: it issues a **full refund** (`cancelledBy: SYSTEM`), tells the user "Booking not confirmed", and answers Stripe with 2xx. The payment stays `SUCCEEDED`, because Stripe did take the money; the refund row shows it going back.
+- **Refund status (PAY-03).** A refund Stripe answers with `pending` is stored `PENDING`. It now moves on by itself: the webhook handles `refund.updated`, `refund.failed` and `charge.refund.updated` (add them to `stripe listen --events`), and `GET /api/refunds/:id` asks Stripe again while it is still `PENDING`. Each change is one conditional update, so a repeated event applies once.
+
+
 ### Policies before payment (PAY-02)
 
 Payment is refused with 403 `POLICIES_NOT_ACCEPTED` until the provider's terms have been accepted. `POST .../accept-policies` requires the `policyVersion` the user was shown, so acceptance can only be given for terms that were really displayed; a stale value is 409 `POLICY_VERSION_MISMATCH`. One acceptance per booking per version is enforced by a unique index, which makes a double click idempotent, keeps the first timestamp and turns a race into the same answer for both requests.
@@ -1556,7 +1562,7 @@ stripe listen --print-secret
 **2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,refund.updated,refund.failed,charge.refund.updated --forward-to localhost:3000/api/payments/webhook
 ~~~
 
 `--events` is not optional any more: current CLIs refuse to start without it
