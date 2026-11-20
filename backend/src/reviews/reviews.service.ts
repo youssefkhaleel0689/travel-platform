@@ -88,9 +88,18 @@ export class ReviewsService {
     return review;
   }
 
+  /**
+   * The user's own review, while it is VISIBLE. Once an admin has hidden or
+   * deleted it (GEN-10), the author can no longer edit it back or remove the
+   * moderation record: it answers the same 404 as a review that is not theirs.
+   */
   private async getOwn(user: AuthenticatedUser, id: string) {
     const review = await this.reviewModel.findById(oid(id, 'id')).exec();
-    if (!review || String(review.userId) !== user.userId)
+    if (
+      !review ||
+      String(review.userId) !== user.userId ||
+      review.moderationState !== ReviewModerationState.VISIBLE
+    )
       throw new NotFoundException('Review not found');
     return review;
   }
