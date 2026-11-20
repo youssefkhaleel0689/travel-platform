@@ -2761,7 +2761,7 @@
     },
     {
       "name": "65 Admin bookings (ACC-17)",
-      "description": "The admin's read-only list of every flight booking and hotel reservation, filterable by type, status, the days the bookings were made and the booking reference.\n\nThe rows come from two collections owned by two other modules, read through the shared BookingsPort and merged into one page. listForAdmin is OPTIONAL on that port and neither shipped adapter implements it yet, so every request here returns an empty page today - with 200 and the GEN-05 meta, never a 501. That is what request 05 asserts. Rows appear as soon as A1 or B2 implements listForAdmin; the shape and filter assertions are written to run over whatever comes back, so only the \"empty today\" check needs deleting then.\n\nRequest 04 signs in as the admin, so the jar now holds the admin cookie: sign in again with folder 20 request 02 before going back to folders 20 to 40.",
+      "description": "The admin's read-only list of every flight booking and hotel reservation, filterable by type, status, the days the bookings were made and the booking reference.\n\nThe rows come from two collections owned by two other modules, read through the shared BookingsPort and merged into one page. listForAdmin is OPTIONAL on that port, and both shipped adapters implement it, so the list holds the real bookings on the database. The assertions run over whatever rows come back, so they hold on any data; request 10b then looks up a real reference taken from request 05. A module whose port did not implement it would simply be absent - the route still answers 200 with the GEN-05 meta, never a 501.\n\nRequest 04 signs in as the admin, so the jar now holds the admin cookie: sign in again with folder 20 request 02 before going back to folders 20 to 40.",
       "item": [
         {
           "name": "01 Register the traveller this folder uses",
@@ -2945,7 +2945,7 @@
                 "bookings"
               ]
             },
-            "description": "Every flight booking and hotel reservation on the platform, newest first, 10 per page. Both collections belong to other modules and are read through the shared BookingsPort. While no shipped port implements the optional listForAdmin the page is empty, which is the first assertion below; the shape assertions after it are what will check the rows once A1 or B2 implements it."
+            "description": "Every flight booking and hotel reservation on the platform, newest first, 10 per page. Both collections belong to other modules and are read through the shared BookingsPort, which both implement. The first row's reference is kept for request 10b."
           },
           "event": [
             {
@@ -2960,11 +2960,13 @@
                   "  pm.expect(pm.response.code).to.eql(200);",
                   "  pm.expect(pm.response.json()).to.have.property('items');",
                   "});",
-                  "// Delete this one when A1 or B2 implements listForAdmin: its failing is",
-                  "// the signal that real bookings now reach the list.",
-                  "pm.test('empty while no port implements listForAdmin', () =>",
-                  "  pm.expect(pm.response.json().meta.totalItems).to.eql(0));",
                   "const page = pm.response.json();",
+                  "// Both ports list now: the page holds what the count says it holds.",
+                  "pm.test('the page holds min(10, totalItems) rows', () =>",
+                  "  pm.expect(page.items.length).to.eql(Math.min(10, page.meta.totalItems)));",
+                  "const first = page.items.find((row) => row.reference);",
+                  "if (first) pm.collectionVariables.set('adminBookingRef', first.reference);",
+                  "else pm.collectionVariables.unset('adminBookingRef');",
                   "pm.test('a page of 10 with the GEN-05 meta', () => {",
                   "  pm.expect(page.meta.pageSize).to.eql(10);",
                   "  pm.expect(page.meta).to.include.keys(",
@@ -3024,7 +3026,7 @@
                 }
               ]
             },
-            "description": "The flights module is asked on its own; the hotels module is not called at all. Empty until A1 implements listForAdmin."
+            "description": "The flights module is asked on its own; the hotels module is not called at all."
           },
           "event": [
             {
@@ -3062,7 +3064,7 @@
                 }
               ]
             },
-            "description": "The same list from the other module, in the same row shape. Empty until B2 implements listForAdmin."
+            "description": "The same list from the other module, in the same row shape."
           },
           "event": [
             {
@@ -3192,6 +3194,61 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "pm.test('no booking carries that reference', () =>",
                   "  pm.expect(pm.response.json().meta.totalItems).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10b Look up a real booking by its reference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?reference={{adminBookingRefLower}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "reference",
+                  "value": "{{adminBookingRefLower}}"
+                }
+              ]
+            },
+            "description": "The reference request 05 found on the first row, sent in lower case: exactly that booking comes back. Skipped when the database holds no bookings."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ref = pm.collectionVariables.get('adminBookingRef');",
+                  "pm.collectionVariables.set('adminBookingRefLower', ref ? ref.toLowerCase() : 'none');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ref = pm.collectionVariables.get('adminBookingRef');",
+                  "if (!ref) {",
+                  "  pm.test.skip('no booking on the database to look up - run request 05 first');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('exactly that booking, case ignored', () => {",
+                  "    const page = pm.response.json();",
+                  "    pm.expect(page.meta.totalItems).to.eql(1);",
+                  "    pm.expect(page.items[0].reference).to.eql(ref);",
+                  "  });",
+                  "}"
                 ]
               }
             }

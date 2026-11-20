@@ -196,20 +196,18 @@ The admin list is the one C2 endpoint whose rows come from somebody else's
 collections: flight bookings (A1) and hotel reservations (B2), read through
 `BookingsPort` and merged into one page, newest first.
 
-`listForAdmin` is **optional** on that port, and neither shipped adapter
-implements it yet, so **today every request in folder 65 returns an empty
-page** - and that is what the folder asserts. The route still answers `200`
-with the GEN-05 `meta`, never a 501: a module that cannot list yet has no
-bookings to report, and an admin list must not break because a module is still
-being built.
-
-Rows appear as soon as A1 or B2 implements `listForAdmin` (the contract is in
-the README under "Booking lifecycle and the BookingsPort"). The folder is
-written for that day too: its shape and filter assertions run over whatever
-rows come back, so nothing in it needs changing then - only the "empty today"
-assertion in request 05 will start failing, and that is the signal to delete
-it. The rows this folder reads are never changed by it: ACC-17 is read-only,
-and a booking is cancelled through the module that owns it.
+`listForAdmin` is **optional** on that port, and **both shipped adapters
+implement it**, so folder 65 lists the real bookings on the database (the
+contract is in the README under "Booking lifecycle and the BookingsPort").
+Its shape, order and filter assertions run over whatever rows come back, so
+they hold on any data, and request 05 checks the page holds exactly
+`min(10, totalItems)` rows. Request 10b looks up the reference of request 05's
+first row, in lower case, and expects exactly that booking; it skips itself on
+a database with no bookings. A module whose port did not implement the method
+would simply be absent: the route still answers `200` with the GEN-05 `meta`,
+never a 501, because an admin list must not break while a module is being
+built. The rows this folder reads are never changed by it: ACC-17 is
+read-only, and a booking is cancelled through the module that owns it.
 
 ## 6. Driving the webhook for real
 

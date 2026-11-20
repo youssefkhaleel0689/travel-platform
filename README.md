@@ -1217,7 +1217,7 @@ of them.
 | `PATCH /api/admin/accounts/:id/reactivate` | ACC-16, ACC-15 | Also clears a login lockout |
 | `POST /api/admin/users/:id/reset-password` | ACC-07a | Returns a temporary password once; stored only as a hash |
 | `POST /api/admin/moderators` | ACC-13 | Admin only; creates an airline or hotel moderator linked to exactly one provider |
-| `GET /api/admin/bookings` | ACC-17 | Admin only, read-only; every flight booking and hotel reservation in one list, filtered by type, status, the days they were made and the booking reference. A booking type appears once its module implements `listForAdmin` (see "Booking lifecycle and the BookingsPort") |
+| `GET /api/admin/bookings` | ACC-17 | Admin only, read-only; every flight booking and hotel reservation in one list, filtered by type, status, the days they were made and the booking reference. Both booking modules implement `listForAdmin`, so both types appear (see "Booking lifecycle and the BookingsPort") |
 
 Rules worth knowing before you touch these:
 
