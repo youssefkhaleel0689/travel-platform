@@ -135,8 +135,7 @@ export class PaymentSettlementService {
       title: 'Booking not confirmed',
       message:
         `Your payment of ${decimal128ToString(payment.amount)} ${payment.currency} ` +
-        `arrived after your ${label(payment.bookingType)} hold had expired, so it ` +
-        `could not be confirmed. ` +
+        whyNotConfirmed(code, label(payment.bookingType)) +
         (refund.status === RefundStatus.FAILED
           ? 'Please contact support for your refund.'
           : 'The full amount is being refunded.'),
@@ -179,6 +178,17 @@ function isRefusal(error: unknown): error is HttpException {
     (error.getStatus() === HttpStatus.CONFLICT ||
       error.getStatus() === HttpStatus.NOT_FOUND)
   );
+}
+
+/** The reason in the user's words: only HOLD_EXPIRED is about the time running out. */
+function whyNotConfirmed(code: string, what: string): string {
+  if (code === 'HOLD_EXPIRED') {
+    return `arrived after your ${what} hold had expired, so it could not be confirmed. `;
+  }
+  if (code === 'ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT') {
+    return `was not needed: your ${what} is already confirmed by another payment. `;
+  }
+  return `could not be applied: your ${what} can no longer be confirmed. `;
 }
 
 function resourceTypeOf(bookingType: BookingType): NotificationResourceType {

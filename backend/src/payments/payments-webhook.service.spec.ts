@@ -410,6 +410,32 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       );
     });
 
+    it('says why: a hold that ran out', async () => {
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const [notice] = notifications.notify.mock.calls[0] as [
+        { message: string },
+      ];
+      expect(notice.message).toMatch(/hold had expired/);
+    });
+
+    it('says why: the booking was already paid by another payment', async () => {
+      bookings.confirmAfterPayment.mockRejectedValue(
+        new ConflictException({
+          code: 'ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT',
+          message: 'This booking is already confirmed by another payment',
+        }),
+      );
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const [notice] = notifications.notify.mock.calls[0] as [
+        { message: string },
+      ];
+      expect(notice.message).toMatch(/already confirmed by another payment/);
+      expect(notice.message).not.toMatch(/hold had expired/);
+    });
+
     it('still rethrows an error that is not a conflict, so Stripe retries', async () => {
       bookings.confirmAfterPayment.mockRejectedValue(new Error('db down'));
 
