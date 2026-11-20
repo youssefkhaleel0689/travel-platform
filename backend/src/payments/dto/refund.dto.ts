@@ -52,7 +52,8 @@ export class RefundDto {
     enum: RefundKind,
     example: RefundKind.CANCELLATION,
     description:
-      'CANCELLATION: the booking was cancelled. FARE_DIFFERENCE: a flight booking moved to a cheaper flight (FLT-27)',
+      'CANCELLATION: the booking was cancelled. FARE_DIFFERENCE: a flight booking moved to a cheaper flight (FLT-27). ' +
+      'UNCONFIRMED_PAYMENT: a payment the booking could not take, given back in full (PAY-01)',
   })
   kind: RefundKind;
 
