@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Patch,
   Post,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -28,6 +29,11 @@ import { AllowWhenPasswordChangeRequired } from '../common/auth/password-change.
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { AuthService } from './auth.service';
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyEmailQueryDto,
+} from './dto/email-bonus.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { MessageResponseDto } from './dto/message-response.dto';
 import { LoginDto } from './dto/login.dto';
@@ -90,6 +96,85 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<UserResponseDto> {
     return UserResponseDto.from(await this.auth.register(dto, res));
+  }
+
+  @Get('verify-email')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Verify an email address from the registration link (ACC-02)',
+    description:
+      'Public. The 64-character token is the one from the email link. It is ' +
+      'single-use and expires after 30 minutes. Booking is blocked while the ' +
+      'account is unverified when EMAIL_VERIFICATION_REQUIRED=true.',
+  })
+  @ApiOkResponse({ type: MessageResponseDto })
+  @ApiErrorResponse({
+    status: 400,
+    description: 'Invalid, expired or already used token',
+    examples: [
+      {
+        code: 'INVALID_TOKEN',
+        message: 'The link is invalid, expired or already used',
+        path: '/api/auth/verify-email',
+      },
+    ],
+  })
+  async verifyEmail(
+    @Query() query: VerifyEmailQueryDto,
+  ): Promise<MessageResponseDto> {
+    await this.auth.verifyEmail(query.token);
+    return new MessageResponseDto('Email verified');
+  }
+
+  @Post('forgot-password')
+  @Public()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Request a password-reset email (ACC-07)',
+    description:
+      'Always answers 202 with the same message, whether or not the account ' +
+      'exists. A real account receives a single-use link valid for 30 minutes; ' +
+      'a newer request invalidates the older one.',
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiOkResponse({ type: MessageResponseDto })
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+  ): Promise<MessageResponseDto> {
+    await this.auth.forgotPassword(dto.email);
+    return new MessageResponseDto(
+      'If the account exists, a reset link has been sent',
+    );
+  }
+
+  @Post('reset-password')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Choose a new password with a reset link (ACC-07)',
+    description:
+      'Public. The token comes from the email. On success all sessions of the ' +
+      'account are revoked and the user must log in again.',
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiOkResponse({ type: MessageResponseDto })
+  @ApiErrorResponse({
+    status: 400,
+    description: 'Invalid, expired or already used token, or a weak password',
+    examples: [
+      {
+        code: 'INVALID_TOKEN',
+        message: 'The link is invalid, expired or already used',
+        path: '/api/auth/reset-password',
+      },
+    ],
+  })
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<MessageResponseDto> {
+    await this.auth.resetPassword(dto.token, dto.newPassword);
+    return new MessageResponseDto('Password changed. Please log in again.');
   }
 
   @Post('login')

@@ -23,6 +23,7 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
     role: Role.AIRLINE_MODERATOR,
     status: UserStatus.ACTIVE,
     mustChangePassword: false,
+    emailVerifiedAt: null,
     createdAt: new Date('2026-11-12T10:00:00.000Z'),
     // ACC-12, ACC-16 added these to UserProfile; null is "never been in that state".
     suspendedAt: null,

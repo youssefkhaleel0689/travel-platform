@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -18,6 +19,7 @@ import {
   ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
+import { EmailVerifiedGuard } from '../../auth/guards/email-verified.guard';
 import { Role } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
@@ -209,6 +211,9 @@ export class FlightBookingsController {
   }
 
   @Post('hold')
+  // ACC-02: only creating a booking needs a verified email; viewing and
+  // cancelling existing bookings stay open.
+  @UseGuards(EmailVerifiedGuard)
   @Roles(Role.USER)
   @ApiOperation({
     summary: 'Hold the seats for 10 minutes (FLT-22)',
@@ -223,6 +228,19 @@ export class FlightBookingsController {
   @ApiBody({ type: FlightBookingRequestDto })
   @ApiCreatedResponse({ type: FlightBookingDto })
   @ApiBookingRequestErrors(HOLD_PATH)
+  @ApiErrorResponse({
+    status: 403,
+    description:
+      'Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)',
+    examples: [
+      {
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email before making a booking',
+        path: HOLD_PATH,
+        errors: [{ field: 'email', messages: ['email is not verified'] }],
+      },
+    ],
+  })
   hold(
     @Body() dto: FlightBookingRequestDto,
     @CurrentUser() user: AuthenticatedUser,

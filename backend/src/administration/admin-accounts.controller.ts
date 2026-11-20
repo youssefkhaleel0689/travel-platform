@@ -16,10 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
-import {
-  forbidden,
-  unauthenticated,
-} from '../common/swagger/standard-errors';
+import { forbidden, unauthenticated } from '../common/swagger/standard-errors';
 import { ApiPaginatedResponse } from '../common/pagination/api-paginated-response.decorator';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { CurrentUser } from '../common/auth/current-user.decorator';
@@ -64,7 +61,11 @@ export class AdminAccountsController {
     status: 400,
     description: 'Bad page, unknown role or status, or unknown query parameter',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Bad page, unknown role or status, or unknown query parameter', path: '/api/admin/accounts' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Bad page, unknown role or status, or unknown query parameter',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   listAccounts(
@@ -88,14 +89,22 @@ export class AdminAccountsController {
     status: 400,
     description: 'Own account, or an account its owner deactivated',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Own account, or an account its owner deactivated', path: '/api/admin/accounts' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Own account, or an account its owner deactivated',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   suspend(
@@ -118,14 +127,22 @@ export class AdminAccountsController {
     status: 400,
     description: 'Own account, or an account its owner deactivated',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Own account, or an account its owner deactivated', path: '/api/admin/accounts' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Own account, or an account its owner deactivated',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   reactivate(
@@ -154,14 +171,22 @@ export class AdminAccountsController {
     status: 400,
     description: 'Own account',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Own account', path: '/api/admin/accounts' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Own account',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   @ApiErrorResponse({
     status: 404,
     description: 'No such account',
     examples: [
-      { code: 'NOT_FOUND', message: 'Account not found', path: '/api/admin/accounts' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Account not found',
+        path: '/api/admin/accounts',
+      },
     ],
   })
   resetPassword(

@@ -1,10 +1,13 @@
 import { AuditModule } from '../audit/audit.module';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { MediaModule } from '../media/media.module';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AirlineBookingsController } from './airline-bookings/airline-bookings.controller';
 import { AirlineBookingsService } from './airline-bookings/airline-bookings.service';
+import { AirlineLogoController } from './airlines/airline-logo.controller';
+import { AirlineLogoService } from './airlines/airline-logo.service';
 import { AirlinesController } from './airlines/airlines.controller';
 import { AirlinesService } from './airlines/airlines.service';
 import { CabinsController } from './cabins/cabins.controller';
@@ -45,6 +48,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 @Module({
   imports: [
     ReferenceDataModule,
+    // FLT-01 / GEN-08: the airline logo is stored by the shared media service.
+    MediaModule,
     // FLT-06: the flight cancellation is recorded in the audit log (GEN-07).
     AuditModule,
     // FLT-05 (time-change notices), FLT-06 and FLT-26 (cancellation notices).
@@ -62,6 +67,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
   ],
   controllers: [
     AirlinesController,
+    AirlineLogoController,
     AirlinePoliciesController,
     FlightsController,
     CabinsController,
@@ -75,6 +81,7 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
   ],
   providers: [
     AirlinesService,
+    AirlineLogoService,
     AirlinePoliciesService,
     FlightsService,
     CabinsService,

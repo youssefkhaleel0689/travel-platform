@@ -32,7 +32,7 @@ export class Airline {
   @Prop({ type: String, trim: true, uppercase: true, match: AIRLINE_ICAO_CODE })
   icaoCode?: string;
 
-  // URL of the one logo (GEN-08). Set by the upload endpoint, added in a later PR.
+  // URL of the one logo (GEN-08). Set by PUT /airlines/:id/logo, cleared by DELETE.
   @Prop({ type: String, default: null })
   logo: string | null;
 

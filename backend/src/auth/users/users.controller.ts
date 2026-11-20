@@ -98,7 +98,9 @@ export class UsersController {
         errors: [
           {
             field: 'phone',
-            messages: ['phone must be an optional + followed by 7 to 15 digits'],
+            messages: [
+              'phone must be an optional + followed by 7 to 15 digits',
+            ],
           },
         ],
       },

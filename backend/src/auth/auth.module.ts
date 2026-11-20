@@ -4,13 +4,22 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { BookingsModule } from '../common/bookings/bookings.module';
+import { EmailModule } from '../email/email.module';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { EmailTokenService } from './email-token.service';
+import { EmailVerifiedGuard } from './guards/email-verified.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { jwtModuleOptions, readJwtSecret } from './jwt-secret';
 import { PasswordService } from './password/password.service';
+import {
+  EmailVerificationToken,
+  EmailVerificationTokenSchema,
+  PasswordResetToken,
+  PasswordResetTokenSchema,
+} from './schemas/email-token.schema';
 import { User, UserSchema } from './schemas/user.schema';
 import { AdminSeeder } from './seed/admin-seeder.service';
 import { Session, SessionSchema } from './sessions/session.schema';
@@ -26,6 +35,11 @@ import { UsersService } from './users/users.service';
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Session.name, schema: SessionSchema },
+      {
+        name: EmailVerificationToken.name,
+        schema: EmailVerificationTokenSchema,
+      },
+      { name: PasswordResetToken.name, schema: PasswordResetTokenSchema },
     ]),
     // Pinning the algorithm rejects tokens that claim another algorithm or 'none'.
     JwtModule.registerAsync({
@@ -37,6 +51,7 @@ import { UsersService } from './users/users.service';
     // the booking modules whether the account still has an upcoming booking.
     ReferenceDataModule,
     BookingsModule,
+    EmailModule,
   ],
   controllers: [AuthController, UsersController],
   providers: [
@@ -44,6 +59,8 @@ import { UsersService } from './users/users.service';
     UsersService,
     AccountsService,
     SessionsService,
+    EmailVerifiedGuard,
+    EmailTokenService,
     AuthService,
     AccessTokenService,
     // Used only by the seed:admin script (ACC-18); not exported.
@@ -52,6 +69,12 @@ import { UsersService } from './users/users.service';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [UsersService, AccountsService, PasswordService, SessionsService],
+  exports: [
+    UsersService,
+    AccountsService,
+    PasswordService,
+    SessionsService,
+    EmailVerifiedGuard,
+  ],
 })
 export class AuthModule {}

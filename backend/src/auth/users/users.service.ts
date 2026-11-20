@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -27,6 +28,8 @@ export interface UserProfile {
   role: Role;
   status: UserStatus;
   mustChangePassword: boolean;
+  /** ACC-02: null until the verification link is used. */
+  emailVerifiedAt: Date | null;
   createdAt: Date;
   // ACC-12, ACC-16: when the status last changed, so the admin list and the
   // profile can show it. Null while the account has never been in that state.
@@ -90,6 +93,8 @@ export interface CreateUserInput {
    * own password.
    */
   temporaryPasswordIssuedAt?: Date | null;
+  /** Seeded/admin-created accounts are verified at creation. */
+  emailVerifiedAt?: Date | null;
 }
 
 /**
@@ -170,6 +175,12 @@ export class UsersService {
         termsAcceptedAt: input.termsAcceptedAt ?? null,
         mustChangePassword: input.mustChangePassword ?? false,
         temporaryPasswordIssuedAt: input.temporaryPasswordIssuedAt ?? null,
+        emailVerifiedAt:
+          input.emailVerifiedAt !== undefined
+            ? input.emailVerifiedAt
+            : process.env.EMAIL_VERIFICATION_REQUIRED === 'true'
+              ? null
+              : new Date(),
       });
       return this.toUserProfile(created.toObject());
     } catch (error) {
@@ -235,7 +246,10 @@ export class UsersService {
   }
 
   // BLG-09: ids of accounts whose name contains the text (search by author).
-  async findIdsByNameFragment(fragment: string, limit = 500): Promise<string[]> {
+  async findIdsByNameFragment(
+    fragment: string,
+    limit = 500,
+  ): Promise<string[]> {
     const term = fragment.trim();
     if (term === '') {
       return [];
@@ -447,7 +461,9 @@ export class UsersService {
       });
     }
 
-    if (!(await this.passwordService.verify(currentPassword, user.passwordHash))) {
+    if (
+      !(await this.passwordService.verify(currentPassword, user.passwordHash))
+    ) {
       throw new UnauthorizedException({
         code: 'INVALID_CURRENT_PASSWORD',
         message: 'Current password is incorrect',
@@ -635,6 +651,63 @@ export class UsersService {
     return profile;
   }
 
+  /** ACC-02: mark the account verified after a valid link is used. */
+  async markEmailVerified(userId: string): Promise<void> {
+    if (!OBJECT_ID.test(userId)) return;
+    await this.userModel
+      .updateOne(
+        { _id: new Types.ObjectId(userId) },
+        { $set: { emailVerifiedAt: new Date() } },
+      )
+      .exec();
+  }
+
+  /** ACC-07: store a new bcrypt hash; session revocation is the caller's job. */
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    if (!OBJECT_ID.test(userId)) return;
+    await this.userModel
+      .updateOne(
+        { _id: new Types.ObjectId(userId) },
+        {
+          $set: {
+            passwordHash,
+            mustChangePassword: false,
+            temporaryPasswordIssuedAt: null,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        },
+      )
+      .exec();
+  }
+
+  /**
+   * ACC-02: booking is blocked until the email is verified, when the feature
+   * is enabled. Disabled by default so local/dev and existing tests keep working.
+   *
+   * Only an explicit null blocks. Accounts created after this feature store
+   * null until they verify; accounts created before it have no field at all
+   * and are treated as verified, so turning the flag on does not lock every
+   * existing user (and the seeded test accounts) out of booking.
+   */
+  async assertCanBook(userId: string): Promise<void> {
+    if (process.env.EMAIL_VERIFICATION_REQUIRED !== 'true') return;
+    if (!OBJECT_ID.test(userId)) return;
+    const unverified = await this.userModel
+      .exists({
+        _id: new Types.ObjectId(userId),
+        emailVerifiedAt: { $type: 'null' },
+      })
+      .exec();
+    if (unverified) {
+      throw new ForbiddenException({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email before making a booking',
+        errors: [{ field: 'email', messages: ['email is not verified'] }],
+      });
+    }
+  }
+
   // select:false only affects queries; create() returns the document with passwordHash,
   // so every result goes through this mapper. Fields are listed one by one.
   private toUserProfile(user: User): UserProfile {
@@ -647,6 +720,7 @@ export class UsersService {
       role: user.role,
       status: user.status,
       mustChangePassword: user.mustChangePassword,
+      emailVerifiedAt: user.emailVerifiedAt ?? null,
       createdAt: user.createdAt,
       suspendedAt: user.suspendedAt ?? null,
       deactivatedAt: user.deactivatedAt ?? null,

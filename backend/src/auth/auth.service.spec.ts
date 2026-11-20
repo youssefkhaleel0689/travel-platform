@@ -10,6 +10,9 @@ import type {
   SessionsService,
 } from './sessions/sessions.service';
 import type { AccessTokenService } from './tokens/access-token.service';
+import type { EmailService } from '../notifications/email.service';
+import type { EmailTokenService } from './email-token.service';
+import type { PasswordService } from './password/password.service';
 import type {
   CreateUserInput,
   CredentialCheck,
@@ -26,6 +29,7 @@ const PROFILE: UserProfile = {
   role: Role.USER,
   status: UserStatus.ACTIVE,
   mustChangePassword: false,
+  emailVerifiedAt: null,
   suspendedAt: null,
   deactivatedAt: null,
   createdAt: new Date('2026-11-12T10:00:00.000Z'),
@@ -115,6 +119,9 @@ function setup(
     users as unknown as UsersService,
     accessTokens as unknown as AccessTokenService,
     sessions as unknown as SessionsService,
+    {} as EmailTokenService,
+    { send: jest.fn(() => Promise.resolve()) } as unknown as EmailService,
+    {} as PasswordService,
   );
   return {
     service,

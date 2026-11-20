@@ -106,7 +106,10 @@ describe('AdminAccountsService', () => {
   describe('suspend (ACC-16)', () => {
     it('suspends and notifies the owner', async () => {
       users.setStatus.mockResolvedValue(
-        account({ status: UserStatus.SUSPENDED, suspendedAt: new Date() }) as never,
+        account({
+          status: UserStatus.SUSPENDED,
+          suspendedAt: new Date(),
+        }) as never,
       );
 
       const result = await service.suspend(ADMIN_ID, TARGET_ID);
@@ -282,16 +285,16 @@ describe('AdminAccountsService', () => {
       users.findByIdOrThrow.mockResolvedValue(
         account({ role: Role.ADMIN }) as never,
       );
-      await expect(
-        service.resetPassword(ADMIN_ID, TARGET_ID),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.resetPassword(ADMIN_ID, TARGET_ID)).rejects.toThrow(
+        ForbiddenException,
+      );
 
       users.findByIdOrThrow.mockResolvedValue(
         account({ id: ADMIN_ID }) as never,
       );
-      await expect(
-        service.resetPassword(ADMIN_ID, ADMIN_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.resetPassword(ADMIN_ID, ADMIN_ID)).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(users.resetPasswordToTemporary).not.toHaveBeenCalled();
       expect(sessions.revokeAllSessions).not.toHaveBeenCalled();
