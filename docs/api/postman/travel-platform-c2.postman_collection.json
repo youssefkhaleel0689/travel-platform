@@ -2049,7 +2049,7 @@
           ]
         },
         {
-          "name": "07 A hotel moderator is a 501 until the hotels module lands",
+          "name": "07 A hotel moderator for an unknown hotel -> 404, and no account is left behind",
           "request": {
             "method": "POST",
             "header": [
@@ -2072,7 +2072,7 @@
               "mode": "raw",
               "raw": "{\n  \"name\": \"C2 Hotel Moderator\",\n  \"email\": \"test_c2_hotelmod@example.com\",\n  \"role\": \"HOTEL_MODERATOR\",\n  \"hotelId\": \"000000000000000000000000\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
             },
-            "description": "The hotel half of ACC-13 is complete except for the one adapter the hotels module will provide (B1, HTL-01). Until then the route says so rather than failing in a way that looks like a bug. Nothing is created."
+            "description": "ACC-13 for hotels is complete: AdministrationModule provides HOTEL_MODERATOR_ASSIGNMENT_PORT over the hotels module, so this is no longer the 501 it was. The hotelId here does not exist, so the adapter answers 404 HOTEL_NOT_FOUND - and because the account is created before the link is made, the compensating delete is what stops an orphan account being left behind. Request 19 checks that nothing was left behind."
           },
           "event": [
             {
@@ -2080,11 +2080,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('501 Not Implemented', () => pm.response.to.have.status(501));",
-                  "pm.test('PROVIDER_TYPE_UNAVAILABLE', () =>",
-                  "  pm.expect(pm.response.json().code).to.eql('PROVIDER_TYPE_UNAVAILABLE'));",
-                  "pm.test('the message names the hotels module', () =>",
-                  "  pm.expect(pm.response.json().message).to.include('hotels module'));"
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code HOTEL_NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('HOTEL_NOT_FOUND'));",
+                  "// Was 501 PROVIDER_TYPE_UNAVAILABLE until the hotels module landed.",
+                  "pm.test('the hotel assignment port is wired', () =>",
+                  "  pm.expect(pm.response.code).to.not.eql(501));"
                 ]
               }
             }
@@ -2476,6 +2477,96 @@
               }
             }
           ]
+        },
+        {
+          "name": "18 The refused airline moderator was not left behind",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test_c2_orphan@example.com\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "ACC-13 writes the account first and links it to the provider second, so a provider that does not exist (request 06) has to undo the account it already created. Signing in proves it did: 401, because there is nothing to sign in to. A 403 PASSWORD_CHANGE_REQUIRED here instead would mean the account survived and the compensating delete is broken - and the next run of this folder would get 409 on that request rather than the 404 it expects, because the address stays taken."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized: no such account', () =>",
+                  "  pm.response.to.have.status(401));",
+                  "pm.test('code INVALID_CREDENTIALS', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));",
+                  "// Not pm.cookies: the jar still holds the cookie request 13 got, and a",
+                  "// failed login neither replaces nor clears it. The 401 is the proof -",
+                  "// an account that survived would answer 403 PASSWORD_CHANGE_REQUIRED",
+                  "// on its temporary password instead."
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19 The refused hotel moderator was not left behind",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test_c2_hotelmod@example.com\",\n  \"password\": \"{{moderatorPassword}}\"\n}"
+            },
+            "description": "ACC-13 writes the account first and links it to the provider second, so a provider that does not exist (request 07) has to undo the account it already created. Signing in proves it did: 401, because there is nothing to sign in to. A 403 PASSWORD_CHANGE_REQUIRED here instead would mean the account survived and the compensating delete is broken - and the next run of this folder would get 409 on that request rather than the 404 it expects, because the address stays taken."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized: no such account', () =>",
+                  "  pm.response.to.have.status(401));",
+                  "pm.test('code INVALID_CREDENTIALS', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));",
+                  "// Not pm.cookies: the jar still holds the cookie request 13 got, and a",
+                  "// failed login neither replaces nor clears it. The 401 is the proof -",
+                  "// an account that survived would answer 403 PASSWORD_CHANGE_REQUIRED",
+                  "// on its temporary password instead."
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2706,7 +2797,7 @@
           ]
         },
         {
-          "name": "02 GET /bookings/hotel/{{bookingId}}/policies -> 501 today",
+          "name": "02 GET /bookings/hotel/{{bookingId}}/policies -> 404 (unknown booking)",
           "request": {
             "method": "GET",
             "header": [],
@@ -2722,7 +2813,7 @@
                 "policies"
               ]
             },
-            "description": "PAY-02. Once B2 wires the hotel port in, this returns the booking's cancellation tiers, check-in and check-out times, its policyVersion and whether they are already accepted. Change the expected status to 200 then."
+            "description": "PAY-02. With a real reservation this returns its cancellation tiers, check-in and check-out times, its policyVersion and whether they are already accepted. Flights and hotels both provide a BookingsPort now, so this is no longer the 501 it was before they landed. It still uses a booking id that does not exist, so the answer is the same 404 a booking belonging to someone else gets - ids cannot be probed (ACC-11). The point of keeping it: if that module ever stops being @Global(), BookingsGateway cannot see its port and this goes back to 501, which this request fails on loudly."
           },
           "event": [
             {
@@ -2730,10 +2821,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
-                  "  pm.response.to.have.status(501));",
-                  "pm.test('code BOOKING_TYPE_UNAVAILABLE', () =>",
-                  "  pm.expect(pm.response.json().code).to.eql('BOOKING_TYPE_UNAVAILABLE'));"
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));",
+                  "// Was 501 BOOKING_TYPE_UNAVAILABLE until the hotels module provided its",
+                  "// port. A 501 here again means HotelBookingsModule lost @Global().",
+                  "pm.test('the hotel BookingsPort is wired', () =>",
+                  "  pm.expect(pm.response.code).to.not.eql(501));"
                 ]
               }
             }
@@ -2806,7 +2900,7 @@
           ]
         },
         {
-          "name": "05 POST /bookings/hotel/{{bookingId}}/accept-policies -> 501 today",
+          "name": "05 POST /bookings/hotel/{{bookingId}}/accept-policies -> 404 (unknown booking)",
           "request": {
             "method": "POST",
             "header": [
@@ -2831,7 +2925,7 @@
                 "accept-policies"
               ]
             },
-            "description": "policyVersion must match the value the policies endpoint returned, so acceptance can only be given for terms that were really shown; a stale value is 409 POLICY_VERSION_MISMATCH. Sending it twice returns the first acceptance with its original timestamp."
+            "description": "policyVersion must match the value the policies endpoint returned, so acceptance can only be given for terms that were really shown; a stale value is 409 POLICY_VERSION_MISMATCH. Flights and hotels both provide a BookingsPort now, so this is no longer the 501 it was before they landed. It still uses a booking id that does not exist, so the answer is the same 404 a booking belonging to someone else gets - ids cannot be probed (ACC-11). The point of keeping it: if that module ever stops being @Global(), BookingsGateway cannot see its port and this goes back to 501, which this request fails on loudly."
           },
           "event": [
             {
@@ -2839,8 +2933,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
-                  "  pm.response.to.have.status(501));"
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));",
+                  "pm.test('the hotel BookingsPort is wired', () =>",
+                  "  pm.expect(pm.response.code).to.not.eql(501));"
                 ]
               }
             }
@@ -2937,7 +3034,7 @@
           ]
         },
         {
-          "name": "02 POST /payments -> 501 today",
+          "name": "02 POST /payments -> 404 (unknown booking)",
           "request": {
             "method": "POST",
             "header": [
@@ -2959,7 +3056,7 @@
                 "payments"
               ]
             },
-            "description": "Once a booking module is wired in this returns 201 with the payment and its clientSecret. Note there is no amount in the request: it comes from the booking, so a client cannot choose what to pay."
+            "description": "With a real reservation on hold this returns 201 with the payment and its clientSecret. Note there is no amount in the request: it comes from the booking, so a client cannot choose what to pay. Flights and hotels both provide a BookingsPort now, so this is no longer the 501 it was before they landed. It still uses a booking id that does not exist, so the answer is the same 404 a booking belonging to someone else gets - ids cannot be probed (ACC-11). The point of keeping it: if that module ever stops being @Global(), BookingsGateway cannot see its port and this goes back to 501, which this request fails on loudly."
           },
           "event": [
             {
@@ -2967,10 +3064,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('501 Not Implemented (no booking module yet)', () =>",
-                  "  pm.response.to.have.status(501));",
-                  "pm.test('code BOOKING_TYPE_UNAVAILABLE', () =>",
-                  "  pm.expect(pm.response.json().code).to.eql('BOOKING_TYPE_UNAVAILABLE'));"
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code NOT_FOUND', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('NOT_FOUND'));",
+                  "pm.test('the hotel BookingsPort is wired', () =>",
+                  "  pm.expect(pm.response.code).to.not.eql(501));"
                 ]
               }
             }
