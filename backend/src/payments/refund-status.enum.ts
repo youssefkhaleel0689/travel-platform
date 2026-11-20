@@ -32,6 +32,13 @@ export enum RefundKind {
   CANCELLATION = 'CANCELLATION',
   /** The booking moved to a cheaper flight: the difference (FLT-27). */
   FARE_DIFFERENCE = 'FARE_DIFFERENCE',
+  /**
+   * PAY-01: one payment the booking could not take (it arrived after the
+   * hold, or another payment had confirmed it) is given back in full. It is
+   * about that payment, not the booking, so it never blocks the booking's own
+   * cancellation refund later.
+   */
+  UNCONFIRMED_PAYMENT = 'UNCONFIRMED_PAYMENT',
 }
 
 /** Maps a Stripe refund status onto ours. */

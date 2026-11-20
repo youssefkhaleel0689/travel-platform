@@ -558,6 +558,9 @@ describe('PaymentsService (PAY-01)', () => {
       });
       expect(String(created.amount)).toBe('55.00');
       expect(created.succeededAt).toBeInstanceOf(Date);
+      // Already applied by the change, so the settlement leaves its webhook
+      // alone instead of refunding it as a second payment.
+      expect(created.bookingConfirmedAt).toBeInstanceOf(Date);
     });
 
     it('returns the first row when the same PaymentIntent is recorded twice', async () => {

@@ -116,7 +116,7 @@ export class RefundsService {
     const live = ledger.refunds.find(
       (refund) =>
         refund.status !== RefundStatus.FAILED &&
-        refund.kind !== RefundKind.FARE_DIFFERENCE,
+        (refund.kind ?? RefundKind.CANCELLATION) === RefundKind.CANCELLATION,
     );
     if (live) {
       throw new ConflictException({
@@ -352,6 +352,7 @@ export class RefundsService {
         currency: payment.currency,
         status: RefundStatus.PENDING,
         cancelledBy: CancelledBy.SYSTEM,
+        kind: RefundKind.UNCONFIRMED_PAYMENT,
         reason,
         refundPercentage: 100,
         policySnapshot: null,
@@ -569,15 +570,23 @@ export class RefundsService {
       userId: payment.userId,
       type: NotificationType.REFUND_ISSUED,
       title: 'Refund issued',
-      message:
-        refund.kind === RefundKind.FARE_DIFFERENCE
-          ? `${amount} ${refund.currency} is being refunded: the fare ` +
-            'difference after your booking moved to a cheaper flight.'
-          : `${amount} ${refund.currency} is being refunded for your cancelled ` +
-            `booking (${refund.refundPercentage}% of what you paid).`,
+      message: refundNotice(refund, amount),
       resourceType: NotificationResourceType.REFUND,
       resourceId: refund._id.toString(),
     });
+  }
+}
+
+/** GEN-01: the refund in the user's words; only a cancellation says "cancelled". */
+function refundNotice(refund: RefundDocument, amount: string): string {
+  const money = `${amount} ${refund.currency} is being refunded`;
+  switch (refund.kind) {
+    case RefundKind.FARE_DIFFERENCE:
+      return `${money}: the fare difference after your booking moved to a cheaper flight.`;
+    case RefundKind.UNCONFIRMED_PAYMENT:
+      return `${money} in full: this payment could not be applied to your booking.`;
+    default:
+      return `${money} for your cancelled booking (${refund.refundPercentage}% of what you paid).`;
   }
 }
 

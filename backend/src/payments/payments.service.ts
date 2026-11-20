@@ -222,8 +222,8 @@ export class PaymentsService {
    * FLT-27: records a fare difference Stripe has already confirmed, as a
    * SUCCEEDED payment of the same booking, so a later refund can give it back.
    * It is written only once the money is in, so the expiry sweep, which looks
-   * at open payments, never sees it, and the webhook for its PaymentIntent
-   * finds it already SUCCEEDED and does nothing. Recording the same
+   * at open payments, never sees it, and bookingConfirmedAt is set, so the
+   * settlement leaves the webhook for its PaymentIntent alone. Recording the same
    * PaymentIntent twice returns the first row.
    */
   async recordFareDifference(input: {
@@ -260,6 +260,10 @@ export class PaymentsService {
         failedAt: null,
         cancelledAt: null,
         failureMessage: null,
+        // Already applied to the booking by the change itself. Without this
+        // the settlement (#80) would treat the PaymentIntent's webhook as a
+        // second payment for a confirmed booking and refund the difference.
+        bookingConfirmedAt: new Date(),
       });
     } catch (error) {
       if (isDuplicateKey(error)) {

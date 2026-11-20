@@ -566,6 +566,48 @@ describe('RefundsService (PAY-03)', () => {
       );
     });
 
+    it('lets a cancellation follow the refund of an extra payment the booking could not take', async () => {
+      model.find.mockReturnValue(
+        sortExec([
+          refundDoc({
+            kind: RefundKind.UNCONFIRMED_PAYMENT,
+            cancelledBy: CancelledBy.SYSTEM,
+            status: RefundStatus.REFUNDED,
+            paymentId: new Types.ObjectId(DIFFERENCE_ID),
+            amount: Types.Decimal128.fromString('80.00'),
+          }),
+        ]),
+      );
+      payments.findSucceededPaymentsForBooking.mockResolvedValue([
+        booking,
+        difference,
+      ]);
+
+      await service.issueForCancellation({
+        ...userCancellation,
+        cancelledBy: CancelledBy.PROVIDER,
+      });
+
+      // The extra 80 is already back: the cancellation is the booking's 420.
+      expect(stripe.createRefund).toHaveBeenCalledTimes(1);
+      expect(stripe.createRefund).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: '420.00',
+          stripePaymentIntentId: 'pi_1',
+        }),
+      );
+    });
+
+    it('still refuses a second cancellation refund', async () => {
+      model.find.mockReturnValue(
+        sortExec([refundDoc({ status: RefundStatus.REFUNDED })]),
+      );
+
+      await expect(
+        service.issueForCancellation(userCancellation),
+      ).rejects.toMatchObject({ response: { code: 'REFUND_ALREADY_ISSUED' } });
+    });
+
     it('refunds a fare difference paid on top before the booking payment, never more than each has left', async () => {
       payments.findSucceededPaymentsForBooking.mockResolvedValue([
         booking,

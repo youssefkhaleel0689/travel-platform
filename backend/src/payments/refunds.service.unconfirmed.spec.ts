@@ -4,7 +4,7 @@ import { BookingType } from '../common/bookings/booking-status';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
-import { CancelledBy, RefundStatus } from './refund-status.enum';
+import { CancelledBy, RefundKind, RefundStatus } from './refund-status.enum';
 import { RefundsService } from './refunds.service';
 import { PaymentDocument } from './schemas/payment.schema';
 import { Refund } from './schemas/refund.schema';
@@ -132,12 +132,24 @@ describe('RefundsService.refundUnconfirmablePayment (PAY-01)', () => {
       expect(row.refundPercentage).toBe(100);
       expect(row.reason).toBe('arrived late');
       expect(row.idempotencyKey).toBe(KEY);
+      // Its own kind, so it never blocks the booking's cancellation refund.
+      expect(row.kind).toBe(RefundKind.UNCONFIRMED_PAYMENT);
       expect(stripe.createRefund).toHaveBeenCalledWith({
         stripePaymentIntentId: 'pi_1',
         amount: '150.00',
         idempotencyKey: KEY,
         bookingId: BOOKING_ID,
       });
+    });
+
+    it('tells the user the payment could not be applied, not that a booking was cancelled', async () => {
+      await service.refundUnconfirmablePayment(payment(), 'arrived late');
+
+      const [notice] = notifications.notify.mock.calls[0] as [
+        { message: string },
+      ];
+      expect(notice.message).toMatch(/could not be applied/);
+      expect(notice.message).not.toMatch(/cancelled/);
     });
 
     // A webhook retry and the sweep can both arrive here for one payment.
