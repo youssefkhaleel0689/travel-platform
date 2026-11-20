@@ -204,6 +204,45 @@ describe('StripeService (PAY-01)', () => {
     });
   });
 
+  describe('createPaymentIntent minimum (Stripe charges at least 0.50 USD)', () => {
+    const service = serviceWith({ STRIPE_SECRET_KEY: 'sk_test_placeholder' });
+    const client = (
+      service as unknown as {
+        client: { paymentIntents: { create: jest.Mock } };
+      }
+    ).client;
+    const input = (amount: string) => ({
+      amount,
+      idempotencyKey: 'k',
+      bookingType: BookingType.HOTEL,
+      bookingId: '6720f1c2a1b2c3d4e5f60718',
+      userId: '6720f1c2a1b2c3d4e5f60001',
+    });
+
+    it('refuses 0.49 with 400 AMOUNT_TOO_SMALL before calling Stripe', async () => {
+      const create = jest.spyOn(client.paymentIntents, 'create');
+
+      await expect(
+        service.createPaymentIntent(input('0.49')),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: { code: 'AMOUNT_TOO_SMALL' },
+      });
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it('accepts exactly 0.50', async () => {
+      jest.spyOn(client.paymentIntents, 'create').mockResolvedValue({
+        id: 'pi_1',
+        status: 'requires_payment_method',
+      } as never);
+
+      await expect(
+        service.createPaymentIntent(input('0.50')),
+      ).resolves.toMatchObject({ id: 'pi_1' });
+    });
+  });
+
   describe('createPaymentIntent request', () => {
     const service = serviceWith({ STRIPE_SECRET_KEY: 'sk_test_placeholder' });
     const client = (

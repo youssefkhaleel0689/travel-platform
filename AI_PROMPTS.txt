@@ -1262,3 +1262,12 @@ Review the new commits on Khaled's PR, including the move of hotel photos to Med
 How the output was used:
 Claude found that photos uploaded before the move have no MediaService row, only their storageKey, so after the move every existing hotel photo answered 404 and deleting one left its file on disk. MediaService gained openStoredFile and removeStoredFile (both stay inside the uploads directory), and the hotel service uses them for a photo that still has a storageKey. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 1815 unit tests.
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: PAY-03, PAY-01, FLT-27, GEN-07
+Prompt:
+Close the last two gaps from the review: a FAILED refund has no route to retry it, and amounts under Stripe's 0.50 USD minimum fail at Stripe.
+How the output was used:
+Claude added POST /api/refunds/:id/retry for admins, recorded in the audit log as REFUND_RETRIED. While doing it, it found that retryFailed sent the same idempotency key again, and Stripe only replays its stored answer for a key it has seen, so a retry could never succeed; the refund now counts retryCount and each try sends <key>:retry:<n>. The move from FAILED to PENDING is one conditional update, so two retries at once send the refund once and the other gets 409; the PAY-01 resend of a failed full refund uses the same path. StripeService.createPaymentIntent now refuses amounts under 0.50 USD with 400 AMOUNT_TOO_SMALL before calling Stripe, which covers both POST /api/payments and FLT-27 fare differences. Added 6 unit tests and README notes. Verified in the cloud: tsc clean, lint 0 errors, 1819 unit tests.
+================================================

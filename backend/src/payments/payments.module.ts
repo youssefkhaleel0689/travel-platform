@@ -1,3 +1,4 @@
+import { AuditModule } from '../audit/audit.module';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -49,6 +50,8 @@ import { StripeService } from './stripe.service';
     AuthModule,
     BookingsModule,
     NotificationsModule,
+    // PAY-03: an admin retrying a refund is recorded (GEN-07).
+    AuditModule,
   ],
   controllers: [
     BookingPoliciesController,

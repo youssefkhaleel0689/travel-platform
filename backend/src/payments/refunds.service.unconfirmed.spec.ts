@@ -170,13 +170,31 @@ describe('RefundsService.refundUnconfirmablePayment (PAY-01)', () => {
     it('resends its own failed refund instead of making a second one', async () => {
       const failed = refund({ status: RefundStatus.FAILED });
       model.find.mockReturnValue(sortExec([failed]));
+      model.findOneAndUpdate.mockReturnValue(
+        exec(refund({ status: RefundStatus.PENDING, retryCount: 1 })),
+      );
 
       await service.refundUnconfirmablePayment(payment(), 'late');
 
       expect(model.create).not.toHaveBeenCalled();
+      // A key of its own: Stripe would only replay the failure for KEY.
       expect(stripe.createRefund).toHaveBeenCalledWith(
-        expect.objectContaining({ idempotencyKey: KEY }),
+        expect.objectContaining({ idempotencyKey: `${KEY}:retry:1` }),
       );
+    });
+
+    it('leaves it to the caller that is already resending it', async () => {
+      const failed = refund({ status: RefundStatus.FAILED });
+      model.find.mockReturnValue(sortExec([failed]));
+      model.findOneAndUpdate.mockReturnValue(exec(null));
+
+      const result = await service.refundUnconfirmablePayment(
+        payment(),
+        'late',
+      );
+
+      expect(result.created).toBe(false);
+      expect(stripe.createRefund).not.toHaveBeenCalled();
     });
 
     it('returns the row another caller created a moment earlier', async () => {
