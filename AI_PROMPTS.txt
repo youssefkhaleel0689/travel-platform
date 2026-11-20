@@ -1161,3 +1161,12 @@ After a full review of develop, fix everything flights-related that it found: fl
 How the output was used:
 The flight status job now also completes CONFIRMED bookings once every flight has departed, and waits for a run in progress before shutdown. A flight time change moves the copied times of its held and confirmed bookings in the same transaction, only for that segment of a round trip. Round-trip consistency after a move is left out. Verified: tsc and lint clean, 1691 unit and 524 e2e tests pass.
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: FLT-22, HTL-18, PAY-01, PAY-03
+Prompt:
+Fix the two payment gaps from the develop review: a payment that succeeds before the hold ends but whose webhook arrives late leaves the customer charged with no booking, and a refund that starts PENDING never moves on.
+How the output was used:
+Claude changed the Stripe webhook so that when the booking module refuses to confirm with a 409 (hold expired, or another state), it issues a full refund with a new cancelledBy SYSTEM, notifies the user that the booking was not confirmed, and answers 2xx instead of failing and leaving the money taken. Any other error is still rethrown so Stripe retries. For refunds it added a handler for refund.updated, refund.failed and charge.refund.updated that moves a PENDING refund to REFUNDED or FAILED with one conditional update, and GET /api/refunds/:id now asks Stripe again while a refund is PENDING (a Stripe error keeps the stored answer). Added 12 unit tests and a README section. Verified in the cloud: tsc clean, lint 0 errors, unit tests pass. I run the payments and refunds e2e on my machine before merging.
+================================================

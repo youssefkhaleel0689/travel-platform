@@ -128,6 +128,12 @@ export class StripeService implements OnModuleInit {
     }
   }
 
+  /** PAY-03: a refund as Stripe sees it now, to settle one still PENDING. */
+  async retrieveRefund(id: string): Promise<Stripe.Refund> {
+    const stripe = this.require();
+    return this.translate(() => stripe.refunds.retrieve(id));
+  }
+
   /** PAY-03: refunds part or all of a captured payment. */
   async createRefund(input: CreateRefundInput): Promise<Stripe.Refund> {
     const stripe = this.require();
