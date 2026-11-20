@@ -4,6 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import type { Model, Types } from 'mongoose';
 import { HoldReleaseReason } from '../../common/bookings/bookings.port';
 import { BookingStatus, FlightBooking } from '../schemas/flight-booking.schema';
+import { ChangeFlightService } from './change-flight.service';
 import { FlightBookingsPortAdapter } from './flight-bookings-port.adapter';
 
 /** How many expired holds one run releases; the rest wait a minute. */
@@ -31,6 +32,8 @@ export class FlightHoldExpiryService {
     @InjectModel(FlightBooking.name)
     private readonly bookingModel: Model<FlightBooking>,
     private readonly port: FlightBookingsPortAdapter,
+    // FLT-27: a flight change holds seats on its new flight the same way.
+    private readonly changes: ChangeFlightService,
   ) {}
 
   /** Every minute: a 10-minute hold then keeps its seats for 11 minutes at most. */
@@ -53,6 +56,21 @@ export class FlightHoldExpiryService {
       // A failed run must never stop the schedule: the next one retries.
       this.logger.error(
         'Flight hold expiry failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+    // A separate step: a failure in one never skips the other.
+    try {
+      const settled = await this.changes.settleExpiredChanges();
+      const done = settled.filter((outcome) => outcome !== 'waiting');
+      if (done.length > 0) {
+        this.logger.log(
+          `Settled ${done.length} expired flight change(s): ${done.join(', ')}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Settling expired flight changes failed',
         error instanceof Error ? error.stack : String(error),
       );
     } finally {
