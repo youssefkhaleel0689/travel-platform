@@ -1179,3 +1179,21 @@ Review Zeyad's PR for email verification, password reset by email and admin anal
 How the output was used:
 Claude merged develop and resolved the hotel-bookings controller conflict (a formatting-only rewrite of the file). A reset or verification token was read and then saved, so the same link opened twice at once could be used twice; it is now consumed with one conditional update. The email links had no host and the reset link pointed a browser at a POST route; the emails now use APP_PUBLIC_URL and the reset email gives the code to send. forgot-password no longer waits for the mail server, so a real account does not answer slower than an unknown one. The email guard covered whole controllers, so turning it on would have stopped users from viewing or cancelling bookings; it now covers only the two routes that create a booking, and accounts created before the feature are not blocked. Analytics no longer adds different currencies together and names the right field in date errors. Specs that no longer type-checked were fixed, and 12 unit tests were added. Verified in the cloud: tsc clean, lint 0 errors, 119 suites / 1740 unit tests. The e2e suites run on my machine before the merge.
 ================================================
+Date: 2026-11-20
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-01, GEN-08
+Prompt:
+The airline logo upload was never built: airline.logo is always null. Now that the shared media service (GEN-08) is on develop, add the logo endpoints for the airline moderator.
+How the output was used:
+Claude added PUT, GET and DELETE /api/airlines/{id}/logo on top of the shared MediaService (limit 1 for AIRLINE). An admin or the assigned moderator can upload or replace the logo (a rejected file keeps the old one), anyone can read it for an ACTIVE airline, and airline.logo holds the URL or null. Unit tests with fake models cover permissions, replace, delete and the deactivated-airline rule.
+================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: FLT-01, GEN-08 (review of #78)
+Prompt:
+Two logo uploads for the same airline at the same moment: one of them gets 409 instead of replacing the logo. Fix that case.
+How the output was used:
+Claude changed the logo upload so that when the one logo slot is taken it removes the logo and stores again, up to three times, so the last upload wins; after three taken slots in a row it answers 409 CONCURRENT_UPDATE. A bad file is still rejected before anything is removed. MediaService.removeAllForTarget now deletes only the rows it read, so an image stored in between keeps its row and its file instead of leaving an orphan file. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 120 suites / 1755 unit tests.
+================================================

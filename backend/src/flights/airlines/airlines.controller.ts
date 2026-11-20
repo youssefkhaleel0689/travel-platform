@@ -36,7 +36,7 @@ export class AirlinesController {
   @ApiOperation({
     summary: 'Create an airline profile (FLT-01, admin only)',
     description:
-      'The airline starts ACTIVE with no logo. The logo is uploaded later (GEN-08).',
+      'The airline starts ACTIVE with no logo. The logo is uploaded with PUT /api/airlines/{id}/logo (GEN-08).',
   })
   @ApiBody({ type: CreateAirlineDto })
   @ApiCreatedResponse({ type: AirlineDto })
@@ -146,7 +146,7 @@ export class AirlinesController {
     summary: "Edit an airline's name and codes (FLT-01)",
     description:
       'Admin, or the airline moderator assigned to this airline. Send at least one field. ' +
-      'status and logo cannot be changed here.',
+      'status cannot be changed here; the logo has its own endpoint (PUT /api/airlines/{id}/logo).',
   })
   @ApiBody({ type: UpdateAirlineDto })
   @ApiOkResponse({ type: AirlineDto })
