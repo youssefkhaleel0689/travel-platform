@@ -80,6 +80,19 @@ export class AirlineLogoController {
     description: 'No such airline (AIRLINE_NOT_FOUND)',
     examples: [AIRLINE_NOT_FOUND],
   })
+  @ApiErrorResponse({
+    status: 409,
+    description:
+      'Two uploads for the same airline kept replacing each other (CONCURRENT_UPDATE); try again',
+    examples: [
+      {
+        code: 'CONCURRENT_UPDATE',
+        message:
+          'Another logo upload for this airline is in progress, please try again',
+        path: LOGO,
+      },
+    ],
+  })
   setLogo(
     @Param() params: AirlineIdParamDto,
     @CurrentUser() user: AuthenticatedUser,

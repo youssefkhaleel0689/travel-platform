@@ -6,7 +6,11 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { MediaTargetType } from '../../media/media.constants';
-import type { ImageFile, UploadedImage } from '../../media/media.service';
+import type {
+  ImageFile,
+  StoredImage,
+  UploadedImage,
+} from '../../media/media.service';
 import { MediaService } from '../../media/media.service';
 import { AirlineModeratorAssignment } from '../schemas/airline-moderator-assignment.schema';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
@@ -14,6 +18,9 @@ import { AirlineActor, forbidden } from './airline-actor';
 import { AirlineLogoDto } from './dto/airline-logo.dto';
 
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
+
+// Store, and on a taken slot remove and store again, at most this many times.
+const MAX_REPLACE_ATTEMPTS = 3;
 
 function airlineNotFound(): NotFoundException {
   return new NotFoundException({
@@ -65,16 +72,27 @@ export class AirlineLogoService {
         file,
         urlFor: () => logoUrl(id),
       });
-    let stored;
-    try {
-      stored = await store();
-    } catch (error) {
-      if (!isLimitReached(error)) {
-        throw error;
+    // Replace = remove the old logo, then store the new one. Two uploads for
+    // the same airline at the same moment can each find the other's logo in
+    // the one slot; trying again lets the last upload win instead of answering
+    // 409. A bad file (400) is never retried and never removes anything.
+    let stored: StoredImage | undefined;
+    for (let attempt = 1; !stored; attempt += 1) {
+      try {
+        stored = await store();
+      } catch (error) {
+        if (!isLimitReached(error)) {
+          throw error;
+        }
+        if (attempt >= MAX_REPLACE_ATTEMPTS) {
+          throw new ConflictException({
+            code: 'CONCURRENT_UPDATE',
+            message:
+              'Another logo upload for this airline is in progress, please try again',
+          });
+        }
+        await this.media.removeAllForTarget(MediaTargetType.AIRLINE, id);
       }
-      // The file passed the checks and a logo already exists: replace it.
-      await this.media.removeAllForTarget(MediaTargetType.AIRLINE, id);
-      stored = await store();
     }
     await this.airlineModel
       .updateOne(

@@ -1188,3 +1188,12 @@ The airline logo upload was never built: airline.logo is always null. Now that t
 How the output was used:
 Claude added PUT, GET and DELETE /api/airlines/{id}/logo on top of the shared MediaService (limit 1 for AIRLINE). An admin or the assigned moderator can upload or replace the logo (a rejected file keeps the old one), anyone can read it for an ACTIVE airline, and airline.logo holds the URL or null. Unit tests with fake models cover permissions, replace, delete and the deactivated-airline rule.
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: FLT-01, GEN-08 (review of #78)
+Prompt:
+Two logo uploads for the same airline at the same moment: one of them gets 409 instead of replacing the logo. Fix that case.
+How the output was used:
+Claude changed the logo upload so that when the one logo slot is taken it removes the logo and stores again, up to three times, so the last upload wins; after three taken slots in a row it answers 409 CONCURRENT_UPDATE. A bad file is still rejected before anything is removed. MediaService.removeAllForTarget now deletes only the rows it read, so an image stored in between keeps its row and its file instead of leaving an orphan file. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 120 suites / 1755 unit tests.
+================================================

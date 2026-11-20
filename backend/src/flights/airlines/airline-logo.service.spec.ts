@@ -150,6 +150,34 @@ describe('AirlineLogoService.setLogo (FLT-01, GEN-08)', () => {
     expect(media.removeAllForTarget).toHaveBeenCalledWith('AIRLINE', AIRLINE);
   });
 
+  it('two uploads at once: retries when the other one took the slot, so the last one wins', async () => {
+    const { service, media, airlineModel } = setup({
+      assignedTo: AIRLINE_ID,
+      storeResults: [limitReached(), limitReached(), STORED],
+    });
+
+    await expect(service.setLogo(AIRLINE, moderator, FILE)).resolves.toEqual(
+      STORED,
+    );
+    expect(media.storeImage).toHaveBeenCalledTimes(3);
+    expect(media.removeAllForTarget).toHaveBeenCalledTimes(2);
+    expect(airlineModel.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up with 409 CONCURRENT_UPDATE after three taken slots in a row', async () => {
+    const { service, media, airlineModel } = setup({
+      assignedTo: AIRLINE_ID,
+      storeResults: [limitReached(), limitReached(), limitReached()],
+    });
+
+    const error = await failure(service.setLogo(AIRLINE, moderator, FILE));
+
+    expect(error.getStatus()).toBe(409);
+    expect(codeOf(error)).toBe('CONCURRENT_UPDATE');
+    expect(media.storeImage).toHaveBeenCalledTimes(3);
+    expect(airlineModel.updateOne).not.toHaveBeenCalled();
+  });
+
   it('keeps the old logo when the file is rejected', async () => {
     const bad = new BadRequestException({
       code: 'INVALID_FILE_TYPE',
