@@ -263,7 +263,12 @@ export class HotelsService {
       .lean<HotelLean>();
     if (!updated) throw this.hotelNotFound();
 
-    await this.removeStoredPhoto(hotelId, photo._id.toHexString());
+    if (photo.storageKey) {
+      // An older photo: its file is removed by key; it has no media row.
+      await this.media.removeStoredFile(photo.storageKey);
+    } else {
+      await this.removeStoredPhoto(hotelId, photo._id.toHexString());
+    }
     return this.toResponse(updated);
   }
 
@@ -286,14 +291,22 @@ export class HotelsService {
     const photo = hotel.photos.find((p) => p._id.equals(photoId));
     if (!photo) throw this.photoNotFound();
     try {
+      // A photo uploaded before MediaService held hotel photos has no media
+      // row, only its storageKey: still served, so existing photos keep working.
+      if (photo.storageKey) {
+        return await this.media.openStoredFile(
+          photo.storageKey,
+          photo.mimeType,
+          photo.sizeBytes,
+        );
+      }
       return await this.media.openForTarget(
         MediaTargetType.HOTEL,
         hotelId,
         photoId,
       );
     } catch (error) {
-      // A photo stored before MediaService held hotel photos, or a file gone
-      // from disk: the same 404 as a missing photo.
+      // A file gone from disk: the same 404 as a missing photo.
       if (error instanceof NotFoundException) throw this.photoNotFound();
       throw error;
     }

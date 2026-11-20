@@ -224,6 +224,30 @@ export class MediaService {
   }
 
   // Never let a stored key point outside the uploads folder.
+  /**
+   * A file stored before MediaService kept the metadata row (hotel photos
+   * uploaded before GEN-08 moved them here): opened by its key alone, still
+   * only inside the uploads directory.
+   */
+  async openStoredFile(
+    storageKey: string,
+    mimeType: ImageMimeType,
+    sizeBytes: number,
+  ): Promise<ImageFile> {
+    const path = this.resolveStoragePath(storageKey);
+    try {
+      await stat(path);
+    } catch {
+      throw imageNotFound();
+    }
+    return { path, mimeType, sizeBytes };
+  }
+
+  /** Deletes such a file; a file that is already gone is not an error. */
+  async removeStoredFile(storageKey: string): Promise<void> {
+    await this.deleteFile(storageKey);
+  }
+
   private resolveStoragePath(storageKey: string): string {
     const path = resolve(this.uploadsRoot, storageKey);
     if (!path.startsWith(this.uploadsRoot + sep)) {

@@ -1253,3 +1253,12 @@ Fix the open findings from Fares's final check that were not fixed yet: a user c
 How the output was used:
 The review owner lookup now also requires a VISIBLE review, so a moderated one answers 404. A post shows itineraryId only while the itinerary is still public and visible. Hotel photos are stored, served and removed through MediaService and the shared upload interceptor; the hotel keeps the 5-photo limit and its error codes. Two new e2e suites, 10 tests; the review and BLG-13 ones fail without the fixes. Verified: tsc and lint clean, unit and e2e tests pass.
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: GEN-08, HTL-01 (review of #82)
+Prompt:
+Review the new commits on Khaled's PR, including the move of hotel photos to MediaService.
+How the output was used:
+Claude found that photos uploaded before the move have no MediaService row, only their storageKey, so after the move every existing hotel photo answered 404 and deleting one left its file on disk. MediaService gained openStoredFile and removeStoredFile (both stay inside the uploads directory), and the hotel service uses them for a photo that still has a storageKey. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 1815 unit tests.
+================================================
