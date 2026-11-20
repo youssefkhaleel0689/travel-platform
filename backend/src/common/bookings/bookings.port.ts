@@ -83,6 +83,58 @@ export enum HoldReleaseReason {
   PAYMENT_FAILED = 'PAYMENT_FAILED',
 }
 
+/**
+ * ACC-17: how an admin narrows the list of every booking. The gateway decides
+ * which modules are asked (the booking type), so a port only ever sees the
+ * filters it applies to its own collection.
+ */
+export interface AdminBookingFilter {
+  status?: BookingStatus;
+  /** Bookings made at or after this instant (UTC). */
+  createdFrom?: Date;
+  /** Bookings made before this instant (UTC), exclusive. */
+  createdTo?: Date;
+  /** The exact booking reference, already upper-cased. */
+  reference?: string;
+  /**
+   * The most rows to return, newest first. The gateway asks for
+   * page x 10 rows, merges the two modules and keeps the page it needs, so a
+   * port never has to know about pages.
+   */
+  limit: number;
+}
+
+/** ACC-17: one row of the admin booking list, from either module. */
+export interface AdminBookingRow {
+  bookingId: string;
+  bookingType: BookingType;
+  /** Null while the booking is unpaid: the reference is generated on payment. */
+  bookingReference: string | null;
+  /** The account that made the booking; the admin list resolves the name. */
+  userId: string;
+  providerType: ProviderType;
+  providerId: string;
+  /** Airline or hotel name; null when the provider row has gone. */
+  providerName: string | null;
+  /** Departure of the first segment, or the check-in date. */
+  startsAt: Date;
+  /** Arrival of the last segment, or the check-out date. */
+  endsAt: Date;
+  /** Decimal string such as "199.99" (money never passes through a float). */
+  totalAmount: string;
+  currency: string;
+  status: BookingStatus;
+  /** When the booking was made; the list is ordered by it, newest first. */
+  createdAt: Date;
+}
+
+export interface AdminBookingList {
+  /** At most `limit` rows, newest first. */
+  rows: AdminBookingRow[];
+  /** Every booking matching the filter, not only the rows returned. */
+  total: number;
+}
+
 export interface BookingsPort {
   /**
    * The booking as it stands, or null when there is no such booking. Payments
@@ -124,6 +176,21 @@ export interface BookingsPort {
    * Bookings in any other state do not count.
    */
   hasUpcomingConfirmedBookings(userId: string): Promise<boolean>;
+
+  /**
+   * ACC-17: the newest `filter.limit` bookings an admin may see, and how many
+   * match in all. Read-only: the admin list never changes a booking.
+   *
+   * Ordered by createdAt descending, with the booking id as the tie-break, so
+   * the gateway can merge the two modules into one stable page.
+   *
+   * Optional, and the only optional method here: the admin list arrived after
+   * both booking modules did, so a port that has not implemented it yet still
+   * satisfies this interface and still works for payments and ACC-12. The
+   * gateway skips a port without it, and that booking type simply does not
+   * appear in the admin list until its module implements this.
+   */
+  listForAdmin?(filter: AdminBookingFilter): Promise<AdminBookingList>;
 }
 
 /** Provided by the flights module (A1) once flight bookings exist. */

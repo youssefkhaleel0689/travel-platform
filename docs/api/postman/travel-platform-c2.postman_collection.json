@@ -125,6 +125,15 @@
       "key": "airlineIataCode",
       "value": "",
       "description": "Randomised by folder 55 request 02"
+    },
+    {
+      "key": "bookingsUserEmail",
+      "value": "test_c2_acc17@example.com",
+      "description": "The traveller folder 65 uses to prove the admin list is admin-only. Overwritten with a fresh address at the start of every run."
+    },
+    {
+      "key": "bookingsUserPassword",
+      "value": "ManualTest123"
     }
   ],
   "item": [
@@ -2743,6 +2752,657 @@
                   "// refused at once without any token having to be revoked.",
                   "pm.test('code UNAUTHENTICATED', () =>",
                   "  pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "65 Admin bookings (ACC-17)",
+      "description": "The admin's read-only list of every flight booking and hotel reservation, filterable by type, status, the days the bookings were made and the booking reference.\n\nThe rows come from two collections owned by two other modules, read through the shared BookingsPort and merged into one page. listForAdmin is OPTIONAL on that port, and both shipped adapters implement it, so the list holds the real bookings on the database. The assertions run over whatever rows come back, so they hold on any data; request 10b then looks up a real reference taken from request 05. A module whose port did not implement it would simply be absent - the route still answers 200 with the GEN-05 meta, never a 501.\n\nRequest 04 signs in as the admin, so the jar now holds the admin cookie: sign in again with folder 20 request 02 before going back to folders 20 to 40.",
+      "item": [
+        {
+          "name": "01 Register the traveller this folder uses",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"C2 ACC-17 Traveller\",\n  \"email\": \"{{bookingsUserEmail}}\",\n  \"password\": \"{{bookingsUserPassword}}\",\n  \"acceptTerms\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "A plain account, only to prove that a traveller cannot read the admin list. The address is generated per run: a fixed one answers 409 on the second run, the sign-in below then fails, and request 03 would report green while testing nothing."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh address every run, with the test_c2_ prefix the shared",
+                  "// database rules require.",
+                  "pm.collectionVariables.set(",
+                  "  'bookingsUserEmail',",
+                  "  `test_c2_acc17_${Date.now()}@example.com`,",
+                  ");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Sign in as that traveller",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{bookingsUserEmail}}\",\n  \"password\": \"{{bookingsUserPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Postman stores the cookie; the next request sends it automatically."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('a plain USER', () =>",
+                  "  pm.expect(pm.response.json().role).to.eql('USER'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 GET /admin/bookings as a traveller -> 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ]
+            },
+            "description": "ACC-11 stays absolute: a traveller sees only their own bookings, and the one place anyone sees other people's is this admin route."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('FORBIDDEN', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Sign in as the seeded admin (ACC-18)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "The admin cookie replaces the traveller's in the jar, which is what the rest of this folder runs on."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminEmail')) {",
+                  "  pm.test.skip('set adminEmail and adminPassword from backend/.env (npm run seed:admin)');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('the account really is an ADMIN', () =>",
+                  "    pm.expect(pm.response.json().role).to.eql('ADMIN'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 GET /admin/bookings (ACC-17)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ]
+            },
+            "description": "Every flight booking and hotel reservation on the platform, newest first, 10 per page. Both collections belong to other modules and are read through the shared BookingsPort, which both implement. The first row's reference is kept for request 10b."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "// A module that cannot list yet is skipped, not an error: this route",
+                  "// answers a page whatever the booking modules have implemented.",
+                  "pm.test('a page, never 501', () => {",
+                  "  pm.expect(pm.response.code).to.eql(200);",
+                  "  pm.expect(pm.response.json()).to.have.property('items');",
+                  "});",
+                  "const page = pm.response.json();",
+                  "// Both ports list now: the page holds what the count says it holds.",
+                  "pm.test('the page holds min(10, totalItems) rows', () =>",
+                  "  pm.expect(page.items.length).to.eql(Math.min(10, page.meta.totalItems)));",
+                  "const first = page.items.find((row) => row.reference);",
+                  "if (first) pm.collectionVariables.set('adminBookingRef', first.reference);",
+                  "else pm.collectionVariables.unset('adminBookingRef');",
+                  "pm.test('a page of 10 with the GEN-05 meta', () => {",
+                  "  pm.expect(page.meta.pageSize).to.eql(10);",
+                  "  pm.expect(page.meta).to.include.keys(",
+                  "    'page', 'totalItems', 'totalPages', 'hasNextPage', 'hasPreviousPage',",
+                  "  );",
+                  "});",
+                  "pm.test('every row carries what ACC-17 asks for', () => {",
+                  "  for (const row of page.items) {",
+                  "    pm.expect(row).to.include.keys(",
+                  "      'id', 'type', 'reference', 'user', 'provider', 'startsAt', 'endsAt',",
+                  "      'amount', 'currency', 'status', 'bookedAt',",
+                  "    );",
+                  "    pm.expect(row.type).to.be.oneOf(['FLIGHT', 'HOTEL']);",
+                  "    pm.expect(row.user).to.include.keys('id', 'name', 'email');",
+                  "    pm.expect(row.provider).to.include.keys('type', 'id', 'name');",
+                  "  }",
+                  "});",
+                  "// Money is Decimal128 in both collections and a string in the response:",
+                  "// a number here would mean a float had touched an amount (PAY-04).",
+                  "pm.test('the amount is a string with two decimals', () =>",
+                  "  page.items.forEach((row) =>",
+                  "    pm.expect(row.amount).to.match(/^\\d+\\.\\d{2}$/)));",
+                  "pm.test('the list is read-only: no passenger or guest details', () =>",
+                  "  page.items.forEach((row) => {",
+                  "    pm.expect(row).to.not.have.property('passengers');",
+                  "    pm.expect(row).to.not.have.property('roomsSnapshot');",
+                  "  }));",
+                  "// The two collections are merged into one list, so the order has to hold",
+                  "// across both of them.",
+                  "pm.test('newest booking first', () => {",
+                  "  const times = page.items.map((row) => Date.parse(row.bookedAt));",
+                  "  pm.expect(times).to.eql([...times].sort((a, b) => b - a));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Filter by type: flights only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?type=FLIGHT",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "FLIGHT"
+                }
+              ]
+            },
+            "description": "The flights module is asked on its own; the hotels module is not called at all."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('every row is a FLIGHT booking', () =>",
+                  "  pm.response.json().items.forEach((row) =>",
+                  "    pm.expect(row.type).to.eql('FLIGHT')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Filter by type: hotels only",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?type=HOTEL",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "HOTEL"
+                }
+              ]
+            },
+            "description": "The same list from the other module, in the same row shape."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('every row is a HOTEL booking', () =>",
+                  "  pm.response.json().items.forEach((row) =>",
+                  "    pm.expect(row.type).to.eql('HOTEL')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Filter by status (GEN-11)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?status=CONFIRMED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "CONFIRMED"
+                }
+              ]
+            },
+            "description": "The five lifecycle states come from common/bookings/booking-status.ts, the single source of truth for both modules."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('every row is CONFIRMED', () =>",
+                  "  pm.response.json().items.forEach((row) =>",
+                  "    pm.expect(row.status).to.eql('CONFIRMED')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Filter by the days the bookings were made",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?from=2020-01-01&to=2020-01-02",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2020-01-01"
+                },
+                {
+                  "key": "to",
+                  "value": "2020-01-02"
+                }
+              ]
+            },
+            "description": "from and to are whole days in UTC and both ends are included. This range is before the platform existed, so it is empty whatever is in the database."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('nothing was booked in 2020', () => {",
+                  "  pm.expect(pm.response.json().items).to.eql([]);",
+                  "  pm.expect(pm.response.json().meta.totalItems).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 Look one booking up by its reference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?reference=zzzz9999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "reference",
+                  "value": "zzzz9999"
+                }
+              ]
+            },
+            "description": "What an admin has in hand when a traveller asks about one booking. Case is ignored. This one belongs to nobody, so the page is empty; put a real reference here to see the single row."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('no booking carries that reference', () =>",
+                  "  pm.expect(pm.response.json().meta.totalItems).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10b Look up a real booking by its reference",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?reference={{adminBookingRefLower}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "reference",
+                  "value": "{{adminBookingRefLower}}"
+                }
+              ]
+            },
+            "description": "The reference request 05 found on the first row, sent in lower case: exactly that booking comes back. Skipped when the database holds no bookings."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ref = pm.collectionVariables.get('adminBookingRef');",
+                  "pm.collectionVariables.set('adminBookingRefLower', ref ? ref.toLowerCase() : 'none');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ref = pm.collectionVariables.get('adminBookingRef');",
+                  "if (!ref) {",
+                  "  pm.test.skip('no booking on the database to look up - run request 05 first');",
+                  "} else {",
+                  "  pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "  pm.test('exactly that booking, case ignored', () => {",
+                  "    const page = pm.response.json();",
+                  "    pm.expect(page.meta.totalItems).to.eql(1);",
+                  "    pm.expect(page.items[0].reference).to.eql(ref);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 A range that ends before it starts -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?from=2026-11-30&to=2026-11-01",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-11-30"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-11-01"
+                }
+              ]
+            },
+            "description": "Refused with its own code rather than silently returning nothing, so a mistyped range is visible."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('INVALID_DATE_RANGE', () =>",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_DATE_RANGE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 An unknown booking type -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?type=CAR",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "CAR"
+                }
+              ]
+            },
+            "description": "Only FLIGHT and HOTEL exist, and the error names the field (GEN-02)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error names the type field', () => {",
+                  "  pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED');",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('type');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13 A day that is not YYYY-MM-DD -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?from=2026-13-01",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "from",
+                  "value": "2026-13-01"
+                }
+              ]
+            },
+            "description": "The 13th month does not exist; it is refused rather than rolled over into next year, which is what a plain Date would do."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error names the from field', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('from'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14 Choosing the page size -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/bookings?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "bookings"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Page size is fixed at 10 for every list endpoint (GEN-05), so limit is not a parameter and an unknown parameter is an error."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('the error names the limit field', () =>",
+                  "  pm.expect(pm.response.json().errors[0].field).to.eql('limit'));"
                 ]
               }
             }
