@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 93 requests in 12 folders, 215 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 94 requests in 12 folders, 217 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -274,7 +274,7 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
-A clean full run is **93 requests, 215 assertions, 0 failures** and exits 0.
+A clean full run is **94 requests, 217 assertions, 0 failures** and exits 0.
 One assertion skips itself and says so: folder 40 request 06 needs a
 notification to mark as read, and the test user has none until an admin
 suspends it in folder 50, which runs later. Marking one read is covered by
