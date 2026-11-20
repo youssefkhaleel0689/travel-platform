@@ -12,7 +12,10 @@ export class NotificationDto {
   @ApiProperty({ example: '6720f1c2a1b2c3d4e5f60718' })
   id: string;
 
-  @ApiProperty({ enum: NotificationType, example: NotificationType.BOOKING_CONFIRMED })
+  @ApiProperty({
+    enum: NotificationType,
+    example: NotificationType.BOOKING_CONFIRMED,
+  })
   type: NotificationType;
 
   @ApiProperty({ example: 'Booking confirmed' })

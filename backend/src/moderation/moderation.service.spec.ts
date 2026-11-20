@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Types } from 'mongoose';
 import { AuditAction } from '../audit/audit-action.enum';
 import { AuditService } from '../audit/audit.service';
@@ -56,7 +60,14 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
   beforeEach(() => {
     reports = {
       create: jest.fn(async (doc: Record<string, unknown>) => ({
-        toObject: () => ({ _id: new Types.ObjectId(), createdAt: new Date(), status: ReportStatus.OPEN, reviewerId: null, reviewedAt: null, ...doc }),
+        toObject: () => ({
+          _id: new Types.ObjectId(),
+          createdAt: new Date(),
+          status: ReportStatus.OPEN,
+          reviewerId: null,
+          reviewedAt: null,
+          ...doc,
+        }),
       })),
       findById: jest.fn(() => ({ lean: () => exec(openReport()) })),
       updateOne: jest.fn(() => exec({ matchedCount: 1 })),
@@ -81,7 +92,9 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
       reports as never,
       content as unknown as ContentModerationGateway,
       audit as unknown as AuditService,
-      { findBriefsByIds: jest.fn().mockResolvedValue(new Map()) } as unknown as UsersService,
+      {
+        findBriefsByIds: jest.fn().mockResolvedValue(new Map()),
+      } as unknown as UsersService,
     );
   });
 
@@ -102,20 +115,24 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
 
     it('answers 404 for content the reporter cannot see', async () => {
       content.find.mockResolvedValue({ ownerId: AUTHOR, reportable: false });
-      await expect(service.report(user(REPORTER), reportBody)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.report(user(REPORTER), reportBody),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('refuses your own content', async () => {
-      await expect(service.report(user(AUTHOR), reportBody)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.report(user(AUTHOR), reportBody),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('turns a second report of the same item into 409 ALREADY_REPORTED', async () => {
-      reports.create.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000 }));
-      await expect(service.report(user(REPORTER), reportBody)).rejects.toMatchObject({
+      reports.create.mockRejectedValue(
+        Object.assign(new Error('dup'), { code: 11000 }),
+      );
+      await expect(
+        service.report(user(REPORTER), reportBody),
+      ).rejects.toMatchObject({
         response: { code: 'ALREADY_REPORTED' },
       });
     });
@@ -123,7 +140,11 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
 
   describe('resolve', () => {
     it('HIDE hides the item, closes its open reports and audits it', async () => {
-      await service.resolve(REPORT, ReportDecision.HIDE, user(ADMIN, Role.ADMIN));
+      await service.resolve(
+        REPORT,
+        ReportDecision.HIDE,
+        user(ADMIN, Role.ADMIN),
+      );
 
       expect(content.moderate).toHaveBeenCalledWith(
         ContentType.POST,
@@ -139,16 +160,26 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
         expect.objectContaining({
           action: AuditAction.CONTENT_HIDDEN,
           entityId: POST,
-          after: expect.objectContaining({ reportId: REPORT, reportsClosed: 2 }),
+          after: expect.objectContaining({
+            reportId: REPORT,
+            reportsClosed: 2,
+          }),
         }),
       );
     });
 
     it('DISMISS leaves the content alone and audits the report', async () => {
-      await service.resolve(REPORT, ReportDecision.DISMISS, user(ADMIN, Role.ADMIN));
+      await service.resolve(
+        REPORT,
+        ReportDecision.DISMISS,
+        user(ADMIN, Role.ADMIN),
+      );
       expect(content.moderate).not.toHaveBeenCalled();
       expect(audit.record).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditAction.REPORT_DISMISSED, entityId: REPORT }),
+        expect.objectContaining({
+          action: AuditAction.REPORT_DISMISSED,
+          entityId: REPORT,
+        }),
       );
     });
 
@@ -158,7 +189,9 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
       });
       await expect(
         service.resolve(REPORT, ReportDecision.HIDE, user(ADMIN, Role.ADMIN)),
-      ).rejects.toMatchObject({ response: { code: 'REPORT_ALREADY_RESOLVED' } });
+      ).rejects.toMatchObject({
+        response: { code: 'REPORT_ALREADY_RESOLVED' },
+      });
     });
 
     it('answers 409 CONTENT_GONE when the author already deleted the item', async () => {
@@ -193,7 +226,12 @@ describe('ModerationService (GEN-09, GEN-10)', () => {
         after: ModerationState.VISIBLE,
         changed: true,
       });
-      await service.act(ContentType.COMMENT, POST, ModerationState.VISIBLE, user(ADMIN, Role.ADMIN));
+      await service.act(
+        ContentType.COMMENT,
+        POST,
+        ModerationState.VISIBLE,
+        user(ADMIN, Role.ADMIN),
+      );
       expect(reports.updateMany).not.toHaveBeenCalled();
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditAction.CONTENT_RESTORED }),

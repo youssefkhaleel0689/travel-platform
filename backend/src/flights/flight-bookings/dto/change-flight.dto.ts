@@ -7,7 +7,10 @@ export class ChangeFlightDto {
   @IsMongoId()
   newFlightId: string;
 
-  @ApiPropertyOptional({ example: 0, description: 'Segment index: 0 outbound, 1 return' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Segment index: 0 outbound, 1 return',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)

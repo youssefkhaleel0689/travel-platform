@@ -58,7 +58,8 @@ export class SeatAssignment {
   @Prop({ type: String, required: true, match: /^[1-9]\d*[A-F]$/ })
   seatNumber: string;
 }
-export const SeatAssignmentSchema = SchemaFactory.createForClass(SeatAssignment);
+export const SeatAssignmentSchema =
+  SchemaFactory.createForClass(SeatAssignment);
 
 // One flight of the booking with the flight and cabin as they were when it was held.
 // Later price or schedule edits (FLT-05) never change an existing booking.
@@ -151,6 +152,17 @@ export class PendingFlightChange {
 
   @Prop({ type: Date, required: true })
   requestedAt: Date;
+
+  // The seats on the new flight are held from the request until the change is
+  // applied or this time passes (HOLD_MINUTES, like FLT-22), so a paid change
+  // never finds its flight sold out. A change from before this field holds no
+  // seats: seatsHeld false, and it is treated as ending HOLD_MINUTES after
+  // requestedAt.
+  @Prop({ type: Date, default: null })
+  holdExpiresAt?: Date | null;
+
+  @Prop({ type: Boolean, default: false })
+  seatsHeld?: boolean;
 }
 export const PendingFlightChangeSchema =
   SchemaFactory.createForClass(PendingFlightChange);
@@ -539,6 +551,14 @@ export const FlightBookingSchema = SchemaFactory.createForClass(FlightBooking);
 FlightBookingSchema.index({ userId: 1, status: 1 });
 // The hold-expiry job finds PENDING_PAYMENT bookings past holdExpiresAt (FLT-22).
 FlightBookingSchema.index({ status: 1, holdExpiresAt: 1 });
+// The same job finds flight changes whose seat hold has ended (FLT-27). Only
+// bookings with a change in progress are in it.
+FlightBookingSchema.index(
+  { 'pendingChange.requestedAt': 1 },
+  {
+    partialFilterExpression: { 'pendingChange.requestedAt': { $exists: true } },
+  },
+);
 // Bookings of one flight: flight cancellation (FLT-06) and the passenger list (FLT-29).
 FlightBookingSchema.index({ 'segments.flightId': 1, status: 1 });
 // Unique once set. The partial filter lets many PENDING_PAYMENT bookings have no reference.

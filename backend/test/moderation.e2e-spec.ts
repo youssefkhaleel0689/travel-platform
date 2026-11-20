@@ -60,19 +60,35 @@ describe('Reports, moderation and audit log (e2e)', () => {
 
     author = await createSignedInUser(app, { label: 'mod-author' });
     reader = await createSignedInUser(app, { label: 'mod-reader' });
-    admin = await createSignedInUser(app, { role: Role.ADMIN, label: 'mod-admin' });
+    admin = await createSignedInUser(app, {
+      role: Role.ADMIN,
+      label: 'mod-admin',
+    });
     userIds.push(author.userId, reader.userId, admin.userId);
   }, CONNECT_TIMEOUT_MS);
 
   afterAll(async () => {
     const ids = userIds.map((id) => new Types.ObjectId(id));
     const postModel = app.get<Model<Post>>(getModelToken(Post.name));
-    const posts = await postModel.find({ authorId: { $in: ids } }).select('_id').lean().exec();
+    const posts = await postModel
+      .find({ authorId: { $in: ids } })
+      .select('_id')
+      .lean()
+      .exec();
     const postIds = posts.map((p) => p._id);
-    await app.get<Model<Report>>(getModelToken(Report.name)).deleteMany({ reporterId: { $in: ids } }).exec();
-    await app.get<Model<Comment>>(getModelToken(Comment.name)).deleteMany({ postId: { $in: postIds } }).exec();
+    await app
+      .get<Model<Report>>(getModelToken(Report.name))
+      .deleteMany({ reporterId: { $in: ids } })
+      .exec();
+    await app
+      .get<Model<Comment>>(getModelToken(Comment.name))
+      .deleteMany({ postId: { $in: postIds } })
+      .exec();
     await postModel.deleteMany({ _id: { $in: postIds } }).exec();
-    await app.get<Model<Itinerary>>(getModelToken(Itinerary.name)).deleteMany({ userId: { $in: ids } }).exec();
+    await app
+      .get<Model<Itinerary>>(getModelToken(Itinerary.name))
+      .deleteMany({ userId: { $in: ids } })
+      .exec();
     await app
       .get<Connection>(getConnectionToken())
       .collection('auditLogs')
@@ -92,110 +108,230 @@ describe('Reports, moderation and audit log (e2e)', () => {
 
     it('refuses your own content, invisible content and OTHER without details', async () => {
       const postId = await publish();
-      expect((await report(postId, author).expect(400)).body.code).toBe('CANNOT_REPORT_OWN_CONTENT');
+      expect((await report(postId, author).expect(400)).body.code).toBe(
+        'CANNOT_REPORT_OWN_CONTENT',
+      );
 
-      const draft = await http().post('/api/posts').set('Cookie', author.cookie)
-        .send({ title: 'Draft', body: 'b', status: 'DRAFT' }).expect(201);
+      const draft = await http()
+        .post('/api/posts')
+        .set('Cookie', author.cookie)
+        .send({ title: 'Draft', body: 'b', status: 'DRAFT' })
+        .expect(201);
       await report(draft.body.id).expect(404);
 
-      await http().post('/api/reports').set('Cookie', reader.cookie)
-        .send({ targetType: 'POST', targetId: postId, reason: 'OTHER' }).expect(400);
-      await http().post('/api/reports').send({ targetType: 'POST', targetId: postId, reason: 'SPAM' }).expect(401);
+      await http()
+        .post('/api/reports')
+        .set('Cookie', reader.cookie)
+        .send({ targetType: 'POST', targetId: postId, reason: 'OTHER' })
+        .expect(400);
+      await http()
+        .post('/api/reports')
+        .send({ targetType: 'POST', targetId: postId, reason: 'SPAM' })
+        .expect(401);
     });
   });
 
   describe('admin moderation (GEN-10) and the audit log (GEN-07)', () => {
     it('is admin only', async () => {
-      await http().get('/api/admin/reports').set('Cookie', reader.cookie).expect(403);
-      await http().get('/api/admin/audit-logs').set('Cookie', reader.cookie).expect(403);
+      await http()
+        .get('/api/admin/reports')
+        .set('Cookie', reader.cookie)
+        .expect(403);
+      await http()
+        .get('/api/admin/audit-logs')
+        .set('Cookie', reader.cookie)
+        .expect(403);
     });
 
-    it('hides reported content for everyone but its author and admins, and logs it', async () => {
-      const postId = await publish();
-      const reported = await report(postId).expect(201);
+    it(
+      'hides reported content for everyone but its author and admins, and logs it',
+      async () => {
+        const postId = await publish();
+        const reported = await report(postId).expect(201);
 
-      const queue = await http().get('/api/admin/reports').set('Cookie', admin.cookie).expect(200);
-      expect(queue.body.items.map((r: { id: string }) => r.id)).toContain(reported.body.id);
+        const queue = await http()
+          .get('/api/admin/reports')
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(queue.body.items.map((r: { id: string }) => r.id)).toContain(
+          reported.body.id,
+        );
 
-      const resolved = await http()
-        .patch(`/api/admin/reports/${reported.body.id}`)
-        .set('Cookie', admin.cookie)
-        .send({ decision: 'HIDE' })
-        .expect(200);
-      expect(resolved.body.status).toBe('HIDDEN');
-      await http().patch(`/api/admin/reports/${reported.body.id}`).set('Cookie', admin.cookie)
-        .send({ decision: 'DISMISS' }).expect(409);
+        const resolved = await http()
+          .patch(`/api/admin/reports/${reported.body.id}`)
+          .set('Cookie', admin.cookie)
+          .send({ decision: 'HIDE' })
+          .expect(200);
+        expect(resolved.body.status).toBe('HIDDEN');
+        await http()
+          .patch(`/api/admin/reports/${reported.body.id}`)
+          .set('Cookie', admin.cookie)
+          .send({ decision: 'DISMISS' })
+          .expect(409);
 
-      await http().get(`/api/posts/${postId}`).expect(404);
-      await http().get(`/api/posts/${postId}`).set('Cookie', reader.cookie).expect(404);
-      const own = await http().get(`/api/posts/${postId}`).set('Cookie', author.cookie).expect(200);
-      expect(own.body.moderationState).toBe('HIDDEN');
+        await http().get(`/api/posts/${postId}`).expect(404);
+        await http()
+          .get(`/api/posts/${postId}`)
+          .set('Cookie', reader.cookie)
+          .expect(404);
+        const own = await http()
+          .get(`/api/posts/${postId}`)
+          .set('Cookie', author.cookie)
+          .expect(200);
+        expect(own.body.moderationState).toBe('HIDDEN');
 
-      const log = await http()
-        .get(`/api/admin/audit-logs?entityId=${postId}`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      expect(log.body.items[0]).toMatchObject({
-        action: 'CONTENT_HIDDEN',
-        entityType: 'POST',
-        actorId: admin.userId,
-        before: { moderationState: 'VISIBLE' },
-      });
+        const log = await http()
+          .get(`/api/admin/audit-logs?entityId=${postId}`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(log.body.items[0]).toMatchObject({
+          action: 'CONTENT_HIDDEN',
+          entityType: 'POST',
+          actorId: admin.userId,
+          before: { moderationState: 'VISIBLE' },
+        });
 
-      const restored = await http().patch(`/api/admin/content/post/${postId}/restore`)
-        .set('Cookie', admin.cookie).expect(200);
-      expect(restored.body).toMatchObject({ before: 'HIDDEN', after: 'VISIBLE', changed: true });
-      await http().get(`/api/posts/${postId}`).expect(200);
-    }, SLOW_MS);
+        const restored = await http()
+          .patch(`/api/admin/content/post/${postId}/restore`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(restored.body).toMatchObject({
+          before: 'HIDDEN',
+          after: 'VISIBLE',
+          changed: true,
+        });
+        await http().get(`/api/posts/${postId}`).expect(200);
+      },
+      SLOW_MS,
+    );
 
-    it('deletes content for good and refuses to restore it', async () => {
-      const postId = await publish();
-      await http().delete(`/api/admin/content/POST/${postId}`).set('Cookie', admin.cookie).expect(200);
-      await http().get(`/api/posts/${postId}`).set('Cookie', author.cookie).expect(404);
-      await http().get(`/api/posts/${postId}`).set('Cookie', admin.cookie).expect(200);
-      const restore = await http().patch(`/api/admin/content/post/${postId}/restore`)
-        .set('Cookie', admin.cookie).expect(409);
-      expect(restore.body.code).toBe('INVALID_MODERATION_CHANGE');
-    }, SLOW_MS);
+    it(
+      'deletes content for good and refuses to restore it',
+      async () => {
+        const postId = await publish();
+        await http()
+          .delete(`/api/admin/content/POST/${postId}`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        await http()
+          .get(`/api/posts/${postId}`)
+          .set('Cookie', author.cookie)
+          .expect(404);
+        await http()
+          .get(`/api/posts/${postId}`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        const restore = await http()
+          .patch(`/api/admin/content/post/${postId}/restore`)
+          .set('Cookie', admin.cookie)
+          .expect(409);
+        expect(restore.body.code).toBe('INVALID_MODERATION_CHANGE');
+      },
+      SLOW_MS,
+    );
 
-    it('takes a hidden comment off the post count and puts it back on restore', async () => {
-      const postId = await publish();
-      const comment = await http().post(`/api/posts/${postId}/comments`).set('Cookie', reader.cookie)
-        .send({ body: 'Rude comment' }).expect(201);
+    it(
+      'takes a hidden comment off the post count and puts it back on restore',
+      async () => {
+        const postId = await publish();
+        const comment = await http()
+          .post(`/api/posts/${postId}/comments`)
+          .set('Cookie', reader.cookie)
+          .send({ body: 'Rude comment' })
+          .expect(201);
 
-      await http().patch(`/api/admin/content/comment/${comment.body.id}/hide`).set('Cookie', admin.cookie).expect(200);
-      expect((await http().get(`/api/posts/${postId}`).expect(200)).body.commentCount).toBe(0);
-      const asAuthor = await http().get(`/api/posts/${postId}/comments`).set('Cookie', reader.cookie).expect(200);
-      expect(asAuthor.body.items[0].moderationState).toBe('HIDDEN');
+        await http()
+          .patch(`/api/admin/content/comment/${comment.body.id}/hide`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(
+          (await http().get(`/api/posts/${postId}`).expect(200)).body
+            .commentCount,
+        ).toBe(0);
+        const asAuthor = await http()
+          .get(`/api/posts/${postId}/comments`)
+          .set('Cookie', reader.cookie)
+          .expect(200);
+        expect(asAuthor.body.items[0].moderationState).toBe('HIDDEN');
 
-      await http().patch(`/api/admin/content/comment/${comment.body.id}/restore`).set('Cookie', admin.cookie).expect(200);
-      expect((await http().get(`/api/posts/${postId}`).expect(200)).body.commentCount).toBe(1);
-    }, SLOW_MS);
+        await http()
+          .patch(`/api/admin/content/comment/${comment.body.id}/restore`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(
+          (await http().get(`/api/posts/${postId}`).expect(200)).body
+            .commentCount,
+        ).toBe(1);
+      },
+      SLOW_MS,
+    );
 
-    it('hides a public itinerary from search, the public view and cloning', async () => {
-      const created = await http().post('/api/itineraries').set('Cookie', author.cookie)
-        .send({ title: 'Reported trip', countries: ['FR'], startDate: '2026-12-20' }).expect(201);
-      const id = created.body.id as string;
-      await http().patch(`/api/itineraries/${id}/visibility`).set('Cookie', author.cookie)
-        .send({ visibility: 'public' }).expect(200);
+    it(
+      'hides a public itinerary from search, the public view and cloning',
+      async () => {
+        const created = await http()
+          .post('/api/itineraries')
+          .set('Cookie', author.cookie)
+          .send({
+            title: 'Reported trip',
+            countries: ['FR'],
+            startDate: '2026-12-20',
+          })
+          .expect(201);
+        const id = created.body.id as string;
+        await http()
+          .patch(`/api/itineraries/${id}/visibility`)
+          .set('Cookie', author.cookie)
+          .send({ visibility: 'public' })
+          .expect(200);
 
-      await http().post('/api/reports').set('Cookie', reader.cookie)
-        .send({ targetType: 'itinerary', targetId: id, reason: 'SPAM' }).expect(201);
-      await http().patch(`/api/admin/content/itinerary/${id}/hide`).set('Cookie', admin.cookie).expect(200);
+        await http()
+          .post('/api/reports')
+          .set('Cookie', reader.cookie)
+          .send({ targetType: 'itinerary', targetId: id, reason: 'SPAM' })
+          .expect(201);
+        await http()
+          .patch(`/api/admin/content/itinerary/${id}/hide`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      await http().get(`/api/itineraries/public/${id}`).expect(404);
-      await http().post(`/api/itineraries/${id}/clone`).set('Cookie', reader.cookie).expect(404);
-      const search = await http().get('/api/itineraries/public/search?q=Reported%20trip').expect(200);
-      expect(search.body.items.map((i: { id: string }) => i.id)).not.toContain(id);
-      await http().get(`/api/itineraries/${id}`).set('Cookie', author.cookie).expect(200);
+        await http().get(`/api/itineraries/public/${id}`).expect(404);
+        await http()
+          .post(`/api/itineraries/${id}/clone`)
+          .set('Cookie', reader.cookie)
+          .expect(404);
+        const search = await http()
+          .get('/api/itineraries/public/search?q=Reported%20trip')
+          .expect(200);
+        expect(
+          search.body.items.map((i: { id: string }) => i.id),
+        ).not.toContain(id);
+        await http()
+          .get(`/api/itineraries/${id}`)
+          .set('Cookie', author.cookie)
+          .expect(200);
 
-      await http().delete(`/api/admin/content/itinerary/${id}`).set('Cookie', admin.cookie).expect(200);
-      await http().get(`/api/itineraries/${id}`).set('Cookie', author.cookie).expect(404);
-    }, SLOW_MS);
+        await http()
+          .delete(`/api/admin/content/itinerary/${id}`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        await http()
+          .get(`/api/itineraries/${id}`)
+          .set('Cookie', author.cookie)
+          .expect(404);
+      },
+      SLOW_MS,
+    );
 
     it('answers 404 for unknown content and 400 for an unknown type', async () => {
-      await http().patch('/api/admin/content/post/6720f1c2a1b2c3d4e5f60799/hide').set('Cookie', admin.cookie).expect(404);
-      await http().patch('/api/admin/content/photo/6720f1c2a1b2c3d4e5f60799/hide').set('Cookie', admin.cookie).expect(400);
+      await http()
+        .patch('/api/admin/content/post/6720f1c2a1b2c3d4e5f60799/hide')
+        .set('Cookie', admin.cookie)
+        .expect(404);
+      await http()
+        .patch('/api/admin/content/photo/6720f1c2a1b2c3d4e5f60799/hide')
+        .set('Cookie', admin.cookie)
+        .expect(400);
     });
   });
 });

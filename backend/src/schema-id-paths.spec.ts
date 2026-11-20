@@ -97,7 +97,9 @@ async function allMixedPaths(suspect: Suspect): Promise<string[]> {
     for (const [name, value] of Object.entries(exports)) {
       if (value instanceof Schema) {
         const where = `${relative(SRC, file).replaceAll('\\', '/')} ${name}`;
-        found.push(...mixedPaths(value, suspect).map((path) => `${where} ${path}`));
+        found.push(
+          ...mixedPaths(value, suspect).map((path) => `${where} ${path}`),
+        );
       }
     }
   }

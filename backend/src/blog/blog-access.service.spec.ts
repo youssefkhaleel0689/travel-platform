@@ -31,8 +31,20 @@ describe('BlogAccessService.canView (BLG-02, GEN-10, ACC-12)', () => {
   beforeEach(() => {
     authorStatus = UserStatus.ACTIVE;
     const users = {
-      findBriefsByIds: jest.fn(async () =>
-        new Map([[AUTHOR, { id: AUTHOR, name: 'Mona', role: Role.USER, status: authorStatus, createdAt: new Date() }]]),
+      findBriefsByIds: jest.fn(
+        async () =>
+          new Map([
+            [
+              AUTHOR,
+              {
+                id: AUTHOR,
+                name: 'Mona',
+                role: Role.USER,
+                status: authorStatus,
+                createdAt: new Date(),
+              },
+            ],
+          ]),
       ),
       findIdsByStatus: jest.fn(async () => []),
     } as unknown as UsersService;
@@ -62,7 +74,9 @@ describe('BlogAccessService.canView (BLG-02, GEN-10, ACC-12)', () => {
   it('shows deleted content to admins only', async () => {
     const deleted = post({ moderationState: ModerationState.DELETED });
     expect(await service.canView(deleted, viewer(AUTHOR))).toBe(false);
-    expect(await service.canView(deleted, viewer(ADMIN, Role.ADMIN))).toBe(true);
+    expect(await service.canView(deleted, viewer(ADMIN, Role.ADMIN))).toBe(
+      true,
+    );
   });
 
   it('hides every post of a deactivated author from the public (ACC-12)', async () => {

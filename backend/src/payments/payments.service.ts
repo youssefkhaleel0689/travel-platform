@@ -7,10 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  BookingStatus,
-  BookingType,
-} from '../common/bookings/booking-status';
+import { BookingStatus, BookingType } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { PayableBooking } from '../common/bookings/bookings.port';
 import { PLATFORM_CURRENCY, toDecimal128 } from '../common/money/money';
@@ -181,7 +178,11 @@ export class PaymentsService {
     return this.paymentModel.findById(paymentId).exec();
   }
 
-  /** The succeeded payment of a booking, which is what a refund needs. */
+  /**
+   * The payment that paid for the booking itself: the oldest succeeded one. A
+   * flight booking that was changed to a pricier flight has a second, later
+   * one for the fare difference (FLT-27).
+   */
   async findSucceededForBooking(
     bookingType: BookingType,
     bookingId: string,
@@ -195,7 +196,81 @@ export class PaymentsService {
         bookingId: new Types.ObjectId(bookingId),
         status: PaymentStatus.SUCCEEDED,
       })
+      .sort({ createdAt: 1, _id: 1 })
       .exec();
+  }
+
+  /** Every succeeded payment of a booking, oldest first: what refunds draw on. */
+  async findSucceededPaymentsForBooking(
+    bookingType: BookingType,
+    bookingId: string,
+  ): Promise<PaymentDocument[]> {
+    if (!Types.ObjectId.isValid(bookingId)) {
+      return [];
+    }
+    return this.paymentModel
+      .find({
+        bookingType,
+        bookingId: new Types.ObjectId(bookingId),
+        status: PaymentStatus.SUCCEEDED,
+      })
+      .sort({ createdAt: 1, _id: 1 })
+      .exec();
+  }
+
+  /**
+   * FLT-27: records a fare difference Stripe has already confirmed, as a
+   * SUCCEEDED payment of the same booking, so a later refund can give it back.
+   * It is written only once the money is in, so the expiry sweep, which looks
+   * at open payments, never sees it, and bookingConfirmedAt is set, so the
+   * settlement leaves the webhook for its PaymentIntent alone. Recording the same
+   * PaymentIntent twice returns the first row.
+   */
+  async recordFareDifference(input: {
+    bookingType: BookingType;
+    bookingId: string;
+    userId: string;
+    stripePaymentIntentId: string;
+    amount: string;
+  }): Promise<PaymentDocument | null> {
+    const original = await this.findSucceededForBooking(
+      input.bookingType,
+      input.bookingId,
+    );
+    if (!original) {
+      this.logger.error(
+        `Fare difference ${input.stripePaymentIntentId} has no booking payment to belong to (${input.bookingType} ${input.bookingId})`,
+      );
+      return null;
+    }
+    try {
+      return await this.paymentModel.create({
+        bookingType: input.bookingType,
+        bookingId: new Types.ObjectId(input.bookingId),
+        userId: new Types.ObjectId(input.userId),
+        stripePaymentIntentId: input.stripePaymentIntentId,
+        amount: toDecimal128(input.amount),
+        currency: PLATFORM_CURRENCY,
+        status: PaymentStatus.SUCCEEDED,
+        // The terms accepted for the booking still apply to it after a change.
+        policyAcceptanceId: original.policyAcceptanceId,
+        idempotencyKey: `fare-difference:${input.bookingType}:${input.bookingId}:${input.stripePaymentIntentId}`,
+        attempt: original.attempt,
+        succeededAt: new Date(),
+        failedAt: null,
+        cancelledAt: null,
+        failureMessage: null,
+        // Already applied to the booking by the change itself. Without this
+        // the settlement (#80) would treat the PaymentIntent's webhook as a
+        // second payment for a confirmed booking and refund the difference.
+        bookingConfirmedAt: new Date(),
+      });
+    } catch (error) {
+      if (isDuplicateKey(error)) {
+        return this.findByStripeId(input.stripePaymentIntentId);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -320,9 +395,14 @@ export class PaymentsService {
     if (actual === payment.status) {
       return payment;
     }
-    const updated = await this.applyStatus(payment._id, payment.status, actual, {
-      failureMessage: intent.last_payment_error?.message ?? null,
-    });
+    const updated = await this.applyStatus(
+      payment._id,
+      payment.status,
+      actual,
+      {
+        failureMessage: intent.last_payment_error?.message ?? null,
+      },
+    );
     return updated ?? payment;
   }
 
@@ -360,7 +440,10 @@ export class PaymentsService {
         message: `This booking is ${booking.status} and cannot be paid for`,
       });
     }
-    if (booking.holdExpiresAt && booking.holdExpiresAt.getTime() <= Date.now()) {
+    if (
+      booking.holdExpiresAt &&
+      booking.holdExpiresAt.getTime() <= Date.now()
+    ) {
       // The seats or rooms are no longer reserved, so taking money now would
       // sell something the platform does not have.
       throw new ConflictException({

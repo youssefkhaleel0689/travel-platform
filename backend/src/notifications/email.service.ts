@@ -35,7 +35,9 @@ export class EmailService {
   private getTransport(): nodemailer.Transporter | null {
     if (!this.enabled) return null;
     if (!process.env.SMTP_HOST) {
-      this.logger.warn('SMTP_ENABLE=true but SMTP_HOST is empty; email skipped');
+      this.logger.warn(
+        'SMTP_ENABLE=true but SMTP_HOST is empty; email skipped',
+      );
       return null;
     }
     if (!this.transport) {

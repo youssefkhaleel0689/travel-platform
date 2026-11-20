@@ -729,7 +729,9 @@ export class HotelBookingsService {
    * admin module can tell them their booking stays valid when the hotel is
    * deactivated. Read-only: it never changes a booking.
    */
-  async findUserIdsWithUpcomingConfirmedStays(hotelId: string): Promise<string[]> {
+  async findUserIdsWithUpcomingConfirmedStays(
+    hotelId: string,
+  ): Promise<string[]> {
     const userIds = await this.bookingModel
       .distinct('userId', {
         hotelId: oid(hotelId, 'hotelId'),
@@ -748,7 +750,9 @@ export class HotelBookingsService {
    * The caller asks for at most `filter.limit` rows: C2's gateway merges them
    * with the flight bookings and keeps the page it needs.
    */
-  async listForAdminPort(filter: AdminBookingFilter): Promise<AdminBookingList> {
+  async listForAdminPort(
+    filter: AdminBookingFilter,
+  ): Promise<AdminBookingList> {
     const query: QueryFilter<HotelBookingDocument> = {};
     if (filter.status) query.status = filter.status;
     if (filter.reference) query.bookingReference = filter.reference;
@@ -777,7 +781,9 @@ export class HotelBookingsService {
 
     return {
       rows: bookings.map((booking) => ({
-        bookingId: String((booking as HotelBooking & { _id: Types.ObjectId })._id),
+        bookingId: String(
+          (booking as HotelBooking & { _id: Types.ObjectId })._id,
+        ),
         bookingType: BookingType.HOTEL,
         bookingReference: booking.bookingReference ?? null,
         userId: String(booking.userId),

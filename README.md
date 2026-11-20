@@ -74,6 +74,7 @@ Check that it works:
 | `STRIPE_WEBHOOK_SECRET` | For `test:e2e` | Any `whsec_...` value; `stripe listen` prints a real one. The payment e2e suites sign their own deliveries with whatever the app verifies against, so unset they stop with a message saying so, and at runtime every webhook delivery is rejected |
 | `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
 | `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
+| `CORS_ORIGINS` | No | Comma-separated browser origins allowed to call the API with the login cookies: the frontend. Defaults to `http://localhost:3001`, the Next.js dev server. A deployed frontend adds its own origin here. Never `*`: browsers refuse cookies for a wildcard, and any site could read answers made with a user's cookies |
 
 Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
 
@@ -1540,7 +1541,8 @@ await this.refunds.issueForCancellation({
 - You work out the tier, because the tiers belong to the provider (FLT-09, HTL-10). A `PROVIDER` cancellation is refunded in full whatever tier you pass.
 - A 0% tier and a booking that was never paid both return `null` and issue nothing: PAY-03 covers a cancellation with a positive refund amount.
 - A Stripe failure does **not** throw. The cancellation has already happened, so the refund is recorded as `FAILED` with Stripe's message and shows on the booking details, where it can be retried. Do not undo your cancellation because a refund failed.
-- The same booking refuses a second refund (409 `REFUND_ALREADY_ISSUED`).
+- The same booking refuses a second cancellation refund (409 `REFUND_ALREADY_ISSUED`).
+- A booking can have several payments and refunds. A flight change to a pricier flight adds a SUCCEEDED payment for the fare difference (`PaymentsService.recordFareDifference`), and a change to a cheaper one refunds the difference with `issueFareDifference`, recorded and notified like any refund with `kind: FARE_DIFFERENCE` (FLT-27). A cancellation then refunds its tier of **what is still paid**: everything captured less every refund that has not failed, which is the booking's current total. It is drawn newest payment first, never more from one payment than it has left, so a fare difference paid on top goes back first and the refund may be two rows. `GET /api/refunds/:id` shows `kind`. A full refund of a payment the booking could not take (PAY-01, #80) has `kind: UNCONFIRMED_PAYMENT`; only a `CANCELLATION` refund blocks a second cancellation.
 
 ### Environment and running it locally
 
@@ -1609,6 +1611,8 @@ The webhook signature verification is tested for real, because it is local crypt
 ## Image uploads (GEN-08)
 
 `MediaService` (`src/media/`) is the shared upload service. It accepts one JPG or PNG of at most 5 MB (the type is read from the file's first bytes, not its name), allows 5 images per post, activity or hotel and 1 logo per airline, stores the file under `UPLOADS_DIR` and records it in `mediaMetadata`. The owning module checks access and serves the image from its own route.
+
+Hotel photos (`POST`, `GET`, `DELETE /api/hotels/:id/photos`) go through it too. The hotel lists each photo's id, URL, type and size, and the 5-photo limit is checked on the hotel (409 `PHOTO_LIMIT_REACHED`). A photo stored before the switch has no `mediaMetadata` row: it answers 404 and can be removed and uploaded again.
 
 ~~~
 @Module({ imports: [MediaModule] })
@@ -1685,7 +1689,7 @@ Rules worth knowing:
 - **States** (`applyModeration`, shared by every owner): VISIBLE and HIDDEN switch both ways; either can become DELETED; DELETED is final (409 `INVALID_MODERATION_CHANGE`). The update filters on the state it read, so two admins acting at once get 409 `MODERATION_CONFLICT` instead of overwriting each other. Repeating an action changes nothing and logs nothing.
 - **Hidden** content is visible only to its author and admins; **deleted** content only to admins (a soft delete, so the audit trail still points at something). Only VISIBLE content appears in public lists, search, comment counts and hotel ratings.
 - **Resolving** with HIDE or DELETE acts on the item and closes every open report on it; acting on an item directly closes them too. Every decision is written to the audit log (GEN-07).
-- **Owners**: posts and comments come from `BlogModule`; reviews and itineraries through two small methods each on `ReviewsService` and `PublicItinerariesService` (`findForModeration`, `moderate`). Hiding a review recomputes the hotel rating. A hidden itinerary drops out of public search, the public view, cloning and author pages; a deleted one also disappears for its owner. Itineraries saved before this change have no `moderationState` and count as VISIBLE.
+- **Owners**: posts and comments come from `BlogModule`; reviews and itineraries through two small methods each on `ReviewsService` and `PublicItinerariesService` (`findForModeration`, `moderate`). Hiding a review recomputes the hotel rating. Its author can no longer edit or delete a hidden or deleted review: 404, the same as someone else's review, so the moderation record stays. A hidden itinerary drops out of public search, the public view, cloning and author pages; a deleted one also disappears for its owner. Itineraries saved before this change have no `moderationState` and count as VISIBLE.
 
 Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
 
@@ -1709,9 +1713,13 @@ Built by Zeyad after the 110 mandatory endpoints were merged (ACC-02, ACC-07 and
 | POST | `/api/auth/reset-password` | ACC-07 | Public (code from the email) |
 | GET | `/api/admin/analytics?from=&to=&type=` | BON-01 | Admin |
 
-- **FLT-27:** same route and cabin only, on a SCHEDULED future flight of an ACTIVE airline, not the flight already booked, and a round trip must still land before the return leaves. The difference is computed per passenger with the booking's own rule (infants pay 10%). A higher fare opens a PaymentIntent and the change is applied by `/apply` once Stripe says it succeeded, to the segment and at the price that were quoted. A lower fare is applied at once and the difference refunded. Seats, every passenger's fare and the booking totals change in one transaction, so a later FLT-26 refund reads the new total.
+- **FLT-27:** same route and cabin only, on a SCHEDULED future flight of an ACTIVE airline, not the flight already booked, and a round trip must still land before the return leaves. The difference is computed per passenger with the booking's own rule (infants pay 10%).
+  - **A same or lower fare** is applied at once. A lower fare's difference is refunded through `RefundsService.issueFareDifference`, so it is a recorded, notified refund (`kind: FARE_DIFFERENCE`, PAY-03), and the response carries `refunded` and `refundId`.
+  - **A higher fare** holds the seats on the new flight for 10 minutes (`holdExpiresAt`, like FLT-22) and opens a PaymentIntent for the difference. `/apply` applies it once Stripe says it succeeded, to the segment and at the price that were quoted, and turns the held seats into booked ones. When the hold ends, the flight hold-expiry job settles the change: a paid one is applied even if `/apply` was never called, one Stripe is still processing waits, and an unpaid one is cancelled at Stripe and its seats are released. If the booking or the new flight changed before a paid change could be applied, the difference is refunded in full (409 `CHANGE_NO_LONGER_POSSIBLE`). The paid difference is recorded as a payment of the booking, so a later cancellation refunds it too.
+  - **Exactly once.** Seats, every passenger's fare and the booking totals change in one transaction, through one conditional update whose filter says what the booking must still be (still on the old flight, the same pending payment). A second request for the same change, such as a double click, finds nothing to update and gets 409 `BOOKING_CHANGED`, and its seat moves are rolled back with it. `flightBookings` has no version key, so nothing else would stop it.
 - **FLT-28:** one document per chosen seat in `flightSeatClaims`, unique per flight, cabin and seat. Two bookings picking the same seat at once: the database lets one win and the other gets 409 `SEAT_ALREADY_TAKEN`. A claim left by a cancelled or changed booking is taken over.
 - **ITN-27:** only your own Confirmed or Completed booking (another account's is 404, ACC-11), once per itinerary. Hotels count as accommodation and flights as intercity transport in the budget summary, at the price snapshot taken when linking. A public itinerary view does not show the links.
+- **BLG-13:** a post shows `itineraryId` only while that itinerary is public and not hidden or deleted. Made private, hidden or deleted, the post shows `null`; public again, it shows the id again. Nothing is detached.
 - **ACC-02:** off unless `EMAIL_VERIFICATION_REQUIRED=true`. Then registration emails a link (base URL `APP_PUBLIC_URL`), and only the two routes that create a booking (`POST /api/flight-bookings/hold`, `POST /api/hotel-bookings`) answer 403 `EMAIL_NOT_VERIFIED` until it is opened; viewing and cancelling stay open. Only an explicit `emailVerifiedAt: null` blocks, so accounts created before this feature (no field) are not locked out. Seeded admins and admin-created moderators are verified at creation. It needs `SMTP_ENABLE=true` too, or the link never arrives.
 - **ACC-07:** `forgot-password` always answers 202 with the same message, and does not wait for the mail server, so an unknown email cannot be told apart. The email carries a single-use code valid for 30 minutes; a newer request invalidates the older code. `reset-password` sets the new password and revokes every session of the account.
 - **ACC-02 / ACC-07 tokens:** only a SHA-256 hash is stored (`emailVerificationTokens`, `passwordResetTokens`). A token is consumed with one conditional update, so the same link used twice at the same moment works once.

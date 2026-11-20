@@ -222,9 +222,11 @@ export class MyFlightBookingsService {
       quote.refundPercentage,
       reason,
     );
-    const refundAmount = refund
-      ? (decimal128ToString(refund.amount) ?? quote.refundAmount)
-      : '0.00';
+    // The quoted share of the booking's total. RefundsService refunds the same
+    // share of what is still paid, which is that total, but may split it over
+    // two payments after a pricier flight change (FLT-27), so the first refund
+    // row alone can hold only part of it.
+    const refundAmount = refund ? quote.refundAmount : '0.00';
     const refundId = refund ? refund._id : null;
     await this.bookingModel
       .updateOne(

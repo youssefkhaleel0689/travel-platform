@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -14,7 +13,6 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBody,
   ApiConsumes,
@@ -44,10 +42,8 @@ import { CreateHotelDto, HotelResponseDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
 import type { HotelActor, UploadedImageFile } from './hotels.service';
 import { HotelsService } from './hotels.service';
-import {
-  HOTEL_PHOTO_MAX_BYTES,
-  HOTEL_PHOTO_MIME_TYPES,
-} from './schemas/hotel.schema';
+import { ImageUploadInterceptor } from '../media/image-upload.interceptor';
+import { HOTEL_PHOTO_MIME_TYPES } from './schemas/hotel.schema';
 
 // The service works with { id, role }; the logged-in user comes from the global
 // JwtAuthGuard through @CurrentUser() / @OptionalUser().
@@ -260,29 +256,9 @@ export class HotelsController {
   @Roles(Role.HOTEL_MODERATOR)
   @HttpCode(HttpStatus.CREATED)
   @ApiCookieAuth()
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: HOTEL_PHOTO_MAX_BYTES, files: 1 },
-      fileFilter: (_req, file, callback) => {
-        if (
-          (HOTEL_PHOTO_MIME_TYPES as readonly string[]).includes(file.mimetype)
-        ) {
-          callback(null, true);
-          return;
-        }
-        callback(
-          new BadRequestException({
-            code: 'INVALID_FILE_TYPE',
-            message: 'Only JPG and PNG images are accepted',
-            errors: [
-              { field: 'file', messages: ['must be a JPG or PNG image'] },
-            ],
-          }),
-          false,
-        );
-      },
-    }),
-  )
+  // The shared upload reader (GEN-08), as for posts, activities and airline
+  // logos: one file in "file", at most 5 MB, multer errors as 400s.
+  @UseInterceptors(ImageUploadInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -306,11 +282,11 @@ export class HotelsController {
   @ApiErrorResponse({
     status: 400,
     description:
-      'No file (FILE_REQUIRED), not a real JPG or PNG (INVALID_FILE_TYPE), or over 5 MB (FILE_TOO_LARGE)',
+      'No file (FILE_REQUIRED), not a real JPG or PNG (INVALID_FILE_TYPE), over 5 MB (FILE_TOO_LARGE), or not exactly one file in "file" (INVALID_UPLOAD)',
     examples: [
       {
         code: 'FILE_REQUIRED',
-        message: 'A photo file is required',
+        message: 'An image file is required',
         path: PHOTOS_PATH,
         errors: [{ field: 'file', messages: ['file is required'] }],
       },
@@ -325,6 +301,17 @@ export class HotelsController {
         message: 'Images must be at most 5 MB',
         path: PHOTOS_PATH,
         errors: [{ field: 'file', messages: ['must be at most 5 MB'] }],
+      },
+      {
+        code: 'INVALID_UPLOAD',
+        message: 'Send exactly one image in the form field "file"',
+        path: PHOTOS_PATH,
+        errors: [
+          {
+            field: 'file',
+            messages: ['exactly one file is expected in "file"'],
+          },
+        ],
       },
     ],
   })
@@ -360,14 +347,6 @@ export class HotelsController {
         message: 'A hotel can have at most 5 photos',
         path: PHOTOS_PATH,
       },
-    ],
-  })
-  @ApiErrorResponse({
-    status: 413,
-    description:
-      'The upload is larger than 5 MB and was stopped while receiving it',
-    examples: [
-      { code: 'PAYLOAD_TOO_LARGE', message: 'File too large', path: PHOTOS_PATH },
     ],
   })
   addPhoto(

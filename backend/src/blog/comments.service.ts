@@ -44,7 +44,13 @@ export class CommentsService {
     const comment = await this.connection.transaction(
       async (session: ClientSession) => {
         const [created] = await this.commentModel.create(
-          [{ postId: post._id, authorId: new Types.ObjectId(user.userId), body }],
+          [
+            {
+              postId: post._id,
+              authorId: new Types.ObjectId(user.userId),
+              body,
+            },
+          ],
           { session },
         );
         await this.postModel

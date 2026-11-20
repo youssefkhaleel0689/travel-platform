@@ -89,33 +89,37 @@ describe('Notifications (e2e)', () => {
   });
 
   describe('GET /api/notifications', () => {
-    it('returns the account’s notifications newest first, 10 to a page', async () => {
-      await seedNotifications(user.userId, 12);
+    it(
+      'returns the account’s notifications newest first, 10 to a page',
+      async () => {
+        await seedNotifications(user.userId, 12);
 
-      const res = await request(app.getHttpServer())
-        .get(LIST)
-        .set('Cookie', user.cookie)
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .get(LIST)
+          .set('Cookie', user.cookie)
+          .expect(200);
 
-      expect(res.body.items).toHaveLength(10);
-      expect(res.body.meta).toEqual({
-        page: 1,
-        pageSize: 10,
-        totalItems: 12,
-        totalPages: 2,
-        hasNextPage: true,
-        hasPreviousPage: false,
-      });
-      // Newest first.
-      expect(res.body.items[0].title).toBe('Booking confirmed 12');
+        expect(res.body.items).toHaveLength(10);
+        expect(res.body.meta).toEqual({
+          page: 1,
+          pageSize: 10,
+          totalItems: 12,
+          totalPages: 2,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        });
+        // Newest first.
+        expect(res.body.items[0].title).toBe('Booking confirmed 12');
 
-      const page2 = await request(app.getHttpServer())
-        .get(`${LIST}?page=2`)
-        .set('Cookie', user.cookie)
-        .expect(200);
-      expect(page2.body.items).toHaveLength(2);
-      expect(page2.body.meta.hasNextPage).toBe(false);
-    }, SLOW_MS);
+        const page2 = await request(app.getHttpServer())
+          .get(`${LIST}?page=2`)
+          .set('Cookie', user.cookie)
+          .expect(200);
+        expect(page2.body.items).toHaveLength(2);
+        expect(page2.body.meta.hasNextPage).toBe(false);
+      },
+      SLOW_MS,
+    );
 
     it('returns the documented item shape without _id or __v', async () => {
       await seedNotifications(user.userId, 1);

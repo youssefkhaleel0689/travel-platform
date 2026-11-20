@@ -15,7 +15,10 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { Role, UserStatus } from './../src/common/auth/auth.enums';
 import { AirlineModeratorAssignment } from './../src/flights/schemas/airline-moderator-assignment.schema';
-import { Airline, AirlineStatus } from './../src/flights/schemas/airline.schema';
+import {
+  Airline,
+  AirlineStatus,
+} from './../src/flights/schemas/airline.schema';
 import {
   createSignedInUser,
   deleteTestUsers,
@@ -211,159 +214,195 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
   }, CONNECT_TIMEOUT_MS);
 
   describe('POST /api/admin/moderators', () => {
-    it('creates the account, links it to the airline, and returns the password once', async () => {
-      const res = await createModerator({ password: 'Welcome2026' });
+    it(
+      'creates the account, links it to the airline, and returns the password once',
+      async () => {
+        const res = await createModerator({ password: 'Welcome2026' });
 
-      expect(res.status).toBe(201);
-      expect(res.body).toEqual({
-        account: {
-          id: expect.stringMatching(/^[a-f\d]{24}$/),
-          name: 'Omar Fathy',
-          email: expect.stringContaining('test_c2_mod'),
-          role: Role.AIRLINE_MODERATOR,
-          status: UserStatus.ACTIVE,
-          createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-          mustChangePassword: true,
-          suspendedAt: null,
-          deactivatedAt: null,
-        },
-        providerId: airlineId,
-        temporaryPassword: 'Welcome2026',
-        message: expect.stringContaining('cannot be shown again'),
-      });
+        expect(res.status).toBe(201);
+        expect(res.body).toEqual({
+          account: {
+            id: expect.stringMatching(/^[a-f\d]{24}$/),
+            name: 'Omar Fathy',
+            email: expect.stringContaining('test_c2_mod'),
+            role: Role.AIRLINE_MODERATOR,
+            status: UserStatus.ACTIVE,
+            createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+            mustChangePassword: true,
+            suspendedAt: null,
+            deactivatedAt: null,
+          },
+          providerId: airlineId,
+          temporaryPassword: 'Welcome2026',
+          message: expect.stringContaining('cannot be shown again'),
+        });
 
-      // Exactly one link, in the collection the flights module owns.
-      const links = await assignmentModel
-        .find({ moderatorId: new Types.ObjectId(res.body.account.id) })
-        .lean()
-        .exec();
-      expect(links).toHaveLength(1);
-      expect(links[0].airlineId.toString()).toBe(airlineId);
-    }, SLOW_MS);
+        // Exactly one link, in the collection the flights module owns.
+        const links = await assignmentModel
+          .find({ moderatorId: new Types.ObjectId(res.body.account.id) })
+          .lean()
+          .exec();
+        expect(links).toHaveLength(1);
+        expect(links[0].airlineId.toString()).toBe(airlineId);
+      },
+      SLOW_MS,
+    );
 
-    it('generates a temporary password when the admin sends none', async () => {
-      const res = await createModerator();
+    it(
+      'generates a temporary password when the admin sends none',
+      async () => {
+        const res = await createModerator();
 
-      expect(res.status).toBe(201);
-      expect(typeof res.body.temporaryPassword).toBe('string');
-      expect(res.body.temporaryPassword.length).toBeGreaterThanOrEqual(8);
-      // It works, which is the only thing that matters about a generated one.
-      await expect(
-        login(app, res.body.account.email, res.body.temporaryPassword),
-      ).resolves.toContain('access_token=');
-    }, SLOW_MS);
+        expect(res.status).toBe(201);
+        expect(typeof res.body.temporaryPassword).toBe('string');
+        expect(res.body.temporaryPassword.length).toBeGreaterThanOrEqual(8);
+        // It works, which is the only thing that matters about a generated one.
+        await expect(
+          login(app, res.body.account.email, res.body.temporaryPassword),
+        ).resolves.toContain('access_token=');
+      },
+      SLOW_MS,
+    );
 
     // The point of the requirement: the moderator must change the password
     // before it can do anything (ACC-07a enforcement in JwtAuthGuard).
-    it('leaves the moderator able to do nothing until it sets its own password', async () => {
-      const created = await createModerator({ password: 'Welcome2026' });
-      expect(created.status).toBe(201);
+    it(
+      'leaves the moderator able to do nothing until it sets its own password',
+      async () => {
+        const created = await createModerator({ password: 'Welcome2026' });
+        expect(created.status).toBe(201);
 
-      const cookie = await login(
-        app,
-        created.body.account.email,
-        'Welcome2026',
-      );
+        const cookie = await login(
+          app,
+          created.body.account.email,
+          'Welcome2026',
+        );
 
-      const blocked = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', cookie)
-        .expect(403);
-      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+        const blocked = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', cookie)
+          .expect(403);
+        expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', cookie)
-        .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
-        .expect(200);
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', cookie)
+          .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
+          .expect(200);
 
-      const profile = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', cookie)
-        .expect(200);
-      expect(profile.body.role).toBe(Role.AIRLINE_MODERATOR);
-      expect(profile.body.mustChangePassword).toBe(false);
-    }, SLOW_MS);
+        const profile = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', cookie)
+          .expect(200);
+        expect(profile.body.role).toBe(Role.AIRLINE_MODERATOR);
+        expect(profile.body.mustChangePassword).toBe(false);
+      },
+      SLOW_MS,
+    );
 
     // The unique index is on moderatorId, not airlineId: one airline may have
     // several moderators, but a moderator manages exactly one airline.
-    it('allows a second moderator for the same airline', async () => {
-      const first = await createModerator();
-      const second = await createModerator();
+    it(
+      'allows a second moderator for the same airline',
+      async () => {
+        const first = await createModerator();
+        const second = await createModerator();
 
-      expect(first.status).toBe(201);
-      expect(second.status).toBe(201);
-      expect(second.body.providerId).toBe(airlineId);
-    }, SLOW_MS);
+        expect(first.status).toBe(201);
+        expect(second.status).toBe(201);
+        expect(second.body.providerId).toBe(airlineId);
+      },
+      SLOW_MS,
+    );
 
-    it('rejects an email that is already registered (409)', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ email: plainUser.email }))
-        .expect(409);
+    it(
+      'rejects an email that is already registered (409)',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ email: plainUser.email }))
+          .expect(409);
 
-      expect(res.body.code).toBe('EMAIL_ALREADY_REGISTERED');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('EMAIL_ALREADY_REGISTERED');
+      },
+      SLOW_MS,
+    );
 
-    it('answers 404 for an airline that does not exist', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ airlineId: new Types.ObjectId().toString() }))
-        .expect(404);
+    it(
+      'answers 404 for an airline that does not exist',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ airlineId: new Types.ObjectId().toString() }))
+          .expect(404);
 
-      expect(res.body.code).toBe('AIRLINE_NOT_FOUND');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('AIRLINE_NOT_FOUND');
+      },
+      SLOW_MS,
+    );
 
     // ACC-15: a deactivated provider gets no new moderator.
-    it('answers 400 PROVIDER_DEACTIVATED for a deactivated airline', async () => {
-      // Resolved before the request is built, never inside .send(): supertest
-      // binds to an ephemeral listener as soon as request() is called, and a
-      // second supertest call awaited inside the argument list closes the
-      // listener the outer one is holding.
-      const deactivatedId = await deactivatedAirline();
+    it(
+      'answers 400 PROVIDER_DEACTIVATED for a deactivated airline',
+      async () => {
+        // Resolved before the request is built, never inside .send(): supertest
+        // binds to an ephemeral listener as soon as request() is called, and a
+        // second supertest call awaited inside the argument list closes the
+        // listener the outer one is holding.
+        const deactivatedId = await deactivatedAirline();
 
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ airlineId: deactivatedId }))
-        .expect(400);
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ airlineId: deactivatedId }))
+          .expect(400);
 
-      expect(res.body.code).toBe('PROVIDER_DEACTIVATED');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('PROVIDER_DEACTIVATED');
+      },
+      SLOW_MS,
+    );
 
     // The provider is checked before anything is written, so a bad request
     // leaves no account behind and the email can be reused.
-    it('creates no account when the provider is unusable', async () => {
-      const email = testEmail('mod-orphan');
+    it(
+      'creates no account when the provider is unusable',
+      async () => {
+        const email = testEmail('mod-orphan');
 
-      await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ email, airlineId: new Types.ObjectId().toString() }))
-        .expect(404);
+        await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ email, airlineId: new Types.ObjectId().toString() }))
+          .expect(404);
 
-      // Nothing was created, so the same email still works.
-      const retry = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ email }))
-        .expect(201);
-      createdUserIds.push(retry.body.account.id as string);
-    }, SLOW_MS);
+        // Nothing was created, so the same email still works.
+        const retry = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ email }))
+          .expect(201);
+        createdUserIds.push(retry.body.account.id as string);
+      },
+      SLOW_MS,
+    );
 
     // The hotels module is wired (HTL-01): an unknown hotelId is a 404, and
     // nothing is created.
-    it('answers 404 HOTEL_NOT_FOUND for a hotel moderator of an unknown hotel', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ role: Role.HOTEL_MODERATOR }))
-        .expect(404);
+    it(
+      'answers 404 HOTEL_NOT_FOUND for a hotel moderator of an unknown hotel',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ role: Role.HOTEL_MODERATOR }))
+          .expect(404);
 
-      expect(res.body.code).toBe('HOTEL_NOT_FOUND');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('HOTEL_NOT_FOUND');
+      },
+      SLOW_MS,
+    );
   });
 
   describe('validation', () => {
@@ -400,44 +439,56 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
     // providerId the endpoint used to take is now an unknown field, and the id
     // belonging to the other kind of provider is refused by name, so a body
     // meant for a hotel cannot quietly create an airline moderator.
-    it('rejects the providerId the endpoint used to take', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send({
-          name: 'Omar Fathy',
-          email: testEmail('mod'),
-          role: Role.AIRLINE_MODERATOR,
-          providerId: airlineId,
-        })
-        .expect(400);
+    it(
+      'rejects the providerId the endpoint used to take',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send({
+            name: 'Omar Fathy',
+            email: testEmail('mod'),
+            role: Role.AIRLINE_MODERATOR,
+            providerId: airlineId,
+          })
+          .expect(400);
 
-      expect(res.body.code).toBe('VALIDATION_FAILED');
-      expect(fieldsOf(res.body)).toContain('providerId');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('VALIDATION_FAILED');
+        expect(fieldsOf(res.body)).toContain('providerId');
+      },
+      SLOW_MS,
+    );
 
-    it('rejects hotelId on an airline moderator', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ hotelId: new Types.ObjectId().toString() }))
-        .expect(400);
+    it(
+      'rejects hotelId on an airline moderator',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ hotelId: new Types.ObjectId().toString() }))
+          .expect(400);
 
-      expect(res.body.code).toBe('VALIDATION_FAILED');
-      expect(res.body.errors[0].field).toBe('hotelId');
-      expect(res.body.errors[0].messages[0]).toContain('HOTEL_MODERATOR');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('VALIDATION_FAILED');
+        expect(res.body.errors[0].field).toBe('hotelId');
+        expect(res.body.errors[0].messages[0]).toContain('HOTEL_MODERATOR');
+      },
+      SLOW_MS,
+    );
 
-    it('rejects airlineId on a hotel moderator', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ role: Role.HOTEL_MODERATOR, airlineId }))
-        .expect(400);
+    it(
+      'rejects airlineId on a hotel moderator',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ role: Role.HOTEL_MODERATOR, airlineId }))
+          .expect(400);
 
-      expect(res.body.code).toBe('VALIDATION_FAILED');
-      expect(res.body.errors[0].field).toBe('airlineId');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('VALIDATION_FAILED');
+        expect(res.body.errors[0].field).toBe('airlineId');
+      },
+      SLOW_MS,
+    );
 
     it.each([Role.AIRLINE_MODERATOR, Role.HOTEL_MODERATOR])(
       'rejects %s with no provider id at all',
@@ -460,45 +511,57 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       ['Short1', 'too short'],
       ['nodigitshere', 'no digit'],
       ['123456789', 'no letter'],
-    ])('rejects the password %s (%s)', async (password) => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ password }))
-        .expect(400);
+    ])(
+      'rejects the password %s (%s)',
+      async (password) => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ password }))
+          .expect(400);
 
-      expect(res.body.errors[0].field).toBe('password');
-    }, SLOW_MS);
+        expect(res.body.errors[0].field).toBe('password');
+      },
+      SLOW_MS,
+    );
 
     // "Optional" means "may be left out", not "may be null": a sent null is a
     // mistake in the admin's body, not a request to generate a password.
-    it('rejects password: null rather than generating one', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send(body({ password: null }))
-        .expect(400);
+    it(
+      'rejects password: null rather than generating one',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send(body({ password: null }))
+          .expect(400);
 
-      expect(res.body.errors[0].field).toBe('password');
-    }, SLOW_MS);
+        expect(res.body.errors[0].field).toBe('password');
+      },
+      SLOW_MS,
+    );
 
-    it('rejects a missing name and a bad email', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', admin.cookie)
-        .send({
-          email: 'not-an-email',
-          role: Role.AIRLINE_MODERATOR,
-          airlineId,
-        })
-        .expect(400);
+    it(
+      'rejects a missing name and a bad email',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', admin.cookie)
+          .send({
+            email: 'not-an-email',
+            role: Role.AIRLINE_MODERATOR,
+            airlineId,
+          })
+          .expect(400);
 
-      const fields = (res.body.errors as { field: string }[]).map(
-        (error) => error.field,
-      );
-      expect(fields).toContain('name');
-      expect(fields).toContain('email');
-    }, SLOW_MS);
+        const fields = (res.body.errors as { field: string }[]).map(
+          (error) => error.field,
+        );
+        expect(fields).toContain('name');
+        expect(fields).toContain('email');
+      },
+      SLOW_MS,
+    );
 
     // No route may mint an account with a status or a flag chosen by the client.
     it.each(['status', 'mustChangePassword', 'temporaryPasswordIssuedAt'])(
@@ -537,121 +600,148 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
       return cookie;
     }
 
-    it('can edit the airline it was assigned to', async () => {
-      const cookie = await readyModerator();
+    it(
+      'can edit the airline it was assigned to',
+      async () => {
+        const cookie = await readyModerator();
 
-      const res = await request(app.getHttpServer())
-        .patch(`/api/airlines/${airlineId}`)
-        .set('Cookie', cookie)
-        .send({ name: 'test_c2_acc13 Airline Renamed' })
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .patch(`/api/airlines/${airlineId}`)
+          .set('Cookie', cookie)
+          .send({ name: 'test_c2_acc13 Airline Renamed' })
+          .expect(200);
 
-      expect(res.body.name).toBe('test_c2_acc13 Airline Renamed');
-    }, SLOW_MS);
+        expect(res.body.name).toBe('test_c2_acc13 Airline Renamed');
+      },
+      SLOW_MS,
+    );
 
     // ACC-11, and the reason the link is a collection rather than a flag: the
     // moderator's own row says nothing about which airline it manages, so the
     // only thing that can grant this is the assignment document.
-    it('cannot edit an airline it was not assigned to', async () => {
-      const cookie = await readyModerator();
-      const otherAirlineId = await createAirline('acc13-other-airline');
+    it(
+      'cannot edit an airline it was not assigned to',
+      async () => {
+        const cookie = await readyModerator();
+        const otherAirlineId = await createAirline('acc13-other-airline');
 
-      const res = await request(app.getHttpServer())
-        .patch(`/api/airlines/${otherAirlineId}`)
-        .set('Cookie', cookie)
-        .send({ name: 'test_c2_should_not_happen' })
-        .expect(403);
+        const res = await request(app.getHttpServer())
+          .patch(`/api/airlines/${otherAirlineId}`)
+          .set('Cookie', cookie)
+          .send({ name: 'test_c2_should_not_happen' })
+          .expect(403);
 
-      expect(res.body.code).toBe('FORBIDDEN');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('FORBIDDEN');
+      },
+      SLOW_MS,
+    );
 
-    it('cannot create an airline: that stays admin-only', async () => {
-      const cookie = await readyModerator();
+    it(
+      'cannot create an airline: that stays admin-only',
+      async () => {
+        const cookie = await readyModerator();
 
-      await request(app.getHttpServer())
-        .post('/api/airlines')
-        .set('Cookie', cookie)
-        .send({ name: 'test_c2_acc13 Not Allowed', iataCode: randomIataCode() })
-        .expect(403);
-    }, SLOW_MS);
+        await request(app.getHttpServer())
+          .post('/api/airlines')
+          .set('Cookie', cookie)
+          .send({
+            name: 'test_c2_acc13 Not Allowed',
+            iataCode: randomIataCode(),
+          })
+          .expect(403);
+      },
+      SLOW_MS,
+    );
   });
 
   // A moderator is a new kind of account, so the admin routes built for
   // ACC-07a, ACC-14 and ACC-16 have to handle it like any other.
   describe('the admin account routes handle a moderator (ACC-07a, ACC-14, ACC-16)', () => {
-    it('lists it under the AIRLINE_MODERATOR role filter (ACC-14)', async () => {
-      const created = await createModerator();
-      expect(created.status).toBe(201);
+    it(
+      'lists it under the AIRLINE_MODERATOR role filter (ACC-14)',
+      async () => {
+        const created = await createModerator();
+        expect(created.status).toBe(201);
 
-      const res = await request(app.getHttpServer())
-        .get(
-          `/api/admin/accounts?role=${Role.AIRLINE_MODERATOR}` +
-            `&search=${encodeURIComponent(created.body.account.email)}`,
-        )
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .get(
+            `/api/admin/accounts?role=${Role.AIRLINE_MODERATOR}` +
+              `&search=${encodeURIComponent(created.body.account.email)}`,
+          )
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      expect(res.body.meta.totalItems).toBe(1);
-      expect(res.body.items[0].id).toBe(created.body.account.id);
-      expect(res.body.items[0].role).toBe(Role.AIRLINE_MODERATOR);
-    }, SLOW_MS);
+        expect(res.body.meta.totalItems).toBe(1);
+        expect(res.body.items[0].id).toBe(created.body.account.id);
+        expect(res.body.items[0].role).toBe(Role.AIRLINE_MODERATOR);
+      },
+      SLOW_MS,
+    );
 
-    it('resets its password back to a temporary one (ACC-07a)', async () => {
-      const created = await createModerator({ password: 'Welcome2026' });
-      const id = created.body.account.id as string;
+    it(
+      'resets its password back to a temporary one (ACC-07a)',
+      async () => {
+        const created = await createModerator({ password: 'Welcome2026' });
+        const id = created.body.account.id as string;
 
-      const reset = await request(app.getHttpServer())
-        .post(`/api/admin/users/${id}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const reset = await request(app.getHttpServer())
+          .post(`/api/admin/users/${id}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      // Back to owing a password change, exactly as ACC-13 left it.
-      const cookie = await login(
-        app,
-        created.body.account.email,
-        reset.body.temporaryPassword as string,
-      );
-      const blocked = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', cookie)
-        .expect(403);
-      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
-    }, SLOW_MS);
+        // Back to owing a password change, exactly as ACC-13 left it.
+        const cookie = await login(
+          app,
+          created.body.account.email,
+          reset.body.temporaryPassword as string,
+        );
+        const blocked = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', cookie)
+          .expect(403);
+        expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+      },
+      SLOW_MS,
+    );
 
-    it('suspends it, and the suspension stops it editing its airline (ACC-16)', async () => {
-      const created = await createModerator({ password: 'Welcome2026' });
-      const id = created.body.account.id as string;
-      const cookie = await login(
-        app,
-        created.body.account.email,
-        'Welcome2026',
-      );
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', cookie)
-        .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
-        .expect(200);
+    it(
+      'suspends it, and the suspension stops it editing its airline (ACC-16)',
+      async () => {
+        const created = await createModerator({ password: 'Welcome2026' });
+        const id = created.body.account.id as string;
+        const cookie = await login(
+          app,
+          created.body.account.email,
+          'Welcome2026',
+        );
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', cookie)
+          .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
+          .expect(200);
 
-      const suspended = await request(app.getHttpServer())
-        .patch(`/api/admin/accounts/${id}/suspend`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
+        const suspended = await request(app.getHttpServer())
+          .patch(`/api/admin/accounts/${id}/suspend`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
 
-      // The guard reloads the account every request, so the cookie it already
-      // holds stops working without anything being revoked. The assignment row
-      // stays: suspension is not unassignment.
-      await request(app.getHttpServer())
-        .patch(`/api/airlines/${airlineId}`)
-        .set('Cookie', cookie)
-        .send({ name: 'test_c2_acc13 Airline Suspended Edit' })
-        .expect(401);
+        // The guard reloads the account every request, so the cookie it already
+        // holds stops working without anything being revoked. The assignment row
+        // stays: suspension is not unassignment.
+        await request(app.getHttpServer())
+          .patch(`/api/airlines/${airlineId}`)
+          .set('Cookie', cookie)
+          .send({ name: 'test_c2_acc13 Airline Suspended Edit' })
+          .expect(401);
 
-      const links = await assignmentModel
-        .countDocuments({ moderatorId: new Types.ObjectId(id) })
-        .exec();
-      expect(links).toBe(1);
-    }, SLOW_MS);
+        const links = await assignmentModel
+          .countDocuments({ moderatorId: new Types.ObjectId(id) })
+          .exec();
+        expect(links).toBe(1);
+      },
+      SLOW_MS,
+    );
   });
 
   describe('access (ACC-11)', () => {
@@ -662,34 +752,42 @@ describe('Admin creates a moderator (ACC-13) (e2e)', () => {
         .expect(401);
     });
 
-    it('rejects a logged-in non-admin (403)', async () => {
-      const res = await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', plainUser.cookie)
-        .send(body())
-        .expect(403);
+    it(
+      'rejects a logged-in non-admin (403)',
+      async () => {
+        const res = await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', plainUser.cookie)
+          .send(body())
+          .expect(403);
 
-      expect(res.body.code).toBe('FORBIDDEN');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('FORBIDDEN');
+      },
+      SLOW_MS,
+    );
 
-    it('rejects a moderator trying to create another moderator (403)', async () => {
-      const created = await createModerator({ password: 'Welcome2026' });
-      const cookie = await login(
-        app,
-        created.body.account.email,
-        'Welcome2026',
-      );
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', cookie)
-        .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
-        .expect(200);
+    it(
+      'rejects a moderator trying to create another moderator (403)',
+      async () => {
+        const created = await createModerator({ password: 'Welcome2026' });
+        const cookie = await login(
+          app,
+          created.body.account.email,
+          'Welcome2026',
+        );
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', cookie)
+          .send({ currentPassword: 'Welcome2026', newPassword: 'Chosen2026' })
+          .expect(200);
 
-      await request(app.getHttpServer())
-        .post(MODERATORS)
-        .set('Cookie', cookie)
-        .send(body())
-        .expect(403);
-    }, SLOW_MS);
+        await request(app.getHttpServer())
+          .post(MODERATORS)
+          .set('Cookie', cookie)
+          .send(body())
+          .expect(403);
+      },
+      SLOW_MS,
+    );
   });
 });

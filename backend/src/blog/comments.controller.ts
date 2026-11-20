@@ -37,7 +37,10 @@ const POST_COMMENTS = `/api/posts/${POST_ID}/comments`;
 const COMMENT = `/api/comments/${COMMENT_ID}`;
 
 const BODY_ERRORS = [
-  { field: 'body', messages: ['body must be shorter than or equal to 500 characters'] },
+  {
+    field: 'body',
+    messages: ['body must be shorter than or equal to 500 characters'],
+  },
 ];
 
 const COMMENT_NOT_FOUND: ApiErrorResponseOptions = {
@@ -67,11 +70,19 @@ export class CommentsController {
   @ApiCreatedResponse({ type: CommentDto })
   @ApiErrorResponse(validationFailed(POST_COMMENTS, BODY_ERRORS))
   @ApiErrorResponse(unauthenticated(POST_COMMENTS))
-  @ApiErrorResponse(forbidden(POST_COMMENTS, { role: false, passwordChange: true }))
+  @ApiErrorResponse(
+    forbidden(POST_COMMENTS, { role: false, passwordChange: true }),
+  )
   @ApiErrorResponse({
     status: 404,
     description: 'No such published post',
-    examples: [{ code: 'POST_NOT_FOUND', message: 'Post not found', path: POST_COMMENTS }],
+    examples: [
+      {
+        code: 'POST_NOT_FOUND',
+        message: 'Post not found',
+        path: POST_COMMENTS,
+      },
+    ],
   })
   create(
     @Param('id') postId: string,

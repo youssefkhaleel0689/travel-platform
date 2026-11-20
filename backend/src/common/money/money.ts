@@ -1,4 +1,7 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Types } from 'mongoose';
 
@@ -65,9 +68,9 @@ export function formatMoney(amount: Decimal | string): string {
  * number of cents and small enough to be exact in a double.
  */
 export function toMinorUnits(amount: string | Decimal): number {
-  const minor = (
-    amount instanceof Decimal ? amount : parseMoney(amount)
-  ).times(MINOR_UNITS_PER_UNIT);
+  const minor = (amount instanceof Decimal ? amount : parseMoney(amount)).times(
+    MINOR_UNITS_PER_UNIT,
+  );
 
   if (!minor.isInteger()) {
     throw new InternalServerErrorException(
@@ -109,6 +112,17 @@ export function percentageOf(amount: string, percentage: number): string {
 
 export function addMoney(a: string, b: string): string {
   return formatMoney(parseMoney(a).plus(parseMoney(b)));
+}
+
+/** a - b. Amounts are never negative, so b larger than a is a bug and throws. */
+export function subtractMoney(a: string, b: string): string {
+  const difference = parseMoney(a).minus(parseMoney(b));
+  if (difference.isNegative()) {
+    throw new InternalServerErrorException(
+      `Cannot take ${b} from ${a}: amounts are never negative`,
+    );
+  }
+  return formatMoney(difference);
 }
 
 export function isGreaterThan(a: string, b: string): boolean {

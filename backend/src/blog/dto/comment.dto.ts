@@ -28,10 +28,15 @@ export class CommentDto {
   @ApiProperty({ type: AuthorBriefDto })
   author: AuthorBriefDto;
 
-  @ApiProperty({ example: 'Great tips! Did you need a guide inside the tombs?' })
+  @ApiProperty({
+    example: 'Great tips! Did you need a guide inside the tombs?',
+  })
   body: string;
 
-  @ApiProperty({ example: false, description: 'True once the author edited it' })
+  @ApiProperty({
+    example: false,
+    description: 'True once the author edited it',
+  })
   edited: boolean;
 
   @ApiPropertyOptional({

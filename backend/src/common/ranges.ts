@@ -12,8 +12,14 @@ export function overlaps(a: DateRange, b: DateRange): boolean {
  * True when the union of `ranges` covers every night of [from, to).
  * Adjacent ranges (end == next start) count as contiguous.
  */
-export function isFullyCovered(ranges: DateRange[], from: Date, to: Date): boolean {
-  const sorted = [...ranges].sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+export function isFullyCovered(
+  ranges: DateRange[],
+  from: Date,
+  to: Date,
+): boolean {
+  const sorted = [...ranges].sort(
+    (a, b) => a.startDate.getTime() - b.startDate.getTime(),
+  );
   let cursor = from.getTime();
   for (const r of sorted) {
     if (r.endDate.getTime() <= cursor) continue;
@@ -28,10 +34,20 @@ export function isFullyCovered(ranges: DateRange[], from: Date, to: Date): boole
 export function removedParts(old: DateRange, next: DateRange): DateRange[] {
   const parts: DateRange[] = [];
   if (old.startDate < next.startDate) {
-    parts.push({ startDate: old.startDate, endDate: new Date(Math.min(old.endDate.getTime(), next.startDate.getTime())) });
+    parts.push({
+      startDate: old.startDate,
+      endDate: new Date(
+        Math.min(old.endDate.getTime(), next.startDate.getTime()),
+      ),
+    });
   }
   if (next.endDate < old.endDate) {
-    parts.push({ startDate: new Date(Math.max(old.startDate.getTime(), next.endDate.getTime())), endDate: old.endDate });
+    parts.push({
+      startDate: new Date(
+        Math.max(old.startDate.getTime(), next.endDate.getTime()),
+      ),
+      endDate: old.endDate,
+    });
   }
   return parts.filter((p) => p.endDate > p.startDate);
 }

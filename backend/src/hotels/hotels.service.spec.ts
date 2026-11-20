@@ -1,8 +1,8 @@
-import { ConfigService } from '@nestjs/config';
 import type { Model } from 'mongoose';
 import { Types } from 'mongoose';
 import { City } from '../common/reference-data/schemas/city.schema';
 import { Country } from '../common/reference-data/schemas/country.schema';
+import { MediaService } from '../media/media.service';
 import { HotelsService } from './hotels.service';
 import { HotelModeratorAssignment } from './schemas/hotel-moderator-assignment.schema';
 import { Hotel } from './schemas/hotel.schema';
@@ -21,13 +21,12 @@ function setup(moderatorIds: Types.ObjectId[]) {
       query(moderatorIds.map((moderatorId) => ({ moderatorId }))),
     ),
   };
-  const config = { get: jest.fn(() => undefined) };
   const service = new HotelsService(
     {} as unknown as Model<Hotel>,
     assignmentModel as unknown as Model<HotelModeratorAssignment>,
     {} as unknown as Model<City>,
     {} as unknown as Model<Country>,
-    config as unknown as ConfigService,
+    {} as unknown as MediaService,
   );
   return { service, assignmentModel };
 }

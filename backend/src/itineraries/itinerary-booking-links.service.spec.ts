@@ -33,7 +33,12 @@ function itinerary(linkedOnDay1 = false) {
     visibility: 'PRIVATE',
     transportCosts: [],
     days: [
-      day(DAY_1, linkedOnDay1 ? [{ bookingType: BookingType.HOTEL, bookingId: BOOKING_ID }] : []),
+      day(
+        DAY_1,
+        linkedOnDay1
+          ? [{ bookingType: BookingType.HOTEL, bookingId: BOOKING_ID }]
+          : [],
+      ),
       day(DAY_2, []),
     ],
     save: jest.fn().mockResolvedValue(undefined),
@@ -66,17 +71,24 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
   throw new Error('expected an error');
 }
 
-const dto = { bookingType: BookingType.HOTEL, bookingId: BOOKING_ID.toString() };
+const dto = {
+  bookingType: BookingType.HOTEL,
+  bookingId: BOOKING_ID.toString(),
+};
 
 describe('ItineraryBookingLinksService (ITN-27)', () => {
   it("answers another account's booking with the same 404 as a missing one (ACC-11)", async () => {
     const service = setup(itinerary(), new Types.ObjectId().toString());
-    expect(await codeOf(service.link(USER, 'x', DAY_1.toString(), dto))).toBe('BOOKING_NOT_FOUND');
+    expect(await codeOf(service.link(USER, 'x', DAY_1.toString(), dto))).toBe(
+      'BOOKING_NOT_FOUND',
+    );
   });
 
   it('links a booking only once in the whole itinerary', async () => {
     const service = setup(itinerary(true));
-    expect(await codeOf(service.link(USER, 'x', DAY_2.toString(), dto))).toBe('BOOKING_ALREADY_LINKED');
+    expect(await codeOf(service.link(USER, 'x', DAY_2.toString(), dto))).toBe(
+      'BOOKING_ALREADY_LINKED',
+    );
   });
 
   it('links a confirmed booking with its price snapshot', async () => {

@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Room, RoomSchema } from '../rooms/schemas/room.schema';
-import { Availability, AvailabilitySchema } from '../availability/schemas/availability.schema';
-import { HotelBooking, HotelBookingSchema } from '../hotel-bookings/schemas/hotel-booking.schema';
+import {
+  Availability,
+  AvailabilitySchema,
+} from '../availability/schemas/availability.schema';
+import {
+  HotelBooking,
+  HotelBookingSchema,
+} from '../hotel-bookings/schemas/hotel-booking.schema';
 import { InventoryService } from './inventory.service';
 
 @Module({

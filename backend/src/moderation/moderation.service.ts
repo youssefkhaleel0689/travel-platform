@@ -77,7 +77,10 @@ export class ModerationService {
 
   // GEN-09: reporting
 
-  async report(user: AuthenticatedUser, dto: CreateReportDto): Promise<ReportDto> {
+  async report(
+    user: AuthenticatedUser,
+    dto: CreateReportDto,
+  ): Promise<ReportDto> {
     const target = await this.content.find(dto.targetType, dto.targetId);
     // Content the reporter cannot see (a draft, something hidden) answers
     // like content that does not exist, so a report cannot probe for it.
@@ -246,7 +249,12 @@ export class ModerationService {
     if (outcome.changed) {
       const status = STATUS_FOR[to];
       if (status) {
-        reportsClosed = await this.closeOpenReports(type, id, status, admin.userId);
+        reportsClosed = await this.closeOpenReports(
+          type,
+          id,
+          status,
+          admin.userId,
+        );
       }
       await this.audit.record({
         actorId: admin.userId,
@@ -266,7 +274,6 @@ export class ModerationService {
     dto.reportsClosed = reportsClosed;
     return dto;
   }
-
 
   private async closeOpenReports(
     type: ContentType,
@@ -297,16 +304,17 @@ export class ModerationService {
     if (!OBJECT_ID.test(id)) {
       throw reportNotFound();
     }
-    const report = await this.reportModel.findById(id).lean<LeanReport>().exec();
+    const report = await this.reportModel
+      .findById(id)
+      .lean<LeanReport>()
+      .exec();
     if (!report) {
       throw reportNotFound();
     }
     return report;
   }
 
-  private findTarget(
-    report: LeanReport,
-  ): Promise<ModeratedContent | null> {
+  private findTarget(report: LeanReport): Promise<ModeratedContent | null> {
     return this.content.find(report.targetType, report.targetId.toString());
   }
 

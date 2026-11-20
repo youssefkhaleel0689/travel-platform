@@ -29,7 +29,7 @@ export class BookingPoliciesDto {
 
   @ApiProperty({
     description:
-      'The provider\'s terms. An airline sends its baggage rules and ' +
+      "The provider's terms. An airline sends its baggage rules and " +
       'cancellation tiers; a hotel sends its cancellation tiers and its ' +
       'check-in and check-out times.',
     example: {

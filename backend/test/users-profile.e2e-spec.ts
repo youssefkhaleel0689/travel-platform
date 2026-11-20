@@ -163,9 +163,9 @@ describe('Own profile (e2e)', () => {
         .expect(400);
 
       expect(res.body.code).toBe('VALIDATION_FAILED');
-      expect(res.body.errors.map((e: { field: string }) => e.field).sort()).toEqual(
-        ['name', 'phone', 'preferredCurrency'],
-      );
+      expect(
+        res.body.errors.map((e: { field: string }) => e.field).sort(),
+      ).toEqual(['name', 'phone', 'preferredCurrency']);
     });
 
     it.each(['email', 'role', 'status', 'passwordHash', 'mustChangePassword'])(
@@ -182,24 +182,28 @@ describe('Own profile (e2e)', () => {
       },
     );
 
-    it('cannot be used to edit another account', async () => {
-      const other = await createSignedInUser(app, { label: 'other' });
-      createdUserIds.push(other.userId);
+    it(
+      'cannot be used to edit another account',
+      async () => {
+        const other = await createSignedInUser(app, { label: 'other' });
+        createdUserIds.push(other.userId);
 
-      // There is no id in the route or the body to point elsewhere: the only
-      // account this endpoint can touch is the one in the cookie.
-      await request(app.getHttpServer())
-        .patch(ME)
-        .set('Cookie', other.cookie)
-        .send({ name: 'Changed By Other' })
-        .expect(200);
+        // There is no id in the route or the body to point elsewhere: the only
+        // account this endpoint can touch is the one in the cookie.
+        await request(app.getHttpServer())
+          .patch(ME)
+          .set('Cookie', other.cookie)
+          .send({ name: 'Changed By Other' })
+          .expect(200);
 
-      const mine = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(200);
-      expect(mine.body.name).toBe('Only The Name');
-    }, SLOW_MS);
+        const mine = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(200);
+        expect(mine.body.name).toBe('Only The Name');
+      },
+      SLOW_MS,
+    );
 
     it('rejects an anonymous request (401)', async () => {
       await request(app.getHttpServer())

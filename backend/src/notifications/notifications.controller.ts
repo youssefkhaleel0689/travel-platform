@@ -16,10 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
-import {
-  forbidden,
-  unauthenticated,
-} from '../common/swagger/standard-errors';
+import { forbidden, unauthenticated } from '../common/swagger/standard-errors';
 import { ApiPaginatedResponse } from '../common/pagination/api-paginated-response.decorator';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { CurrentUser } from '../common/auth/current-user.decorator';
@@ -52,7 +49,11 @@ export class NotificationsController {
     status: 400,
     description: 'Bad page or unknown query parameter',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Bad page or unknown query parameter', path: '/api/notifications' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Bad page or unknown query parameter',
+        path: '/api/notifications',
+      },
     ],
   })
   async list(
@@ -77,7 +78,9 @@ export class NotificationsController {
   async unreadCount(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<UnreadCountDto> {
-    return new UnreadCountDto(await this.notifications.unreadCount(user.userId));
+    return new UnreadCountDto(
+      await this.notifications.unreadCount(user.userId),
+    );
   }
 
   @Patch('read-all')
@@ -106,7 +109,11 @@ export class NotificationsController {
     status: 404,
     description: 'No such notification for this account',
     examples: [
-      { code: 'NOT_FOUND', message: 'Notification not found', path: '/api/notifications/6720f1c2a1b2c3d4e5f60930/read' },
+      {
+        code: 'NOT_FOUND',
+        message: 'Notification not found',
+        path: '/api/notifications/6720f1c2a1b2c3d4e5f60930/read',
+      },
     ],
   })
   async markAsRead(

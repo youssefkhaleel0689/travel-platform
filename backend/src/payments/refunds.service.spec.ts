@@ -10,7 +10,7 @@ import { NotificationType } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
-import { CancelledBy, RefundStatus } from './refund-status.enum';
+import { CancelledBy, RefundKind, RefundStatus } from './refund-status.enum';
 import { RefundsService } from './refunds.service';
 import { Refund } from './schemas/refund.schema';
 import { StripeService } from './stripe.service';
@@ -32,6 +32,7 @@ describe('RefundsService (PAY-03)', () => {
   let stripe: { createRefund: jest.Mock; retrieveRefund: jest.Mock };
   let payments: {
     findSucceededForBooking: jest.Mock;
+    findSucceededPaymentsForBooking: jest.Mock;
     findById: jest.Mock;
     findByStripeId: jest.Mock;
   };
@@ -100,8 +101,15 @@ describe('RefundsService (PAY-03)', () => {
         .mockResolvedValue({ id: 're_1', status: 'succeeded' }),
       retrieveRefund: jest.fn(),
     };
+    const findSucceededForBooking = jest.fn().mockResolvedValue(paymentDoc());
     payments = {
-      findSucceededForBooking: jest.fn().mockResolvedValue(paymentDoc()),
+      findSucceededForBooking,
+      // A booking with one payment unless a test says otherwise: the list is
+      // whatever findSucceededForBooking is set to return.
+      findSucceededPaymentsForBooking: jest.fn(async () => {
+        const payment: unknown = await findSucceededForBooking();
+        return payment ? [payment] : [];
+      }),
       findById: jest.fn().mockResolvedValue(paymentDoc()),
       findByStripeId: jest.fn().mockResolvedValue(paymentDoc()),
     };
@@ -366,16 +374,16 @@ describe('RefundsService (PAY-03)', () => {
         paymentDoc({ userId: new Types.ObjectId(OTHER_USER_ID) }),
       );
 
-      await expect(
-        service.findOwnOrThrow(USER_ID, REFUND_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOwnOrThrow(USER_ID, REFUND_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('answers 404 for a missing or malformed id', async () => {
       model.findById.mockReturnValue(exec(null));
-      await expect(
-        service.findOwnOrThrow(USER_ID, REFUND_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOwnOrThrow(USER_ID, REFUND_ID)).rejects.toThrow(
+        NotFoundException,
+      );
 
       await expect(
         service.findOwnOrThrow(USER_ID, 'not-an-id'),
@@ -417,7 +425,9 @@ describe('RefundsService (PAY-03)', () => {
     });
 
     it("records Stripe's reason when the refund fails", async () => {
-      model.findOne.mockReturnValue(exec(refundDoc({ stripeRefundId: 're_9' })));
+      model.findOne.mockReturnValue(
+        exec(refundDoc({ stripeRefundId: 're_9' })),
+      );
 
       await service.syncFromStripe({
         id: 're_9',
@@ -437,10 +447,15 @@ describe('RefundsService (PAY-03)', () => {
 
     it('changes nothing when the status is already the same', async () => {
       model.findOne.mockReturnValue(
-        exec(refundDoc({ stripeRefundId: 're_9', status: RefundStatus.REFUNDED })),
+        exec(
+          refundDoc({ stripeRefundId: 're_9', status: RefundStatus.REFUNDED }),
+        ),
       );
 
-      await service.syncFromStripe({ id: 're_9', status: 'succeeded' } as never);
+      await service.syncFromStripe({
+        id: 're_9',
+        status: 'succeeded',
+      } as never);
 
       expect(model.findOneAndUpdate).not.toHaveBeenCalled();
     });
@@ -452,7 +467,10 @@ describe('RefundsService (PAY-03)', () => {
       model.findOneAndUpdate.mockReturnValue(
         exec({ ...pending, status: RefundStatus.REFUNDED }),
       );
-      stripe.retrieveRefund.mockResolvedValue({ id: 're_9', status: 'succeeded' });
+      stripe.retrieveRefund.mockResolvedValue({
+        id: 're_9',
+        status: 'succeeded',
+      });
 
       const refund = await service.findOwnOrThrow(USER_ID, REFUND_ID);
 
@@ -484,5 +502,172 @@ describe('RefundsService (PAY-03)', () => {
     expect(stripe.createRefund).toHaveBeenCalledWith(
       expect.objectContaining({ amount: '420.00' }),
     );
+  });
+
+  // FLT-27: a booking can now have a fare difference paid on top of it, and
+  // fare-difference refunds before any cancellation refund.
+  describe('several payments and refunds per booking (FLT-27)', () => {
+    const DIFFERENCE_ID = '6720f1c2a1b2c3d4e5f60911';
+    const booking = paymentDoc();
+    const difference = paymentDoc({
+      _id: new Types.ObjectId(DIFFERENCE_ID),
+      stripePaymentIntentId: 'pi_difference',
+      amount: Types.Decimal128.fromString('80.00'),
+    });
+
+    it('records a fare-difference refund like any other, and says why in the notice', async () => {
+      const refund = await service.issueFareDifference({
+        bookingType: BookingType.FLIGHT,
+        bookingId: BOOKING_ID,
+        amount: '42.00',
+        reason: 'Changed to a cheaper flight',
+      });
+
+      const created = model.create.mock.calls[0][0] as Record<string, unknown>;
+      expect(created).toMatchObject({
+        kind: RefundKind.FARE_DIFFERENCE,
+        cancelledBy: CancelledBy.USER,
+        refundPercentage: 10,
+      });
+      expect(String(created.amount)).toBe('42.00');
+      expect(stripe.createRefund).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: '42.00',
+          stripePaymentIntentId: 'pi_1',
+        }),
+      );
+      expect(refund?.status).toBe(RefundStatus.REFUNDED);
+      expect(notifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('fare difference') as string,
+        }),
+      );
+    });
+
+    it('lets a cancellation follow a fare-difference refund, as a share of what is still paid', async () => {
+      model.find.mockReturnValue(
+        sortExec([
+          refundDoc({
+            kind: RefundKind.FARE_DIFFERENCE,
+            status: RefundStatus.REFUNDED,
+            amount: Types.Decimal128.fromString('20.00'),
+          }),
+        ]),
+      );
+
+      await service.issueForCancellation({
+        ...userCancellation,
+        refundPercentage: 50,
+      });
+
+      // 420 paid, 20 already back: 50% of 400.
+      expect(stripe.createRefund).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: '200.00' }),
+      );
+    });
+
+    it('lets a cancellation follow the refund of an extra payment the booking could not take', async () => {
+      model.find.mockReturnValue(
+        sortExec([
+          refundDoc({
+            kind: RefundKind.UNCONFIRMED_PAYMENT,
+            cancelledBy: CancelledBy.SYSTEM,
+            status: RefundStatus.REFUNDED,
+            paymentId: new Types.ObjectId(DIFFERENCE_ID),
+            amount: Types.Decimal128.fromString('80.00'),
+          }),
+        ]),
+      );
+      payments.findSucceededPaymentsForBooking.mockResolvedValue([
+        booking,
+        difference,
+      ]);
+
+      await service.issueForCancellation({
+        ...userCancellation,
+        cancelledBy: CancelledBy.PROVIDER,
+      });
+
+      // The extra 80 is already back: the cancellation is the booking's 420.
+      expect(stripe.createRefund).toHaveBeenCalledTimes(1);
+      expect(stripe.createRefund).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: '420.00',
+          stripePaymentIntentId: 'pi_1',
+        }),
+      );
+    });
+
+    it('still refuses a second cancellation refund', async () => {
+      model.find.mockReturnValue(
+        sortExec([refundDoc({ status: RefundStatus.REFUNDED })]),
+      );
+
+      await expect(
+        service.issueForCancellation(userCancellation),
+      ).rejects.toMatchObject({ response: { code: 'REFUND_ALREADY_ISSUED' } });
+    });
+
+    it('refunds a fare difference paid on top before the booking payment, never more than each has left', async () => {
+      payments.findSucceededPaymentsForBooking.mockResolvedValue([
+        booking,
+        difference,
+      ]);
+
+      await service.issueForCancellation({
+        ...userCancellation,
+        cancelledBy: CancelledBy.PROVIDER,
+      });
+
+      // 420 + 80 captured, a provider cancellation refunds all 500: 80 from the
+      // difference, the other 420 from the booking payment.
+      expect(stripe.createRefund).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          amount: '80.00',
+          stripePaymentIntentId: 'pi_difference',
+        }),
+      );
+      expect(stripe.createRefund).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          amount: '420.00',
+          stripePaymentIntentId: 'pi_1',
+        }),
+      );
+      const keys = model.create.mock.calls.map(
+        ([row]) => (row as { idempotencyKey: string }).idempotencyKey,
+      );
+      expect(keys).toEqual([
+        `refund:HOTEL:${BOOKING_ID}:1`,
+        `refund:HOTEL:${BOOKING_ID}:2`,
+      ]);
+    });
+
+    it('never refunds more than is left', async () => {
+      await expect(
+        service.issueFareDifference({
+          bookingType: BookingType.FLIGHT,
+          bookingId: BOOKING_ID,
+          amount: '420.01',
+          reason: 'Changed to a cheaper flight',
+        }),
+      ).rejects.toMatchObject({ response: { code: 'REFUND_EXCEEDS_PAYMENT' } });
+      expect(stripe.createRefund).not.toHaveBeenCalled();
+    });
+
+    it('refunds nothing for a booking that was never paid', async () => {
+      payments.findSucceededForBooking.mockResolvedValue(null);
+
+      await expect(
+        service.issueFareDifference({
+          bookingType: BookingType.FLIGHT,
+          bookingId: BOOKING_ID,
+          amount: '10.00',
+          reason: 'Changed to a cheaper flight',
+        }),
+      ).resolves.toBeNull();
+      expect(model.create).not.toHaveBeenCalled();
+    });
   });
 });

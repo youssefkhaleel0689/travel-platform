@@ -282,9 +282,10 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
     it('skips a run while the previous one is still going', async () => {
       let release: () => void = () => undefined;
       payments.findOpenPayments.mockImplementation(
-        () => new Promise((resolve) => {
-          release = () => resolve([]);
-        }),
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve([]);
+          }),
       );
 
       const first = service.scheduledSweep();

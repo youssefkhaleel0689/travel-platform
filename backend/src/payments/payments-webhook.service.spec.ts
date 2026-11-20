@@ -264,7 +264,10 @@ describe('PaymentsWebhookService (PAY-01)', () => {
     // confirmed or refunded while the card stayed charged.
     it('still confirms when a status read recorded SUCCEEDED first', async () => {
       payments.findByStripeId.mockResolvedValue(
-        paymentDoc({ status: PaymentStatus.SUCCEEDED, bookingConfirmedAt: null }),
+        paymentDoc({
+          status: PaymentStatus.SUCCEEDED,
+          bookingConfirmedAt: null,
+        }),
       );
 
       await service.handle(RAW_BODY, SIGNATURE);
@@ -439,7 +442,9 @@ describe('PaymentsWebhookService (PAY-01)', () => {
     it('still rethrows an error that is not a conflict, so Stripe retries', async () => {
       bookings.confirmAfterPayment.mockRejectedValue(new Error('db down'));
 
-      await expect(service.handle(RAW_BODY, SIGNATURE)).rejects.toThrow('db down');
+      await expect(service.handle(RAW_BODY, SIGNATURE)).rejects.toThrow(
+        'db down',
+      );
       expect(refunds.refundUnconfirmablePayment).not.toHaveBeenCalled();
     });
 
@@ -474,7 +479,9 @@ describe('PaymentsWebhookService (PAY-01)', () => {
         stripe.constructWebhookEvent.mockReturnValue({
           id: 'evt_r',
           type,
-          data: { object: { id: 're_1', object: 'refund', status: 'succeeded' } },
+          data: {
+            object: { id: 're_1', object: 'refund', status: 'succeeded' },
+          },
         } as unknown as Stripe.Event);
 
         const outcome = await service.handle(RAW_BODY, SIGNATURE);
@@ -554,20 +561,19 @@ describe('PaymentsWebhookService (PAY-01)', () => {
   });
 
   describe('other event types', () => {
-    it.each([
-      'charge.succeeded',
-      'customer.created',
-      'payment_intent.created',
-    ])('ignores %s without touching a booking', async (type) => {
-      stripe.constructWebhookEvent.mockReturnValue(event(type));
+    it.each(['charge.succeeded', 'customer.created', 'payment_intent.created'])(
+      'ignores %s without touching a booking',
+      async (type) => {
+        stripe.constructWebhookEvent.mockReturnValue(event(type));
 
-      const outcome = await service.handle(RAW_BODY, SIGNATURE);
+        const outcome = await service.handle(RAW_BODY, SIGNATURE);
 
-      expect(outcome.status).toBe(WebhookEventStatus.IGNORED);
-      expect(payments.applyStatus).not.toHaveBeenCalled();
-      expect(bookings.confirmAfterPayment).not.toHaveBeenCalled();
-      expect(bookings.releaseHold).not.toHaveBeenCalled();
-    });
+        expect(outcome.status).toBe(WebhookEventStatus.IGNORED);
+        expect(payments.applyStatus).not.toHaveBeenCalled();
+        expect(bookings.confirmAfterPayment).not.toHaveBeenCalled();
+        expect(bookings.releaseHold).not.toHaveBeenCalled();
+      },
+    );
 
     it('still records an ignored event, so it is not reprocessed', async () => {
       stripe.constructWebhookEvent.mockReturnValue(event('charge.succeeded'));

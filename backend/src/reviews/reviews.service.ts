@@ -88,9 +88,18 @@ export class ReviewsService {
     return review;
   }
 
+  /**
+   * The user's own review, while it is VISIBLE. Once an admin has hidden or
+   * deleted it (GEN-10), the author can no longer edit it back or remove the
+   * moderation record: it answers the same 404 as a review that is not theirs.
+   */
   private async getOwn(user: AuthenticatedUser, id: string) {
     const review = await this.reviewModel.findById(oid(id, 'id')).exec();
-    if (!review || String(review.userId) !== user.userId)
+    if (
+      !review ||
+      String(review.userId) !== user.userId ||
+      review.moderationState !== ReviewModerationState.VISIBLE
+    )
       throw new NotFoundException('Review not found');
     return review;
   }
@@ -223,10 +232,23 @@ export class ReviewsService {
    * recompute the hotel's rating, because only VISIBLE reviews count (HTL-24).
    * Deleting is soft: the row keeps moderationState DELETED.
    */
-  async moderate(id: string, to: ModerationState, actorId: string): Promise<ModerationResult | null> {
-    const result = await applyModeration(this.reviewModel as never, id, to, actorId);
+  async moderate(
+    id: string,
+    to: ModerationState,
+    actorId: string,
+  ): Promise<ModerationResult | null> {
+    const result = await applyModeration(
+      this.reviewModel as never,
+      id,
+      to,
+      actorId,
+    );
     if (result?.changed) {
-      const review = await this.reviewModel.findById(id).select('hotelId').lean().exec();
+      const review = await this.reviewModel
+        .findById(id)
+        .select('hotelId')
+        .lean()
+        .exec();
       if (review) await this.recalculateHotelRating(review.hotelId);
     }
     return result;

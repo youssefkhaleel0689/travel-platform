@@ -109,6 +109,19 @@ export class PublicItinerariesService {
     return new PageDto(result.items.map(toPublicSummary), result.meta);
   }
 
+  /**
+   * BLG-13: whether a blog post may still show this itinerary. It was public
+   * when it was attached, but the owner can make it private or delete it and
+   * an admin can hide it later; after that its id is no longer shown.
+   */
+  async isPubliclyVisible(id: string): Promise<boolean> {
+    if (!this.itineraries.isObjectId(id)) return false;
+    const found = await this.itineraryModel
+      .exists({ _id: id, visibility: Visibility.PUBLIC, ...PUBLICLY_VISIBLE })
+      .exec();
+    return found !== null;
+  }
+
   // A malformed id, a missing itinerary and a private one all give the same 404.
   private async findPublicOrThrow(id: string): Promise<ItineraryDocument> {
     if (!this.itineraries.isObjectId(id)) {

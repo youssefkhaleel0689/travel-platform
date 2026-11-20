@@ -5,6 +5,7 @@ import {
   Country,
   CountrySchema,
 } from '../common/reference-data/schemas/country.schema';
+import { MediaModule } from '../media/media.module';
 import { HotelsController } from './hotels.controller';
 import { HotelsService } from './hotels.service';
 import {
@@ -25,6 +26,7 @@ import { Hotel, HotelSchema } from './schemas/hotel.schema';
       { name: City.name, schema: CitySchema },
       { name: Country.name, schema: CountrySchema },
     ]),
+    MediaModule,
   ],
   controllers: [HotelsController],
   providers: [HotelsService],

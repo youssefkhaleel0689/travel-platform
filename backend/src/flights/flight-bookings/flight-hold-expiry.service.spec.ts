@@ -3,6 +3,7 @@ import type { Model } from 'mongoose';
 import { Types } from 'mongoose';
 import { HoldReleaseReason } from '../../common/bookings/bookings.port';
 import { BookingStatus, FlightBooking } from '../schemas/flight-booking.schema';
+import type { ChangeFlightService } from './change-flight.service';
 import type { FlightBookingsPortAdapter } from './flight-bookings-port.adapter';
 import { FlightHoldExpiryService } from './flight-hold-expiry.service';
 
@@ -30,11 +31,15 @@ function setup(found: Rows = [{ _id: FIRST }, { _id: SECOND }]) {
   };
   const bookingModel = { find: jest.fn(() => find) };
   const port = { releaseHold: jest.fn(() => Promise.resolve()) };
+  const changes = {
+    settleExpiredChanges: jest.fn((): Promise<string[]> => Promise.resolve([])),
+  };
   const service = new FlightHoldExpiryService(
     bookingModel as unknown as Model<FlightBooking>,
     port as unknown as FlightBookingsPortAdapter,
+    changes as unknown as ChangeFlightService,
   );
-  return { service, bookingModel, find, port };
+  return { service, bookingModel, find, port, changes };
 }
 
 describe('FlightHoldExpiryService (FLT-22, GEN-11)', () => {
@@ -151,6 +156,45 @@ describe('FlightHoldExpiryService (FLT-22, GEN-11)', () => {
       // The flag was reset: the next run goes ahead.
       await service.scheduledRun();
       expect(find.exec).toHaveBeenCalledTimes(2);
+    });
+
+    // FLT-27: flight changes whose seat hold has ended are settled in the same run.
+    it('settles expired flight changes, and logs the ones that were settled', async () => {
+      const { service, changes } = setup([]);
+      changes.settleExpiredChanges.mockResolvedValue([
+        'applied',
+        'released',
+        'waiting',
+      ]);
+
+      await service.scheduledRun();
+
+      expect(changes.settleExpiredChanges).toHaveBeenCalledTimes(1);
+      expect(logSpy).toHaveBeenCalledWith(
+        'Settled 2 expired flight change(s): applied, released',
+      );
+    });
+
+    it('still settles flight changes when releasing holds failed', async () => {
+      const { service, find, changes } = setup();
+      find.exec.mockImplementationOnce(() =>
+        Promise.reject(new Error('connection lost')),
+      );
+
+      await service.scheduledRun();
+
+      expect(changes.settleExpiredChanges).toHaveBeenCalledTimes(1);
+    });
+
+    it('never throws when settling flight changes fails', async () => {
+      const { service, changes } = setup([]);
+      changes.settleExpiredChanges.mockRejectedValue(new Error('Stripe down'));
+
+      await expect(service.scheduledRun()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Settling expired flight changes failed',
+        expect.stringContaining('Stripe down'),
+      );
     });
   });
 });

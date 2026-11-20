@@ -5,10 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  BookingStatus,
-  BookingType,
-} from '../common/bookings/booking-status';
+import { BookingStatus, BookingType } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { PayableBooking } from '../common/bookings/bookings.port';
 import { BookingPoliciesDto } from './dto/booking-policies.dto';

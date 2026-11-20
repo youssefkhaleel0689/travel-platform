@@ -1226,4 +1226,39 @@ Prompt:
 Review Taher's settlement PR before merging and fix what it misses.
 How the output was used:
 Claude found that the flight booking's confirmation answered "confirmed" for any payment once the booking was confirmed, so a second payment for a flight booking was kept and announced as confirmed again instead of being refunded; hotels already compared the payment. It now answers 409 ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT for a different payment (a booking confirmed before paymentId was stored keeps the old answer), and the settlement refunds it. The "Booking not confirmed" notice now gives the real reason: only a hold that ran out says the hold expired. Added 4 unit tests. Verified in the cloud: tsc clean, lint 0 errors, payments and flight-bookings unit tests pass.
+Date: 2026-11-20
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-27, PAY-03 (plus CORS, X-Powered-By and Prettier, no requirement ID)
+Prompt:
+Fix the real issues from the review triage: on FLT-27 a double click on change-flight moves the seats twice, a cheaper flight's refund bypasses the refunds collection, cancelling after a change refunds the wrong amount, and a pricier flight is paid for without holding its seats. Also add CORS for the frontend, remove the X-Powered-By header and run Prettier on the backend.
+How the output was used:
+Each seat move runs in one transaction behind a conditional update of the booking, so a repeated request gets 409. A cheaper fare becomes a FARE_DIFFERENCE refund; a cancellation refunds its tier of what is still paid across all payments. A pricier fare holds the new seats until payment, and the hold-expiry job applies, refunds or releases it. CORS allows CORS_ORIGINS with cookies; X-Powered-By is off. Prettier ran as a separate commit. Verified: tsc and lint clean, 1786 unit and 531 e2e tests pass.
+================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: FLT-27, PAY-01, PAY-03 (review of #82 after #80)
+Prompt:
+Review Khaled's FLT-27 and refunds PR, merge develop into it (it now has Taher's settlement from #80) and make the two work together.
+How the output was used:
+Claude resolved the conflicts with #80 (develop's settlement kept; this branch only had formatting there). It then found two places where they disagreed. The settlement acts on every succeeded PaymentIntent, so the webhook of a fare-difference payment would have been treated as a second payment for a confirmed booking and refunded; recordFareDifference now sets bookingConfirmedAt, which tells the settlement the money is already applied. The refund of a payment the booking could not take had kind CANCELLATION, so in a double payment it would have blocked the booking's own cancellation refund later; it now has its own kind UNCONFIRMED_PAYMENT, only CANCELLATION rows block a second cancellation, and its notice says the payment could not be applied instead of "your cancelled booking". Added 5 unit tests. Verified in the cloud: tsc clean, lint 0 errors, all unit tests pass.
+================================================
+Date: 2026-11-20
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: GEN-10, BLG-13, GEN-08 (HTL-01 photos)
+Prompt:
+Fix the open findings from Fares's final check that were not fixed yet: a user can still edit or delete their review after an admin hid or deleted it, a blog post keeps showing the id of an itinerary that became private, hidden or deleted, and hotel photo upload has its own copy of the upload code instead of MediaService.
+How the output was used:
+The review owner lookup now also requires a VISIBLE review, so a moderated one answers 404. A post shows itineraryId only while the itinerary is still public and visible. Hotel photos are stored, served and removed through MediaService and the shared upload interceptor; the hotel keeps the 5-photo limit and its error codes. Two new e2e suites, 10 tests; the review and BLG-13 ones fail without the fixes. Verified: tsc and lint clean, unit and e2e tests pass.
+================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: GEN-08, HTL-01 (review of #82)
+Prompt:
+Review the new commits on Khaled's PR, including the move of hotel photos to MediaService.
+How the output was used:
+Claude found that photos uploaded before the move have no MediaService row, only their storageKey, so after the move every existing hotel photo answered 404 and deleting one left its file on disk. MediaService gained openStoredFile and removeStoredFile (both stay inside the uploads directory), and the hotel service uses them for a photo that still has a storageKey. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 1815 unit tests.
 ================================================

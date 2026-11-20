@@ -120,7 +120,10 @@ export function renderItineraryPdf(view: ItineraryPdfView): Promise<Buffer> {
   heading('Intercity transport');
   if (!view.transportCosts.length) text('None recorded.');
   view.transportCosts.forEach((cost) =>
-    field(`${cost.fromCity} -> ${cost.toCity} (${cost.mode})`, `${cost.amount ?? '0.00'} ${cost.currency}`),
+    field(
+      `${cost.fromCity} -> ${cost.toCity} (${cost.mode})`,
+      `${cost.amount ?? '0.00'} ${cost.currency}`,
+    ),
   );
 
   heading(`Budget (${view.summary.currency})`);

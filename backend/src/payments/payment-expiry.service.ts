@@ -116,7 +116,8 @@ export class PaymentExpiryService {
         }
         // A booking that reached CONFIRMED has a succeeded payment of its own;
         // this open attempt is a stale one and is only cancelled at Stripe.
-        const releaseInventory = booking.status === BookingStatus.PENDING_PAYMENT;
+        const releaseInventory =
+          booking.status === BookingStatus.PENDING_PAYMENT;
 
         const cancelledIntent = await this.stripe.cancelPaymentIntent(
           payment.stripePaymentIntentId,

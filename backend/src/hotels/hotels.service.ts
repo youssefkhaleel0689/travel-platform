@@ -5,11 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
-import { randomUUID } from 'node:crypto';
-import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, resolve, sep } from 'node:path';
 import type { ClientSession, Model, UpdateQuery } from 'mongoose';
 import { Types } from 'mongoose';
 import { PageDto } from '../common/pagination/dto/page.dto';
@@ -18,15 +14,15 @@ import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { City } from '../common/reference-data/schemas/city.schema';
 import { Country } from '../common/reference-data/schemas/country.schema';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
+import { MediaTargetType } from '../media/media.constants';
+import { ImageFile, MediaService, UploadedImage } from '../media/media.service';
 import { CreateHotelDto, HotelResponseDto } from './dto/create-hotel.dto';
 import { UpdateHotelDto } from './dto/update-hotel.dto';
 import { HotelModeratorAssignment } from './schemas/hotel-moderator-assignment.schema';
 import {
   Hotel,
   HOTEL_MAX_PHOTOS,
-  HOTEL_PHOTO_MAX_BYTES,
   HotelPhoto,
-  HotelPhotoMimeType,
   HotelStatus,
 } from './schemas/hotel.schema';
 
@@ -42,13 +38,8 @@ export interface HotelActor {
   role: string;
 }
 
-// The parts of an uploaded file this module needs (multer memory storage).
-export interface UploadedImageFile {
-  originalname: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
-}
+// An uploaded file as multer hands it over; MediaService checks it (GEN-08).
+export type UploadedImageFile = UploadedImage;
 
 type HotelLean = LeanDoc<Hotel>;
 
@@ -70,25 +61,17 @@ export interface HotelBrief {
   ratingCount: number;
 }
 
-const PHOTO_EXTENSION: Record<HotelPhotoMimeType, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-};
-
 @Injectable()
 export class HotelsService {
-  private readonly uploadsRoot: string;
-
   constructor(
     @InjectModel(Hotel.name) private readonly hotelModel: Model<Hotel>,
     @InjectModel(HotelModeratorAssignment.name)
     private readonly assignmentModel: Model<HotelModeratorAssignment>,
     @InjectModel(City.name) private readonly cityModel: Model<City>,
     @InjectModel(Country.name) private readonly countryModel: Model<Country>,
-    config: ConfigService,
-  ) {
-    this.uploadsRoot = resolve(config.get<string>('UPLOADS_DIR') ?? 'uploads');
-  }
+    // GEN-08: the shared image store, as for posts, activities and airline logos.
+    private readonly media: MediaService,
+  ) {}
 
   // ------------------------------------------------------------------
   // Hotel profile (HTL-01, HTL-02)
@@ -210,56 +193,30 @@ export class HotelsService {
   // Hotel photos (HTL-01, GEN-08)
   // ------------------------------------------------------------------
 
-  // Stores one JPG/PNG (<= 5 MB) on the server; at most 5 photos per hotel.
+  // Stores one JPG/PNG (<= 5 MB) through MediaService, which checks the file
+  // on its bytes (GEN-08); the hotel lists at most 5 photos.
   async addPhoto(
     hotelId: string,
     file: UploadedImageFile | undefined,
     actor: HotelActor,
   ): Promise<HotelResponseDto> {
     await this.assertModeratorOwnsHotel(actor, hotelId);
-    if (!file) {
-      throw new BadRequestException({
-        code: 'FILE_REQUIRED',
-        message: 'A photo file is required',
-        errors: [{ field: 'file', messages: ['file is required'] }],
-      });
-    }
-
-    const mimeType = this.detectImageType(file.buffer);
-    if (!mimeType) {
-      throw new BadRequestException({
-        code: 'INVALID_FILE_TYPE',
-        message: 'Only JPG and PNG images are accepted',
-        errors: [{ field: 'file', messages: ['must be a JPG or PNG image'] }],
-      });
-    }
-    if (
-      file.size > HOTEL_PHOTO_MAX_BYTES ||
-      file.buffer.length > HOTEL_PHOTO_MAX_BYTES
-    ) {
-      throw new BadRequestException({
-        code: 'FILE_TOO_LARGE',
-        message: 'Images must be at most 5 MB',
-        errors: [{ field: 'file', messages: ['must be at most 5 MB'] }],
-      });
-    }
-
     const hotel = await this.hotelModel.findById(hotelId).lean<HotelLean>();
     if (!hotel) throw this.hotelNotFound();
     if (hotel.photos.length >= HOTEL_MAX_PHOTOS) throw this.photoLimitReached();
 
-    const photoId = new Types.ObjectId();
-    const storageKey = `hotels/${hotelId}/${randomUUID()}.${PHOTO_EXTENSION[mimeType]}`;
-    const absolutePath = this.resolveStoragePath(storageKey);
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, file.buffer);
-
+    const stored = await this.media.storeImage({
+      ownerId: actor.id,
+      targetType: MediaTargetType.HOTEL,
+      targetId: hotelId,
+      file,
+      urlFor: (photoId) => `/api/hotels/${hotelId}/photos/${photoId}`,
+    });
     const photo: HotelPhoto = {
-      _id: photoId,
-      url: `/api/hotels/${hotelId}/photos/${photoId.toHexString()}`,
-      storageKey,
-      mimeType,
-      sizeBytes: file.buffer.length,
+      _id: new Types.ObjectId(stored.id),
+      url: stored.url,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
     };
 
     // Conditional push: two concurrent uploads can never exceed the limit.
@@ -275,7 +232,11 @@ export class HotelsService {
       .lean<HotelLean>();
 
     if (!updated) {
-      await this.removeStoredFile(storageKey);
+      await this.media.removeFromTarget(
+        MediaTargetType.HOTEL,
+        hotelId,
+        stored.id,
+      );
       throw this.photoLimitReached();
     }
     return this.toResponse(updated);
@@ -302,7 +263,12 @@ export class HotelsService {
       .lean<HotelLean>();
     if (!updated) throw this.hotelNotFound();
 
-    await this.removeStoredFile(photo.storageKey);
+    if (photo.storageKey) {
+      // An older photo: its file is removed by key; it has no media row.
+      await this.media.removeStoredFile(photo.storageKey);
+    } else {
+      await this.removeStoredPhoto(hotelId, photo._id.toHexString());
+    }
     return this.toResponse(updated);
   }
 
@@ -312,11 +278,7 @@ export class HotelsService {
     hotelId: string,
     photoId: string,
     actor?: HotelActor,
-  ): Promise<{
-    path: string;
-    mimeType: HotelPhotoMimeType;
-    sizeBytes: number;
-  }> {
+  ): Promise<ImageFile> {
     const hotel = await this.hotelModel.findById(hotelId).lean<HotelLean>();
     if (!hotel) throw this.photoNotFound();
     if (
@@ -328,14 +290,26 @@ export class HotelsService {
 
     const photo = hotel.photos.find((p) => p._id.equals(photoId));
     if (!photo) throw this.photoNotFound();
-
-    const path = this.resolveStoragePath(photo.storageKey);
     try {
-      await stat(path);
-    } catch {
-      throw this.photoNotFound();
+      // A photo uploaded before MediaService held hotel photos has no media
+      // row, only its storageKey: still served, so existing photos keep working.
+      if (photo.storageKey) {
+        return await this.media.openStoredFile(
+          photo.storageKey,
+          photo.mimeType,
+          photo.sizeBytes,
+        );
+      }
+      return await this.media.openForTarget(
+        MediaTargetType.HOTEL,
+        hotelId,
+        photoId,
+      );
+    } catch (error) {
+      // A file gone from disk: the same 404 as a missing photo.
+      if (error instanceof NotFoundException) throw this.photoNotFound();
+      throw error;
     }
-    return { path, mimeType: photo.mimeType, sizeBytes: photo.sizeBytes };
   }
 
   // ------------------------------------------------------------------
@@ -669,36 +643,17 @@ export class HotelsService {
     if (!exists) throw this.hotelNotFound();
   }
 
-  // Checks the file's magic bytes; the client-sent MIME type is not trusted.
-  private detectImageType(buffer: Buffer): HotelPhotoMimeType | null {
-    if (
-      buffer.length >= 3 &&
-      buffer[0] === 0xff &&
-      buffer[1] === 0xd8 &&
-      buffer[2] === 0xff
-    ) {
-      return 'image/jpeg';
-    }
-    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-    if (buffer.length >= png.length && png.every((b, i) => buffer[i] === b)) {
-      return 'image/png';
-    }
-    return null;
-  }
-
-  private resolveStoragePath(storageKey: string): string {
-    const path = resolve(this.uploadsRoot, storageKey);
-    if (!path.startsWith(this.uploadsRoot + sep)) {
-      throw this.photoNotFound();
-    }
-    return path;
-  }
-
-  private async removeStoredFile(storageKey: string): Promise<void> {
+  // The photo is already off the hotel; its file and media row go too. A photo
+  // stored before MediaService held hotel photos has no media row: nothing to do.
+  private async removeStoredPhoto(hotelId: string, photoId: string) {
     try {
-      await unlink(this.resolveStoragePath(storageKey));
-    } catch {
-      // Already gone: the database row is the source of truth.
+      await this.media.removeFromTarget(
+        MediaTargetType.HOTEL,
+        hotelId,
+        photoId,
+      );
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
     }
   }
 

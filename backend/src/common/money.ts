@@ -2,7 +2,9 @@ import { BadRequestException } from '@nestjs/common';
 import { Types } from 'mongoose';
 
 /** All money is handled as integer cents (BigInt); no floating point arithmetic. */
-export function toCents(value: string | Types.Decimal128 | { toString(): string }): bigint {
+export function toCents(
+  value: string | Types.Decimal128 | { toString(): string },
+): bigint {
   const s = value.toString().trim();
   const m = /^(\d+)(?:\.(\d{1,2})0*)?$/.exec(s);
   if (!m) throw new BadRequestException(`Invalid money amount: ${s}`);
@@ -16,7 +18,8 @@ export function centsToString(c: bigint): string {
   return `${whole}.${frac}`;
 }
 
-export const centsToDecimal128 = (c: bigint) => Types.Decimal128.fromString(centsToString(c));
+export const centsToDecimal128 = (c: bigint) =>
+  Types.Decimal128.fromString(centsToString(c));
 
 /** Refund = total * percentage / 100, rounded half-up to the cent. Percentage may have 2 decimals. */
 export function refundCents(totalCents: bigint, percentage: number): bigint {

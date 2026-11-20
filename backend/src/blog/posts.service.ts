@@ -24,7 +24,11 @@ import {
 import { EXCERPT_LENGTH, PostStatus } from './blog.constants';
 import { CommentsService, counterChange } from './comments.service';
 import { CommentDto } from './dto/comment.dto';
-import { CreatePostDto, PostsQueryDto, UpdatePostDto } from './dto/post-request.dto';
+import {
+  CreatePostDto,
+  PostsQueryDto,
+  UpdatePostDto,
+} from './dto/post-request.dto';
 import {
   LikeStatusDto,
   MyPostDto,
@@ -65,7 +69,10 @@ export class PostsService {
     private readonly publicItineraries: PublicItinerariesService,
   ) {}
 
-  async create(user: AuthenticatedUser, dto: CreatePostDto): Promise<PostDetailDto> {
+  async create(
+    user: AuthenticatedUser,
+    dto: CreatePostDto,
+  ): Promise<PostDetailDto> {
     const post = await this.postModel.create({
       authorId: new Types.ObjectId(user.userId),
       title: dto.title,
@@ -209,16 +216,27 @@ export class PostsService {
     viewer: AuthenticatedUser | undefined,
   ): Promise<PostDetailDto> {
     const post = await this.access.findViewablePost(id, viewer);
-    const [authors, images, comments, liked] = await Promise.all([
-      this.access.authorBriefs([post.authorId]),
-      this.media.listForTarget(MediaTargetType.POST, id),
-      this.comments.listForPost(post._id, viewer, 1),
-      viewer
-        ? this.likeModel
-            .exists({ postId: post._id, userId: new Types.ObjectId(viewer.userId) })
-            .exec()
-        : Promise.resolve(null),
-    ]);
+    const [authors, images, comments, liked, itineraryShown] =
+      await Promise.all([
+        this.access.authorBriefs([post.authorId]),
+        this.media.listForTarget(MediaTargetType.POST, id),
+        this.comments.listForPost(post._id, viewer, 1),
+        viewer
+          ? this.likeModel
+              .exists({
+                postId: post._id,
+                userId: new Types.ObjectId(viewer.userId),
+              })
+              .exec()
+          : Promise.resolve(null),
+        // BLG-13: only while the itinerary is still public and not hidden or
+        // deleted, so a post never gives away the id of a private one.
+        post.itineraryId
+          ? this.publicItineraries.isPubliclyVisible(
+              post.itineraryId.toString(),
+            )
+          : Promise.resolve(false),
+      ]);
 
     const dto = new PostDetailDto();
     dto.id = post._id.toString();
@@ -229,7 +247,8 @@ export class PostsService {
     dto.author = authors.get(post.authorId.toString())!;
     dto.tags = post.tags;
     dto.images = images.map(toImageDto);
-    dto.itineraryId = post.itineraryId ? post.itineraryId.toString() : null;
+    dto.itineraryId =
+      post.itineraryId && itineraryShown ? post.itineraryId.toString() : null;
     dto.likeCount = post.likeCount;
     dto.commentCount = post.commentCount;
     if (viewer) {
@@ -327,7 +346,9 @@ export class PostsService {
           { session },
         );
         await this.postModel
-          .updateOne({ _id: post._id }, counterChange('likeCount', 1), { session })
+          .updateOne({ _id: post._id }, counterChange('likeCount', 1), {
+            session,
+          })
           .exec();
       });
     } catch (error) {
@@ -421,4 +442,3 @@ function toImageDto(image: StoredImage): PostImageDto {
   dto.sizeBytes = image.sizeBytes;
   return dto;
 }
-

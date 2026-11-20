@@ -1,5 +1,10 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Public } from '../common/auth/public.decorator';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
 import { validationFailed } from '../common/swagger/standard-errors';
@@ -22,17 +27,26 @@ export class AuthorsController {
       'Public. page pages the posts, itinerariesPage the public itineraries ' +
       '(ITN-20). A deactivated account has no page.',
   })
-  @ApiParam({ name: 'id', description: 'Account id of the author', example: AUTHOR_ID })
+  @ApiParam({
+    name: 'id',
+    description: 'Account id of the author',
+    example: AUTHOR_ID,
+  })
   @ApiOkResponse({ type: AuthorPageDto })
   @ApiErrorResponse(
     validationFailed(PATH, [
-      { field: 'itinerariesPage', messages: ['itinerariesPage must not be less than 1'] },
+      {
+        field: 'itinerariesPage',
+        messages: ['itinerariesPage must not be less than 1'],
+      },
     ]),
   )
   @ApiErrorResponse({
     status: 404,
     description: 'No such account, or it was deactivated',
-    examples: [{ code: 'AUTHOR_NOT_FOUND', message: 'Author not found', path: PATH }],
+    examples: [
+      { code: 'AUTHOR_NOT_FOUND', message: 'Author not found', path: PATH },
+    ],
   })
   getOne(
     @Param('id') id: string,

@@ -94,7 +94,11 @@ describe('Admin account administration (e2e)', () => {
         suspendedAt: null,
         deactivatedAt: null,
       });
-      for (const field of ['passwordHash', 'failedLoginAttempts', 'lockedUntil']) {
+      for (const field of [
+        'passwordHash',
+        'failedLoginAttempts',
+        'lockedUntil',
+      ]) {
         expect(res.body.items[0]).not.toHaveProperty(field);
       }
     });
@@ -158,74 +162,86 @@ describe('Admin account administration (e2e)', () => {
   });
 
   describe('suspend and reactivate (ACC-16)', () => {
-    it('suspends, ends the sessions, notifies, and reactivates', async () => {
-      const target = await signIn({ label: 'suspendme' });
+    it(
+      'suspends, ends the sessions, notifies, and reactivates',
+      async () => {
+        const target = await signIn({ label: 'suspendme' });
 
-      const suspended = await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${target.userId}/suspend`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const suspended = await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${target.userId}/suspend`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
-      expect(suspended.body.suspendedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        expect(suspended.body.status).toBe(UserStatus.SUSPENDED);
+        expect(suspended.body.suspendedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-      // The guard reloads the user every request, so the account's own cookie
-      // stops working immediately.
-      await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Cookie', target.cookie)
-        .expect(401);
+        // The guard reloads the user every request, so the account's own cookie
+        // stops working immediately.
+        await request(app.getHttpServer())
+          .get('/api/users/me')
+          .set('Cookie', target.cookie)
+          .expect(401);
 
-      // Suspending again is accepted and changes nothing.
-      const again = await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${target.userId}/suspend`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      expect(again.body.status).toBe(UserStatus.SUSPENDED);
+        // Suspending again is accepted and changes nothing.
+        const again = await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${target.userId}/suspend`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(again.body.status).toBe(UserStatus.SUSPENDED);
 
-      const reactivated = await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${target.userId}/reactivate`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      expect(reactivated.body.status).toBe(UserStatus.ACTIVE);
-      expect(reactivated.body.suspendedAt).toBeNull();
-    }, SLOW_MS);
+        const reactivated = await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${target.userId}/reactivate`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        expect(reactivated.body.status).toBe(UserStatus.ACTIVE);
+        expect(reactivated.body.suspendedAt).toBeNull();
+      },
+      SLOW_MS,
+    );
 
-    it('tells the owner in the app (GEN-01)', async () => {
-      const target = await signIn({ label: 'notified' });
+    it(
+      'tells the owner in the app (GEN-01)',
+      async () => {
+        const target = await signIn({ label: 'notified' });
 
-      await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${target.userId}/suspend`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${target.userId}/reactivate`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${target.userId}/suspend`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${target.userId}/reactivate`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      // Reading the notifications needs a live session, which the suspension
-      // revoked, so a fresh one is created for the same account.
-      const fresh = await createSignedInUser(app, { label: 'notified-read' });
-      createdUserIds.push(fresh.userId);
+        // Reading the notifications needs a live session, which the suspension
+        // revoked, so a fresh one is created for the same account.
+        const fresh = await createSignedInUser(app, { label: 'notified-read' });
+        createdUserIds.push(fresh.userId);
 
-      const res = await request(app.getHttpServer())
-        .get('/api/notifications')
-        .set('Cookie', fresh.cookie)
-        .expect(200);
-      // The notice went to the suspended account, not to this one.
-      expect(res.body.items).toEqual([]);
-    }, SLOW_MS);
+        const res = await request(app.getHttpServer())
+          .get('/api/notifications')
+          .set('Cookie', fresh.cookie)
+          .expect(200);
+        // The notice went to the suspended account, not to this one.
+        expect(res.body.items).toEqual([]);
+      },
+      SLOW_MS,
+    );
 
-    it('refuses to suspend another admin (403)', async () => {
-      const otherAdmin = await signIn({ role: Role.ADMIN, label: 'admin2' });
+    it(
+      'refuses to suspend another admin (403)',
+      async () => {
+        const otherAdmin = await signIn({ role: Role.ADMIN, label: 'admin2' });
 
-      const res = await request(app.getHttpServer())
-        .patch(`${ACCOUNTS}/${otherAdmin.userId}/suspend`)
-        .set('Cookie', admin.cookie)
-        .expect(403);
+        const res = await request(app.getHttpServer())
+          .patch(`${ACCOUNTS}/${otherAdmin.userId}/suspend`)
+          .set('Cookie', admin.cookie)
+          .expect(403);
 
-      expect(res.body.code).toBe('CANNOT_TARGET_ADMIN');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('CANNOT_TARGET_ADMIN');
+      },
+      SLOW_MS,
+    );
 
     it('refuses to suspend its own account (400)', async () => {
       const res = await request(app.getHttpServer())
@@ -254,140 +270,156 @@ describe('Admin account administration (e2e)', () => {
   // a new password, so making the person wait out a lockout earned by the old
   // one helps nobody, and there is no other way to clear it from the API.
   describe('an admin reset clears an ACC-05 lockout', () => {
-    it('unlocks the account, and the temporary password logs in at once', async () => {
-      const target = await signIn({ label: 'locked' });
+    it(
+      'unlocks the account, and the temporary password logs in at once',
+      async () => {
+        const target = await signIn({ label: 'locked' });
 
-      // Lock it: five wrong passwords.
-      for (let i = 1; i < 5; i += 1) {
-        await request(app.getHttpServer())
+        // Lock it: five wrong passwords.
+        for (let i = 1; i < 5; i += 1) {
+          await request(app.getHttpServer())
+            .post('/api/auth/login')
+            .send({ email: target.email, password: 'WrongPass123' })
+            .expect(401);
+        }
+        const locked = await request(app.getHttpServer())
           .post('/api/auth/login')
           .send({ email: target.email, password: 'WrongPass123' })
-          .expect(401);
-      }
-      const locked = await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: target.email, password: 'WrongPass123' })
-        .expect(423);
-      expect(locked.body.code).toBe('ACCOUNT_LOCKED');
+          .expect(423);
+        expect(locked.body.code).toBe('ACCOUNT_LOCKED');
 
-      // Even the right password is refused while the lock runs.
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: target.email, password: target.password })
-        .expect(423);
+        // Even the right password is refused while the lock runs.
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: target.email, password: target.password })
+          .expect(423);
 
-      const reset = await request(app.getHttpServer())
-        .post(`/api/admin/users/${target.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const reset = await request(app.getHttpServer())
+          .post(`/api/admin/users/${target.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      // The lock is gone: the temporary password logs in straight away.
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({
-          email: target.email,
-          password: reset.body.temporaryPassword as string,
-        })
-        .expect(200);
-    }, SLOW_MS);
+        // The lock is gone: the temporary password logs in straight away.
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({
+            email: target.email,
+            password: reset.body.temporaryPassword as string,
+          })
+          .expect(200);
+      },
+      SLOW_MS,
+    );
   });
 
   describe('POST /api/admin/users/:id/reset-password (ACC-07a)', () => {
-    it('issues a working temporary password that must then be changed', async () => {
-      const target = await signIn({ label: 'reset' });
-      const users = app.get(UsersService);
+    it(
+      'issues a working temporary password that must then be changed',
+      async () => {
+        const target = await signIn({ label: 'reset' });
+        const users = app.get(UsersService);
 
-      const res = await request(app.getHttpServer())
-        .post(`/api/admin/users/${target.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .post(`/api/admin/users/${target.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      expect(res.body).toEqual({
-        userId: target.userId,
-        email: target.email,
-        temporaryPassword: expect.stringMatching(/^Tmp[0-9a-f]{10}9$/),
-        message: expect.stringContaining('cannot be shown again'),
-      });
+        expect(res.body).toEqual({
+          userId: target.userId,
+          email: target.email,
+          temporaryPassword: expect.stringMatching(/^Tmp[0-9a-f]{10}9$/),
+          message: expect.stringContaining('cannot be shown again'),
+        });
 
-      // The temporary password really is the account's password now.
-      const stored = await users.findByIdOrThrow(target.userId);
-      expect(stored.mustChangePassword).toBe(true);
-      // temporaryPasswordIssuedAt is internal and not part of UserProfile.
+        // The temporary password really is the account's password now.
+        const stored = await users.findByIdOrThrow(target.userId);
+        expect(stored.mustChangePassword).toBe(true);
+        // temporaryPasswordIssuedAt is internal and not part of UserProfile.
 
-      // The cookie the account already held is dead: the reset revoked every
-      // session of the account (ACC-06), so a device that was signed in before
-      // the reset cannot keep using it. 401, not the 403 below - there is no
-      // session left to tell that this user owes a password change.
-      const dead = await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Cookie', target.cookie)
-        .expect(401);
-      expect(dead.body.code).toBe('UNAUTHENTICATED');
+        // The cookie the account already held is dead: the reset revoked every
+        // session of the account (ACC-06), so a device that was signed in before
+        // the reset cannot keep using it. 401, not the 403 below - there is no
+        // session left to tell that this user owes a password change.
+        const dead = await request(app.getHttpServer())
+          .get('/api/users/me')
+          .set('Cookie', target.cookie)
+          .expect(401);
+        expect(dead.body.code).toBe('UNAUTHENTICATED');
 
-      // The temporary password is what logs in now, and the old one does not.
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: target.email, password: target.password })
-        .expect(401);
-      const cookie = await login(
-        app,
-        target.email,
-        res.body.temporaryPassword as string,
-      );
+        // The temporary password is what logs in now, and the old one does not.
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: target.email, password: target.password })
+          .expect(401);
+        const cookie = await login(
+          app,
+          target.email,
+          res.body.temporaryPassword as string,
+        );
 
-      // That new session is allowed to exist, and is refused everything but
-      // change-password until the account chooses its own (ACC-07a).
-      const blocked = await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Cookie', cookie)
-        .expect(403);
-      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+        // That new session is allowed to exist, and is refused everything but
+        // change-password until the account chooses its own (ACC-07a).
+        const blocked = await request(app.getHttpServer())
+          .get('/api/users/me')
+          .set('Cookie', cookie)
+          .expect(403);
+        expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
-      // Choosing a password is the way out, and then the API opens up.
-      await request(app.getHttpServer())
-        .patch('/api/auth/change-password')
-        .set('Cookie', cookie)
-        .send({
-          currentPassword: res.body.temporaryPassword as string,
-          newPassword: 'Chosen123',
-        })
-        .expect(200);
+        // Choosing a password is the way out, and then the API opens up.
+        await request(app.getHttpServer())
+          .patch('/api/auth/change-password')
+          .set('Cookie', cookie)
+          .send({
+            currentPassword: res.body.temporaryPassword as string,
+            newPassword: 'Chosen123',
+          })
+          .expect(200);
 
-      await request(app.getHttpServer())
-        .get('/api/users/me')
-        .set('Cookie', cookie)
-        .expect(200);
-    }, SLOW_MS);
+        await request(app.getHttpServer())
+          .get('/api/users/me')
+          .set('Cookie', cookie)
+          .expect(200);
+      },
+      SLOW_MS,
+    );
 
-    it('never returns the same temporary password twice', async () => {
-      const target = await signIn({ label: 'reset2' });
+    it(
+      'never returns the same temporary password twice',
+      async () => {
+        const target = await signIn({ label: 'reset2' });
 
-      const first = await request(app.getHttpServer())
-        .post(`/api/admin/users/${target.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
-      const second = await request(app.getHttpServer())
-        .post(`/api/admin/users/${target.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(200);
+        const first = await request(app.getHttpServer())
+          .post(`/api/admin/users/${target.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
+        const second = await request(app.getHttpServer())
+          .post(`/api/admin/users/${target.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(200);
 
-      expect(first.body.temporaryPassword).not.toBe(
-        second.body.temporaryPassword,
-      );
-    }, SLOW_MS);
+        expect(first.body.temporaryPassword).not.toBe(
+          second.body.temporaryPassword,
+        );
+      },
+      SLOW_MS,
+    );
 
-    it('refuses its own account and another admin', async () => {
-      const otherAdmin = await signIn({ role: Role.ADMIN, label: 'admin3' });
+    it(
+      'refuses its own account and another admin',
+      async () => {
+        const otherAdmin = await signIn({ role: Role.ADMIN, label: 'admin3' });
 
-      await request(app.getHttpServer())
-        .post(`/api/admin/users/${admin.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(400);
+        await request(app.getHttpServer())
+          .post(`/api/admin/users/${admin.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(400);
 
-      await request(app.getHttpServer())
-        .post(`/api/admin/users/${otherAdmin.userId}/reset-password`)
-        .set('Cookie', admin.cookie)
-        .expect(403);
-    }, SLOW_MS);
+        await request(app.getHttpServer())
+          .post(`/api/admin/users/${otherAdmin.userId}/reset-password`)
+          .set('Cookie', admin.cookie)
+          .expect(403);
+      },
+      SLOW_MS,
+    );
   });
 });

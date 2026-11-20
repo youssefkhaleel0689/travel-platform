@@ -2,13 +2,25 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, QueryFilter, Model, Types } from 'mongoose';
 import { Room, RoomDocument } from '../rooms/schemas/room.schema';
-import { Availability, AvailabilityDocument, AvailabilityStatus } from '../availability/schemas/availability.schema';
-import { HotelBooking, HotelBookingDocument, HotelBookingStatus } from '../hotel-bookings/schemas/hotel-booking.schema';
+import {
+  Availability,
+  AvailabilityDocument,
+  AvailabilityStatus,
+} from '../availability/schemas/availability.schema';
+import {
+  HotelBooking,
+  HotelBookingDocument,
+  HotelBookingStatus,
+} from '../hotel-bookings/schemas/hotel-booking.schema';
 import { isFullyCovered, overlaps } from '../common/ranges';
 
 export type RoomFreeResult =
   | { free: true }
-  | { free: false; reason: 'NOT_AVAILABLE' | 'BLOCKED' | 'BOOKED'; bookingReference?: string };
+  | {
+      free: false;
+      reason: 'NOT_AVAILABLE' | 'BLOCKED' | 'BOOKED';
+      bookingReference?: string;
+    };
 
 /**
  * Single place that answers "is this room free for these nights?".
@@ -18,20 +30,29 @@ export type RoomFreeResult =
 export class InventoryService {
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<RoomDocument>,
-    @InjectModel(Availability.name) private readonly availabilityModel: Model<AvailabilityDocument>,
-    @InjectModel(HotelBooking.name) private readonly bookingModel: Model<HotelBookingDocument>,
+    @InjectModel(Availability.name)
+    private readonly availabilityModel: Model<AvailabilityDocument>,
+    @InjectModel(HotelBooking.name)
+    private readonly bookingModel: Model<HotelBookingDocument>,
   ) {}
 
   /**
    * Bookings that currently consume room inventory: CONFIRMED, or PENDING_PAYMENT whose hold has NOT expired.
    * Expired holds never block anyone, so correctness does not depend on the expiry worker having run.
    */
-  private consumingFilter(now: Date, includeCompleted: boolean): QueryFilter<HotelBookingDocument>[] {
+  private consumingFilter(
+    now: Date,
+    includeCompleted: boolean,
+  ): QueryFilter<HotelBookingDocument>[] {
     const clauses: QueryFilter<HotelBookingDocument>[] = [
       { status: HotelBookingStatus.CONFIRMED },
-      { status: HotelBookingStatus.PENDING_PAYMENT, holdExpiresAt: { $gt: now } },
+      {
+        status: HotelBookingStatus.PENDING_PAYMENT,
+        holdExpiresAt: { $gt: now },
+      },
     ];
-    if (includeCompleted) clauses.push({ status: HotelBookingStatus.COMPLETED });
+    if (includeCompleted)
+      clauses.push({ status: HotelBookingStatus.COMPLETED });
     return clauses;
   }
 
@@ -39,7 +60,11 @@ export class InventoryService {
     roomIds: Types.ObjectId[],
     from: Date,
     to: Date,
-    opts: { session?: ClientSession; excludeBookingId?: Types.ObjectId; includeCompleted?: boolean } = {},
+    opts: {
+      session?: ClientSession;
+      excludeBookingId?: Types.ObjectId;
+      includeCompleted?: boolean;
+    } = {},
   ) {
     const filter: QueryFilter<HotelBookingDocument> = {
       'roomsSnapshot.roomId': { $in: roomIds },
@@ -48,11 +73,22 @@ export class InventoryService {
       $or: this.consumingFilter(new Date(), !!opts.includeCompleted),
     };
     if (opts.excludeBookingId) filter._id = { $ne: opts.excludeBookingId };
-    return this.bookingModel.find(filter).session(opts.session ?? null).lean().exec();
+    return this.bookingModel
+      .find(filter)
+      .session(opts.session ?? null)
+      .lean()
+      .exec();
   }
 
-  async hasConsumingBooking(roomId: Types.ObjectId, from: Date, to: Date, session?: ClientSession): Promise<boolean> {
-    const found = await this.findConsumingBookings([roomId], from, to, { session });
+  async hasConsumingBooking(
+    roomId: Types.ObjectId,
+    from: Date,
+    to: Date,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    const found = await this.findConsumingBookings([roomId], from, to, {
+      session,
+    });
     return found.length > 0;
   }
 
@@ -63,7 +99,13 @@ export class InventoryService {
    * enforce date-range overlap, which is why this is needed (schema: "Use transaction/conflict check").
    */
   async lockRooms(roomIds: Types.ObjectId[], session: ClientSession) {
-    await this.roomModel.updateMany({ _id: { $in: roomIds } }, { $inc: { lockVersion: 1 } }, { session }).exec();
+    await this.roomModel
+      .updateMany(
+        { _id: { $in: roomIds } },
+        { $inc: { lockVersion: 1 } },
+        { session },
+      )
+      .exec();
   }
 
   /** Per-room free/not-free result for the nights [from, to). */
@@ -78,7 +120,11 @@ export class InventoryService {
 
     const [ranges, bookings] = await Promise.all([
       this.availabilityModel
-        .find({ roomId: { $in: roomIds }, startDate: { $lt: to }, endDate: { $gt: from } })
+        .find({
+          roomId: { $in: roomIds },
+          startDate: { $lt: to },
+          endDate: { $gt: from },
+        })
         .session(opts.session ?? null)
         .lean()
         .exec(),
@@ -88,13 +134,28 @@ export class InventoryService {
     for (const id of roomIds) {
       const key = String(id);
       const mine = ranges.filter((r) => String(r.roomId) === key);
-      const available = mine.filter((r) => r.status === AvailabilityStatus.AVAILABLE);
-      const blocked = mine.filter((r) => r.status === AvailabilityStatus.BLOCKED);
-      const booking = bookings.find((b) => b.roomsSnapshot.some((s) => String(s.roomId) === key));
+      const available = mine.filter(
+        (r) => r.status === AvailabilityStatus.AVAILABLE,
+      );
+      const blocked = mine.filter(
+        (r) => r.status === AvailabilityStatus.BLOCKED,
+      );
+      const booking = bookings.find((b) =>
+        b.roomsSnapshot.some((s) => String(s.roomId) === key),
+      );
 
-      if (booking) result.set(key, { free: false, reason: 'BOOKED', bookingReference: booking.bookingReference });
-      else if (blocked.some((r) => overlaps(r, { startDate: from, endDate: to }))) result.set(key, { free: false, reason: 'BLOCKED' });
-      else if (!isFullyCovered(available, from, to)) result.set(key, { free: false, reason: 'NOT_AVAILABLE' });
+      if (booking)
+        result.set(key, {
+          free: false,
+          reason: 'BOOKED',
+          bookingReference: booking.bookingReference,
+        });
+      else if (
+        blocked.some((r) => overlaps(r, { startDate: from, endDate: to }))
+      )
+        result.set(key, { free: false, reason: 'BLOCKED' });
+      else if (!isFullyCovered(available, from, to))
+        result.set(key, { free: false, reason: 'NOT_AVAILABLE' });
       else result.set(key, { free: true });
     }
     return result;
@@ -102,7 +163,11 @@ export class InventoryService {
 
   fetchRanges(roomIds: Types.ObjectId[], from: Date, to: Date) {
     return this.availabilityModel
-      .find({ roomId: { $in: roomIds }, startDate: { $lt: to }, endDate: { $gt: from } })
+      .find({
+        roomId: { $in: roomIds },
+        startDate: { $lt: to },
+        endDate: { $gt: from },
+      })
       .lean()
       .exec();
   }

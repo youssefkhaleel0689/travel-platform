@@ -34,7 +34,11 @@ export function ApiImageUpload(path: string, targetLabel: string, limit = 5) {
           message: 'Only JPG and PNG images are accepted',
           path,
         },
-        { code: 'FILE_TOO_LARGE', message: 'Images must be at most 5 MB', path },
+        {
+          code: 'FILE_TOO_LARGE',
+          message: 'Images must be at most 5 MB',
+          path,
+        },
         {
           code: 'INVALID_UPLOAD',
           message: 'Send exactly one image in the form field "file"',

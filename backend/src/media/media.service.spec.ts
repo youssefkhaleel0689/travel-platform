@@ -141,9 +141,7 @@ describe('MediaService (GEN-08)', () => {
   });
 
   it('lists nothing for a malformed target id without querying', async () => {
-    expect(
-      await service.listForTarget(MediaTargetType.POST, 'x'),
-    ).toEqual([]);
+    expect(await service.listForTarget(MediaTargetType.POST, 'x')).toEqual([]);
     expect(new Types.ObjectId(POST).toHexString()).toBe(POST);
   });
 });

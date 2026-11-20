@@ -37,7 +37,9 @@ export class ItineraryPdfController {
   @ApiProduces('application/pdf')
   @ApiOkResponse({
     description: 'The itinerary, downloaded as itinerary-<title>.pdf',
-    content: { 'application/pdf': { schema: { type: 'string', format: 'binary' } } },
+    content: {
+      'application/pdf': { schema: { type: 'string', format: 'binary' } },
+    },
   })
   @ApiErrorResponse(notFoundError(PATH, ITINERARY_NOT_FOUND_EXAMPLE))
   @ApiErrorResponse(EXCHANGE_RATES_UNAVAILABLE)

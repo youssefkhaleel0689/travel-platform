@@ -279,15 +279,13 @@ export class FlightCancellationService {
         });
         if (refund) {
           refundsRequested += 1;
+          // cancellation.refundAmount keeps the full total set when the booking
+          // was cancelled: after a pricier flight change (FLT-27) the refund is
+          // split over two payments and this first row holds only part of it.
           await this.bookingModel
             .updateOne(
               { _id: booking._id },
-              {
-                $set: {
-                  'cancellation.refundId': refund._id,
-                  'cancellation.refundAmount': refund.amount,
-                },
-              },
+              { $set: { 'cancellation.refundId': refund._id } },
             )
             .exec();
         }

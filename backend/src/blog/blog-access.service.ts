@@ -32,7 +32,9 @@ export class BlogAccessService {
   ) {}
 
   async publicPostFilter(): Promise<QueryFilter<Post>> {
-    const deactivated = await this.users.findIdsByStatus(UserStatus.DEACTIVATED);
+    const deactivated = await this.users.findIdsByStatus(
+      UserStatus.DEACTIVATED,
+    );
     return {
       status: PostStatus.PUBLISHED,
       moderationState: ModerationState.VISIBLE,
