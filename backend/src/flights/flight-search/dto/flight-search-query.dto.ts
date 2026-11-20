@@ -28,6 +28,7 @@ import {
   IsSumWithin,
   IsValidReturnDate,
 } from './flight-search-query.validators';
+import { MAX_PAGE } from '../../../common/pagination/pagination.constants';
 
 // Query of GET /flights/search (FLT-11, FLT-12, FLT-15). Rules that need the database or
 // the airport's clock (seeded airports, a date in the past) are checked by the service.
@@ -173,5 +174,6 @@ export class FlightSearchQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(MAX_PAGE)
   returnPage: number = 1;
 }
