@@ -14,7 +14,7 @@ Files in this folder:
 
 | File | What it is |
 | --- | --- |
-| `postman/travel-platform-c2.postman_collection.json` | 91 requests in 12 folders, 210 assertions |
+| `postman/travel-platform-c2.postman_collection.json` | 91 requests in 12 folders, 215 assertions |
 | `postman/travel-platform-local.postman_environment.json` | The variables, pointing at `localhost:3000` |
 
 ## 1. Set up
@@ -243,7 +243,12 @@ npx newman run docs/api/postman/travel-platform-c2.postman_collection.json --env
 
 Run a single folder with `--folder "00 Public reference data (no sign-in)"`.
 
-A clean full run is **77 requests, 174 assertions, 0 failures** and exits 0.
+A full run is **91 requests and 215 assertions**. On this branch alone 8 of
+them fail, all in the four requests that still expect the `501` `develop`
+answered before both booking modules provided a port (55/07, 70/02, 70/05 and
+80/02); they get `404` today. The payment-amounts PR
+(`fix/payment-amounts-decimal128`) updates those four, so merged with it, a
+clean run is **93 requests, 215 assertions, 0 failures** and exits 0.
 One assertion skips itself and says so: folder 40 request 06 needs a
 notification to mark as read, and the test user has none until an admin
 suspends it in folder 50, which runs later. Marking one read is covered by
