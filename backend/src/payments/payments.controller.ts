@@ -22,10 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { PLATFORM_CURRENCY } from '../common/money/money';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
-import {
-  forbidden,
-  unauthenticated,
-} from '../common/swagger/standard-errors';
+import { forbidden, unauthenticated } from '../common/swagger/standard-errors';
 import type { Request } from 'express';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { Public } from '../common/auth/public.decorator';
@@ -71,7 +68,11 @@ export class PaymentsController {
     status: 400,
     description: 'Invalid body, or Stripe rejected the request',
     examples: [
-      { code: 'VALIDATION_FAILED', message: 'Invalid body, or Stripe rejected the request', path: '/api/payments' },
+      {
+        code: 'VALIDATION_FAILED',
+        message: 'Invalid body, or Stripe rejected the request',
+        path: '/api/payments',
+      },
     ],
   })
   @ApiErrorResponse(unauthenticated('/api/payments'))

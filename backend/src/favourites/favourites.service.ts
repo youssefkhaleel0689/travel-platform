@@ -9,7 +9,11 @@ import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { HotelsService } from '../hotels/hotels.service';
 import { PublicItinerariesService } from '../itineraries/public-itineraries.service';
 import { FavouriteDto } from './dto/favourite.dto';
-import { Favourite, FavouriteDocument, FavouriteType } from './schemas/favourite.schema';
+import {
+  Favourite,
+  FavouriteDocument,
+  FavouriteType,
+} from './schemas/favourite.schema';
 
 const DUPLICATE_KEY = 11000;
 
@@ -41,7 +45,11 @@ export class FavouritesService {
     } catch (error) {
       if ((error as { code?: number }).code !== DUPLICATE_KEY) throw error;
       doc = await this.model
-        .findOne({ userId: new Types.ObjectId(user.userId), type, targetId: objectId })
+        .findOne({
+          userId: new Types.ObjectId(user.userId),
+          type,
+          targetId: objectId,
+        })
         .exec();
     }
     return this.toDto(doc!);
@@ -62,7 +70,10 @@ export class FavouritesService {
       .exec();
   }
 
-  async list(user: AuthenticatedUser, type?: FavouriteType): Promise<FavouriteDto[]> {
+  async list(
+    user: AuthenticatedUser,
+    type?: FavouriteType,
+  ): Promise<FavouriteDto[]> {
     const filter: QueryFilter<FavouriteDocument> = {
       userId: new Types.ObjectId(user.userId),
       ...(type ? { type } : {}),
@@ -74,7 +85,10 @@ export class FavouritesService {
     return docs.map((doc) => this.toDto(doc));
   }
 
-  private async labelFor(type: FavouriteType, targetId: string): Promise<string> {
+  private async labelFor(
+    type: FavouriteType,
+    targetId: string,
+  ): Promise<string> {
     if (type === FavouriteType.HOTEL) {
       try {
         const hotel = await this.hotels.findById(targetId);

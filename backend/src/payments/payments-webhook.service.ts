@@ -178,7 +178,9 @@ export class PaymentsWebhookService {
     }
 
     const bookingId = payment.bookingId.toString();
-    let confirmation: Awaited<ReturnType<BookingsGateway['confirmAfterPayment']>>;
+    let confirmation: Awaited<
+      ReturnType<BookingsGateway['confirmAfterPayment']>
+    >;
     try {
       confirmation = await this.bookings.confirmAfterPayment(
         payment.bookingType,

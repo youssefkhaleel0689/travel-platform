@@ -37,7 +37,10 @@ export class AuditLogsController {
   @ApiPaginatedResponse(AuditLogDto)
   @ApiErrorResponse(
     validationFailed(PATH, [
-      { field: 'action', messages: ['action must be one of the following values: ...'] },
+      {
+        field: 'action',
+        messages: ['action must be one of the following values: ...'],
+      },
     ]),
   )
   list(@Query() query: AuditLogsQueryDto): Promise<PageDto<AuditLogDto>> {

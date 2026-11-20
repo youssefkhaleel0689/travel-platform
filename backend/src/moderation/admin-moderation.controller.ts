@@ -48,12 +48,19 @@ const CONTENT = '/api/admin/content/post/6720f1c2a1b2c3d4e5f60718';
 function contentErrors(path: string): ApiErrorResponseOptions[] {
   return [
     validationFailed(path, [
-      { field: 'type', messages: ['type must be one of the following values: POST, COMMENT, REVIEW, ITINERARY'] },
+      {
+        field: 'type',
+        messages: [
+          'type must be one of the following values: POST, COMMENT, REVIEW, ITINERARY',
+        ],
+      },
     ]),
     {
       status: 404,
       description: 'No such item',
-      examples: [{ code: 'CONTENT_NOT_FOUND', message: 'Content not found', path }],
+      examples: [
+        { code: 'CONTENT_NOT_FOUND', message: 'Content not found', path },
+      ],
     },
     {
       status: 409,
@@ -106,10 +113,17 @@ export class AdminModerationController {
   @ApiPaginatedResponse(ReportDto)
   @ApiErrorResponse(
     validationFailed(REPORTS, [
-      { field: 'status', messages: ['status must be one of the following values: OPEN, DISMISSED, HIDDEN, DELETED'] },
+      {
+        field: 'status',
+        messages: [
+          'status must be one of the following values: OPEN, DISMISSED, HIDDEN, DELETED',
+        ],
+      },
     ]),
   )
-  listReports(@Query() query: AdminReportsQueryDto): Promise<PageDto<ReportDto>> {
+  listReports(
+    @Query() query: AdminReportsQueryDto,
+  ): Promise<PageDto<ReportDto>> {
     return this.moderation.listReports(query);
   }
 
@@ -124,13 +138,20 @@ export class AdminModerationController {
   @ApiOkResponse({ type: ReportDto })
   @ApiErrorResponse(
     validationFailed(REPORT, [
-      { field: 'decision', messages: ['decision must be one of the following values: DISMISS, HIDE, DELETE'] },
+      {
+        field: 'decision',
+        messages: [
+          'decision must be one of the following values: DISMISS, HIDE, DELETE',
+        ],
+      },
     ]),
   )
   @ApiErrorResponse({
     status: 404,
     description: 'No such report',
-    examples: [{ code: 'REPORT_NOT_FOUND', message: 'Report not found', path: REPORT }],
+    examples: [
+      { code: 'REPORT_NOT_FOUND', message: 'Report not found', path: REPORT },
+    ],
   })
   @ApiErrorResponse({
     status: 409,
@@ -138,10 +159,15 @@ export class AdminModerationController {
       'Already resolved, the reported item no longer exists, or the item ' +
       'cannot take that state',
     examples: [
-      { code: 'REPORT_ALREADY_RESOLVED', message: 'This report has already been resolved', path: REPORT },
+      {
+        code: 'REPORT_ALREADY_RESOLVED',
+        message: 'This report has already been resolved',
+        path: REPORT,
+      },
       {
         code: 'CONTENT_GONE',
-        message: 'The reported content no longer exists; dismiss the report instead',
+        message:
+          'The reported content no longer exists; dismiss the report instead',
         path: REPORT,
       },
       {
@@ -171,7 +197,12 @@ export class AdminModerationController {
     @Param() params: ContentParamsDto,
     @CurrentUser() admin: AuthenticatedUser,
   ): Promise<ModerationOutcomeDto> {
-    return this.moderation.act(params.type, params.id, ModerationState.HIDDEN, admin);
+    return this.moderation.act(
+      params.type,
+      params.id,
+      ModerationState.HIDDEN,
+      admin,
+    );
   }
 
   @Patch('content/:type/:id/restore')
@@ -185,7 +216,12 @@ export class AdminModerationController {
     @Param() params: ContentParamsDto,
     @CurrentUser() admin: AuthenticatedUser,
   ): Promise<ModerationOutcomeDto> {
-    return this.moderation.act(params.type, params.id, ModerationState.VISIBLE, admin);
+    return this.moderation.act(
+      params.type,
+      params.id,
+      ModerationState.VISIBLE,
+      admin,
+    );
   }
 
   @Delete('content/:type/:id')
@@ -201,6 +237,11 @@ export class AdminModerationController {
     @Param() params: ContentParamsDto,
     @CurrentUser() admin: AuthenticatedUser,
   ): Promise<ModerationOutcomeDto> {
-    return this.moderation.act(params.type, params.id, ModerationState.DELETED, admin);
+    return this.moderation.act(
+      params.type,
+      params.id,
+      ModerationState.DELETED,
+      admin,
+    );
   }
 }

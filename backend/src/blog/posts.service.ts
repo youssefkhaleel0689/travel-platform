@@ -24,7 +24,11 @@ import {
 import { EXCERPT_LENGTH, PostStatus } from './blog.constants';
 import { CommentsService, counterChange } from './comments.service';
 import { CommentDto } from './dto/comment.dto';
-import { CreatePostDto, PostsQueryDto, UpdatePostDto } from './dto/post-request.dto';
+import {
+  CreatePostDto,
+  PostsQueryDto,
+  UpdatePostDto,
+} from './dto/post-request.dto';
 import {
   LikeStatusDto,
   MyPostDto,
@@ -65,7 +69,10 @@ export class PostsService {
     private readonly publicItineraries: PublicItinerariesService,
   ) {}
 
-  async create(user: AuthenticatedUser, dto: CreatePostDto): Promise<PostDetailDto> {
+  async create(
+    user: AuthenticatedUser,
+    dto: CreatePostDto,
+  ): Promise<PostDetailDto> {
     const post = await this.postModel.create({
       authorId: new Types.ObjectId(user.userId),
       title: dto.title,
@@ -215,7 +222,10 @@ export class PostsService {
       this.comments.listForPost(post._id, viewer, 1),
       viewer
         ? this.likeModel
-            .exists({ postId: post._id, userId: new Types.ObjectId(viewer.userId) })
+            .exists({
+              postId: post._id,
+              userId: new Types.ObjectId(viewer.userId),
+            })
             .exec()
         : Promise.resolve(null),
     ]);
@@ -327,7 +337,9 @@ export class PostsService {
           { session },
         );
         await this.postModel
-          .updateOne({ _id: post._id }, counterChange('likeCount', 1), { session })
+          .updateOne({ _id: post._id }, counterChange('likeCount', 1), {
+            session,
+          })
           .exec();
       });
     } catch (error) {
@@ -421,4 +433,3 @@ function toImageDto(image: StoredImage): PostImageDto {
   dto.sizeBytes = image.sizeBytes;
   return dto;
 }
-

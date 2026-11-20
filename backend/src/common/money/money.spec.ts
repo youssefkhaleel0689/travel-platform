@@ -1,4 +1,7 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { Types } from 'mongoose';
 import {
   addMoney,
@@ -21,17 +24,12 @@ describe('money (PAY-04)', () => {
 
   describe('parseMoney', () => {
     it.each(['0', '0.00', '199.99', '1000000.01'])('accepts %s', (amount) => {
-      expect(parseMoney(amount).toFixed(2)).toBe(
-        Number(amount).toFixed(2),
-      );
+      expect(parseMoney(amount).toFixed(2)).toBe(Number(amount).toFixed(2));
     });
 
-    it.each(['-1.00', 'abc', '', 'NaN', 'Infinity'])(
-      'rejects %s',
-      (amount) => {
-        expect(() => parseMoney(amount)).toThrow(InternalServerErrorException);
-      },
-    );
+    it.each(['-1.00', 'abc', '', 'NaN', 'Infinity'])('rejects %s', (amount) => {
+      expect(() => parseMoney(amount)).toThrow(InternalServerErrorException);
+    });
 
     it('rejects more than 2 decimal places, instead of silently rounding', () => {
       expect(() => parseMoney('1.005')).toThrow(InternalServerErrorException);
@@ -160,9 +158,9 @@ describe('money (PAY-04)', () => {
 
     it('normalises to 2 decimals on the way in and out', () => {
       expect(decimal128ToString(toDecimal128('5'))).toBe('5.00');
-      expect(
-        decimal128ToString(Types.Decimal128.fromString('5.1')),
-      ).toBe('5.10');
+      expect(decimal128ToString(Types.Decimal128.fromString('5.1'))).toBe(
+        '5.10',
+      );
     });
 
     it('passes null through', () => {

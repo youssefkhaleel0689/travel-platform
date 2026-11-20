@@ -26,7 +26,13 @@ const NEW_ID = new Types.ObjectId();
 const SESSION = {} as ClientSession;
 const DAY = 24 * 60 * 60 * 1000;
 
-function segment(flightId: Types.ObjectId, from: string, to: string, inDays: number, price: string) {
+function segment(
+  flightId: Types.ObjectId,
+  from: string,
+  to: string,
+  inDays: number,
+  price: string,
+) {
   const departureAtUtc = new Date(Date.now() + inDays * DAY);
   return {
     flightId,
@@ -67,7 +73,13 @@ function booking(overrides: Record<string, unknown> = {}) {
   return doc as unknown as FlightBookingDocument & { save: jest.Mock };
 }
 
-function flight(from: string, to: string, inDays: number, price: string, overrides: Record<string, unknown> = {}) {
+function flight(
+  from: string,
+  to: string,
+  inDays: number,
+  price: string,
+  overrides: Record<string, unknown> = {},
+) {
   const departureAtUtc = new Date(Date.now() + inDays * DAY);
   return {
     _id: NEW_ID,
@@ -93,19 +105,33 @@ function flight(from: string, to: string, inDays: number, price: string, overrid
   } as unknown as FlightDocument;
 }
 
-function setup(doc: FlightBookingDocument, next: FlightDocument | null, airlineActive = true) {
+function setup(
+  doc: FlightBookingDocument,
+  next: FlightDocument | null,
+  airlineActive = true,
+) {
   const bookingModel = {
-    findOne: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) }),
-    updateOne: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 1 }) }),
+    findOne: jest
+      .fn()
+      .mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) }),
+    updateOne: jest.fn().mockReturnValue({
+      exec: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    }),
   };
   const flightModel = {
-    findById: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(next) }),
+    findById: jest
+      .fn()
+      .mockReturnValue({ exec: jest.fn().mockResolvedValue(next) }),
   };
   const airlineModel = {
-    exists: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(airlineActive ? { _id: 1 } : null) }),
+    exists: jest.fn().mockReturnValue({
+      exec: jest.fn().mockResolvedValue(airlineActive ? { _id: 1 } : null),
+    }),
   };
   const connection = {
-    transaction: jest.fn(async (fn: (s: ClientSession) => Promise<void>) => fn(SESSION)),
+    transaction: jest.fn(async (fn: (s: ClientSession) => Promise<void>) =>
+      fn(SESSION),
+    ),
   };
   const seats = {
     hold: jest.fn().mockResolvedValue(undefined),
@@ -113,12 +139,16 @@ function setup(doc: FlightBookingDocument, next: FlightDocument | null, airlineA
     releaseBooked: jest.fn().mockResolvedValue(undefined),
   };
   const stripe = {
-    createPaymentIntent: jest.fn().mockResolvedValue({ id: 'pi_123', client_secret: 'secret' }),
+    createPaymentIntent: jest
+      .fn()
+      .mockResolvedValue({ id: 'pi_123', client_secret: 'secret' }),
     retrievePaymentIntent: jest.fn().mockResolvedValue({ status: 'succeeded' }),
     createRefund: jest.fn().mockResolvedValue({ id: 're_1' }),
   };
   const payments = {
-    findSucceededForBooking: jest.fn().mockResolvedValue({ stripePaymentIntentId: 'pi_paid' }),
+    findSucceededForBooking: jest
+      .fn()
+      .mockResolvedValue({ stripePaymentIntentId: 'pi_paid' }),
   };
   const service = new ChangeFlightService(
     bookingModel as unknown as Model<FlightBookingDocument>,
@@ -145,11 +175,21 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
 describe('ChangeFlightService (FLT-27)', () => {
   it('charges the difference for every passenger, infants at 10%', async () => {
     const doc = booking();
-    const { service, stripe, bookingModel } = setup(doc, flight('CAI', 'DXB', 11, '150.00'));
-    const result = await service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() });
+    const { service, stripe, bookingModel } = setup(
+      doc,
+      flight('CAI', 'DXB', 11, '150.00'),
+    );
+    const result = await service.request(USER, doc._id.toString(), {
+      newFlightId: NEW_ID.toString(),
+    });
     // Adult +50, infant +5.
-    expect(result).toMatchObject({ requiresPayment: true, amountDifference: '55.00' });
-    expect(stripe.createPaymentIntent).toHaveBeenCalledWith(expect.objectContaining({ amount: '55.00' }));
+    expect(result).toMatchObject({
+      requiresPayment: true,
+      amountDifference: '55.00',
+    });
+    expect(stripe.createPaymentIntent).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: '55.00' }),
+    );
     const set = bookingModel.updateOne.mock.calls[0][1].$set.pendingChange;
     expect(set).toMatchObject({ segmentIndex: 0, amountDifference: '55.00' });
     expect(set.newCabinPrice.toString()).toBe('150.00');
@@ -157,10 +197,21 @@ describe('ChangeFlightService (FLT-27)', () => {
 
   it('applies a cheaper flight at once, updates the totals and refunds', async () => {
     const doc = booking();
-    const { service, stripe, seats } = setup(doc, flight('CAI', 'DXB', 11, '80.00'));
-    const result = await service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() });
-    expect(result).toMatchObject({ applied: true, amountDifference: '-22.00', refunded: true });
-    expect(stripe.createRefund).toHaveBeenCalledWith(expect.objectContaining({ amount: '22.00' }));
+    const { service, stripe, seats } = setup(
+      doc,
+      flight('CAI', 'DXB', 11, '80.00'),
+    );
+    const result = await service.request(USER, doc._id.toString(), {
+      newFlightId: NEW_ID.toString(),
+    });
+    expect(result).toMatchObject({
+      applied: true,
+      amountDifference: '-22.00',
+      refunded: true,
+    });
+    expect(stripe.createRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: '22.00' }),
+    );
     expect(seats.hold).toHaveBeenCalled();
     expect(doc.priceSnapshot.total.toString()).toBe('218.00');
     expect(doc.passengers[0].fareAmount.toString()).toBe('180.00');
@@ -193,31 +244,66 @@ describe('ChangeFlightService (FLT-27)', () => {
   it('refuses the flight the booking is already on', async () => {
     const doc = booking();
     const { service } = setup(doc, flight('CAI', 'DXB', 11, '100.00'));
-    expect(await codeOf(service.request(USER, doc._id.toString(), { newFlightId: OUT_ID.toString() }))).toBe('SAME_FLIGHT');
+    expect(
+      await codeOf(
+        service.request(USER, doc._id.toString(), {
+          newFlightId: OUT_ID.toString(),
+        }),
+      ),
+    ).toBe('SAME_FLIGHT');
   });
 
   it('refuses an outbound that would land after the return leaves', async () => {
     const doc = booking();
     const { service } = setup(doc, flight('CAI', 'DXB', 20, '100.00'));
-    expect(await codeOf(service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() }))).toBe('TRIP_ORDER_INVALID');
+    expect(
+      await codeOf(
+        service.request(USER, doc._id.toString(), {
+          newFlightId: NEW_ID.toString(),
+        }),
+      ),
+    ).toBe('TRIP_ORDER_INVALID');
   });
 
   it('treats a flight of a deactivated airline as not found (ACC-15)', async () => {
     const doc = booking();
     const { service } = setup(doc, flight('CAI', 'DXB', 11, '100.00'), false);
-    expect(await codeOf(service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() }))).toBe('FLIGHT_NOT_FOUND');
+    expect(
+      await codeOf(
+        service.request(USER, doc._id.toString(), {
+          newFlightId: NEW_ID.toString(),
+        }),
+      ),
+    ).toBe('FLIGHT_NOT_FOUND');
   });
 
   it('refuses a booking that is not confirmed', async () => {
     const doc = booking({ status: BookingStatus.CANCELLED });
     const { service } = setup(doc, flight('CAI', 'DXB', 11, '100.00'));
-    expect(await codeOf(service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() }))).toBe('BOOKING_NOT_CONFIRMED');
+    expect(
+      await codeOf(
+        service.request(USER, doc._id.toString(), {
+          newFlightId: NEW_ID.toString(),
+        }),
+      ),
+    ).toBe('BOOKING_NOT_CONFIRMED');
   });
 
   it('opens at most one pending change when two requests race', async () => {
     const doc = booking();
-    const { service, bookingModel } = setup(doc, flight('CAI', 'DXB', 11, '150.00'));
-    bookingModel.updateOne.mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }) });
-    expect(await codeOf(service.request(USER, doc._id.toString(), { newFlightId: NEW_ID.toString() }))).toBe('CHANGE_ALREADY_PENDING');
+    const { service, bookingModel } = setup(
+      doc,
+      flight('CAI', 'DXB', 11, '150.00'),
+    );
+    bookingModel.updateOne.mockReturnValue({
+      exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+    });
+    expect(
+      await codeOf(
+        service.request(USER, doc._id.toString(), {
+          newFlightId: NEW_ID.toString(),
+        }),
+      ),
+    ).toBe('CHANGE_ALREADY_PENDING');
   });
 });

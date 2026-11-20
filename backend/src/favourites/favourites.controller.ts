@@ -1,5 +1,10 @@
 import { Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiCookieAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiCookieAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { FavouritesService } from './favourites.service';
@@ -49,7 +54,9 @@ export class FavouritesController {
   }
 
   @Delete('itineraries/:itineraryId')
-  @ApiOperation({ summary: 'Remove an itinerary from your favourites (BON-02)' })
+  @ApiOperation({
+    summary: 'Remove an itinerary from your favourites (BON-02)',
+  })
   @ApiOkResponse({ type: FavouriteDto })
   removeItinerary(
     @CurrentUser() user: AuthenticatedUser,

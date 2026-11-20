@@ -604,7 +604,9 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
     function adminSetup(rows: FlightBooking[], total = rows.length) {
       const find = jest.fn(() => ({
         sort: () => ({
-          limit: () => ({ lean: () => ({ exec: () => Promise.resolve(rows) }) }),
+          limit: () => ({
+            lean: () => ({ exec: () => Promise.resolve(rows) }),
+          }),
         }),
       }));
       const bookingModel = {

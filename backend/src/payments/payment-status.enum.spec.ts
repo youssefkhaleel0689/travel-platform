@@ -18,9 +18,9 @@ describe('payment status (PAY-01)', () => {
   });
 
   it('splits the states into open and terminal with nothing left over', () => {
-    expect([...OPEN_PAYMENT_STATUSES, ...TERMINAL_PAYMENT_STATUSES].sort()).toEqual(
-      [...PAYMENT_STATUSES].sort(),
-    );
+    expect(
+      [...OPEN_PAYMENT_STATUSES, ...TERMINAL_PAYMENT_STATUSES].sort(),
+    ).toEqual([...PAYMENT_STATUSES].sort());
   });
 
   describe('fromStripeStatus', () => {

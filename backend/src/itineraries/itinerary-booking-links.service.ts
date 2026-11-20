@@ -27,10 +27,16 @@ export class ItineraryBookingLinksService {
     dayId: string,
     dto: LinkBookingDto,
   ) {
-    const itinerary = await this.itineraries.findOwnedOrThrow(user, itineraryId);
+    const itinerary = await this.itineraries.findOwnedOrThrow(
+      user,
+      itineraryId,
+    );
     const day = itinerary.days.find((d) => d._id.toString() === dayId);
     if (!day) {
-      throw new NotFoundException({ code: 'DAY_NOT_FOUND', message: 'Day not found' });
+      throw new NotFoundException({
+        code: 'DAY_NOT_FOUND',
+        message: 'Day not found',
+      });
     }
 
     const booking = await this.bookings.getPayableOrThrow(
@@ -94,13 +100,22 @@ export class ItineraryBookingLinksService {
     bookingType: string,
     bookingId: string,
   ) {
-    const itinerary = await this.itineraries.findOwnedOrThrow(user, itineraryId);
+    const itinerary = await this.itineraries.findOwnedOrThrow(
+      user,
+      itineraryId,
+    );
     const day = itinerary.days.find((d) => d._id.toString() === dayId);
     if (!day) {
-      throw new NotFoundException({ code: 'DAY_NOT_FOUND', message: 'Day not found' });
+      throw new NotFoundException({
+        code: 'DAY_NOT_FOUND',
+        message: 'Day not found',
+      });
     }
     if (!Types.ObjectId.isValid(bookingId)) {
-      throw new BadRequestException({ code: 'INVALID_ID', message: 'Invalid booking id' });
+      throw new BadRequestException({
+        code: 'INVALID_ID',
+        message: 'Invalid booking id',
+      });
     }
     const before = day.bookingLinks?.length ?? 0;
     day.bookingLinks = (day.bookingLinks ?? []).filter(
@@ -111,7 +126,10 @@ export class ItineraryBookingLinksService {
         ),
     );
     if (day.bookingLinks.length === before) {
-      throw new NotFoundException({ code: 'LINK_NOT_FOUND', message: 'Booking link not found' });
+      throw new NotFoundException({
+        code: 'LINK_NOT_FOUND',
+        message: 'Booking link not found',
+      });
     }
     await itinerary.save();
     return toItineraryView(itinerary);

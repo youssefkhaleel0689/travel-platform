@@ -46,7 +46,10 @@ export class CreateReportDto {
     description: 'Required when reason is OTHER',
   })
   @Transform(trimText)
-  @ValidateIf((dto: CreateReportDto) => dto.reason === ReportReason.OTHER || dto.details !== undefined)
+  @ValidateIf(
+    (dto: CreateReportDto) =>
+      dto.reason === ReportReason.OTHER || dto.details !== undefined,
+  )
   @IsString()
   @IsNotEmpty({ message: 'details is required when reason is OTHER' })
   @MaxLength(REPORT_DETAILS_MAX_LENGTH)
@@ -110,7 +113,10 @@ export class ReportedContentDto {
   })
   exists: boolean;
 
-  @ApiPropertyOptional({ enum: ModerationState, example: ModerationState.VISIBLE })
+  @ApiPropertyOptional({
+    enum: ModerationState,
+    example: ModerationState.VISIBLE,
+  })
   moderationState?: ModerationState;
 
   @ApiPropertyOptional({ example: '6720f1c2a1b2c3d4e5f60702' })
@@ -168,7 +174,8 @@ export class ModerationOutcomeDto {
 
   @ApiProperty({
     example: true,
-    description: 'False when it already was in that state (nothing changed, nothing logged)',
+    description:
+      'False when it already was in that state (nothing changed, nothing logged)',
   })
   changed: boolean;
 

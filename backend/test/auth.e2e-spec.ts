@@ -57,117 +57,141 @@ describe('Change password and temporary passwords (e2e)', () => {
   }, CONNECT_TIMEOUT_MS);
 
   describe('PATCH /api/auth/change-password (ACC-08)', () => {
-    it('changes the password, and the new one works for login', async () => {
-      const user = await signIn({ label: 'change' });
+    it(
+      'changes the password, and the new one works for login',
+      async () => {
+        const user = await signIn({ label: 'change' });
 
-      const res = await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
+          .expect(200);
 
-      expect(res.body).toEqual({ message: 'Password changed' });
+        expect(res.body).toEqual({ message: 'Password changed' });
 
-      // The old password no longer logs in, the new one does.
-      await request(app.getHttpServer())
-        .post('/api/auth/login')
-        .send({ email: user.email, password: user.password })
-        .expect(401);
-      await expect(
-        login(app, user.email, 'BrandNew123'),
-      ).resolves.toContain('access_token=');
-    }, SLOW_MS);
+        // The old password no longer logs in, the new one does.
+        await request(app.getHttpServer())
+          .post('/api/auth/login')
+          .send({ email: user.email, password: user.password })
+          .expect(401);
+        await expect(login(app, user.email, 'BrandNew123')).resolves.toContain(
+          'access_token=',
+        );
+      },
+      SLOW_MS,
+    );
 
-    it('leaves the caller logged in', async () => {
-      const user = await signIn({ label: 'stays' });
+    it(
+      'leaves the caller logged in',
+      async () => {
+        const user = await signIn({ label: 'stays' });
 
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
-        .expect(200);
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
+          .expect(200);
 
-      // The caller's own session is the one kept (exceptSessionId), so you are
-      // not signed out of the device you changed the password on.
-      await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(200);
-    }, SLOW_MS);
+        // The caller's own session is the one kept (exceptSessionId), so you are
+        // not signed out of the device you changed the password on.
+        await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(200);
+      },
+      SLOW_MS,
+    );
 
-    it('signs out the account’s other devices (ACC-06)', async () => {
-      const user = await signIn({ label: 'devices' });
-      // A second login is a second session: the same account on another
-      // device, holding its own cookie.
-      const otherDevice = await login(app, user.email, user.password);
-      await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', otherDevice)
-        .expect(200);
+    it(
+      'signs out the account’s other devices (ACC-06)',
+      async () => {
+        const user = await signIn({ label: 'devices' });
+        // A second login is a second session: the same account on another
+        // device, holding its own cookie.
+        const otherDevice = await login(app, user.email, user.password);
+        await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', otherDevice)
+          .expect(200);
 
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
-        .expect(200);
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: user.password, newPassword: 'BrandNew123' })
+          .expect(200);
 
-      // The other device's session was revoked, so its cookie stops working on
-      // the next request: a password that may have leaked does not keep a
-      // session alive anywhere else.
-      const revoked = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', otherDevice)
-        .expect(401);
-      expect(revoked.body.code).toBe('UNAUTHENTICATED');
+        // The other device's session was revoked, so its cookie stops working on
+        // the next request: a password that may have leaked does not keep a
+        // session alive anywhere else.
+        const revoked = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', otherDevice)
+          .expect(401);
+        expect(revoked.body.code).toBe('UNAUTHENTICATED');
 
-      // The device that made the change is still signed in.
-      await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(200);
-    }, SLOW_MS);
+        // The device that made the change is still signed in.
+        await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(200);
+      },
+      SLOW_MS,
+    );
 
-    it('signs nothing out when the change itself fails', async () => {
-      const user = await signIn({ label: 'nosignout' });
-      const otherDevice = await login(app, user.email, user.password);
+    it(
+      'signs nothing out when the change itself fails',
+      async () => {
+        const user = await signIn({ label: 'nosignout' });
+        const otherDevice = await login(app, user.email, user.password);
 
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: 'WrongPass123', newPassword: 'BrandNew123' })
-        .expect(401);
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: 'WrongPass123', newPassword: 'BrandNew123' })
+          .expect(401);
 
-      // Otherwise guessing the current password would be a way to sign the
-      // owner out of their other devices.
-      await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', otherDevice)
-        .expect(200);
-    }, SLOW_MS);
+        // Otherwise guessing the current password would be a way to sign the
+        // owner out of their other devices.
+        await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', otherDevice)
+          .expect(200);
+      },
+      SLOW_MS,
+    );
 
-    it('rejects a wrong current password (401 INVALID_CURRENT_PASSWORD)', async () => {
-      const user = await signIn({ label: 'wrong' });
+    it(
+      'rejects a wrong current password (401 INVALID_CURRENT_PASSWORD)',
+      async () => {
+        const user = await signIn({ label: 'wrong' });
 
-      const res = await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: 'WrongPass123', newPassword: 'NewPass123' })
-        .expect(401);
+        const res = await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: 'WrongPass123', newPassword: 'NewPass123' })
+          .expect(401);
 
-      expect(res.body.code).toBe('INVALID_CURRENT_PASSWORD');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('INVALID_CURRENT_PASSWORD');
+      },
+      SLOW_MS,
+    );
 
-    it('rejects reusing the current password (400 PASSWORD_UNCHANGED)', async () => {
-      const user = await signIn({ label: 'same' });
+    it(
+      'rejects reusing the current password (400 PASSWORD_UNCHANGED)',
+      async () => {
+        const user = await signIn({ label: 'same' });
 
-      const res = await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: user.password, newPassword: user.password })
-        .expect(400);
+        const res = await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: user.password, newPassword: user.password })
+          .expect(400);
 
-      expect(res.body.code).toBe('PASSWORD_UNCHANGED');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('PASSWORD_UNCHANGED');
+      },
+      SLOW_MS,
+    );
 
     // The same shared rules as registration (ACC-01), so the two cannot drift.
     it.each([
@@ -191,21 +215,25 @@ describe('Change password and temporary passwords (e2e)', () => {
       SLOW_MS,
     );
 
-    it('rejects a body with an unknown field', async () => {
-      const user = await signIn({ label: 'extra' });
+    it(
+      'rejects a body with an unknown field',
+      async () => {
+        const user = await signIn({ label: 'extra' });
 
-      const res = await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({
-          currentPassword: user.password,
-          newPassword: 'NewPass123',
-          role: 'ADMIN',
-        })
-        .expect(400);
+        const res = await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({
+            currentPassword: user.password,
+            newPassword: 'NewPass123',
+            role: 'ADMIN',
+          })
+          .expect(400);
 
-      expect(res.body.errors[0].field).toBe('role');
-    }, SLOW_MS);
+        expect(res.body.errors[0].field).toBe('role');
+      },
+      SLOW_MS,
+    );
 
     it('rejects an anonymous request (401)', async () => {
       await request(app.getHttpServer())
@@ -218,55 +246,65 @@ describe('Change password and temporary passwords (e2e)', () => {
   // ACC-07a: the flag is only worth storing if it is enforced, and the guard is
   // where that happens.
   describe('an account on a temporary password', () => {
-    it('can reach change-password and nothing else', async () => {
-      const user = await signIn({
-        label: 'temp',
-        mustChangePassword: true,
-      });
+    it(
+      'can reach change-password and nothing else',
+      async () => {
+        const user = await signIn({
+          label: 'temp',
+          mustChangePassword: true,
+        });
 
-      const blocked = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(403);
-      expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+        const blocked = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(403);
+        expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
-      await request(app.getHttpServer())
-        .patch(CHANGE_PASSWORD)
-        .set('Cookie', user.cookie)
-        .send({ currentPassword: user.password, newPassword: 'Chosen123' })
-        .expect(200);
+        await request(app.getHttpServer())
+          .patch(CHANGE_PASSWORD)
+          .set('Cookie', user.cookie)
+          .send({ currentPassword: user.password, newPassword: 'Chosen123' })
+          .expect(200);
 
-      // Choosing a password clears the flag, so the rest of the API opens up.
-      await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(200);
+        // Choosing a password clears the flag, so the rest of the API opens up.
+        await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(200);
 
-      const profile = await app.get(UsersService).findByIdOrThrow(user.userId);
-      expect(profile.mustChangePassword).toBe(false);
-    }, SLOW_MS);
+        const profile = await app
+          .get(UsersService)
+          .findByIdOrThrow(user.userId);
+        expect(profile.mustChangePassword).toBe(false);
+      },
+      SLOW_MS,
+    );
   });
 
   describe('stored data (GEN-13)', () => {
-    it('never returns the password, and stores only a bcrypt hash', async () => {
-      const user = await signIn({ label: 'storage' });
+    it(
+      'never returns the password, and stores only a bcrypt hash',
+      async () => {
+        const user = await signIn({ label: 'storage' });
 
-      const res = await request(app.getHttpServer())
-        .get(ME)
-        .set('Cookie', user.cookie)
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .get(ME)
+          .set('Cookie', user.cookie)
+          .expect(200);
 
-      for (const field of [
-        'passwordHash',
-        'password',
-        'failedLoginAttempts',
-        'lockedUntil',
-      ]) {
-        expect(res.body).not.toHaveProperty(field);
-      }
-      expect(res.body.email).toBe(user.email.toLowerCase());
-      expect(res.body.role).toBe(Role.USER);
-      expect(res.body.status).toBe(UserStatus.ACTIVE);
-    }, SLOW_MS);
+        for (const field of [
+          'passwordHash',
+          'password',
+          'failedLoginAttempts',
+          'lockedUntil',
+        ]) {
+          expect(res.body).not.toHaveProperty(field);
+        }
+        expect(res.body.email).toBe(user.email.toLowerCase());
+        expect(res.body.role).toBe(Role.USER);
+        expect(res.body.status).toBe(UserStatus.ACTIVE);
+      },
+      SLOW_MS,
+    );
   });
 });

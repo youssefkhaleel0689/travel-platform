@@ -55,13 +55,19 @@ export class SeatSelectionService {
     dto: SelectSeatsDto,
   ) {
     if (!Types.ObjectId.isValid(bookingId)) {
-      throw new NotFoundException({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found' });
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+      });
     }
     const booking = await this.bookingModel
       .findOne({ _id: bookingId, ...ownerFilter(user) })
       .exec();
     if (!booking) {
-      throw new NotFoundException({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found' });
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+      });
     }
     if (booking.status !== BookingStatus.CONFIRMED) {
       throw new ConflictException({
@@ -73,12 +79,18 @@ export class SeatSelectionService {
     const index = dto.segmentIndex ?? 0;
     const segment = booking.segments[index];
     if (!segment) {
-      throw new NotFoundException({ code: 'SEGMENT_NOT_FOUND', message: 'Segment not found' });
+      throw new NotFoundException({
+        code: 'SEGMENT_NOT_FOUND',
+        message: 'Segment not found',
+      });
     }
 
     const flight = await this.flightModel.findById(segment.flightId).exec();
     if (!flight) {
-      throw new NotFoundException({ code: 'FLIGHT_NOT_FOUND', message: 'Flight not found' });
+      throw new NotFoundException({
+        code: 'FLIGHT_NOT_FOUND',
+        message: 'Flight not found',
+      });
     }
     const cabin = flight.cabinInventory.find(
       (c) => c.category === segment.cabinCategory,
@@ -116,7 +128,9 @@ export class SeatSelectionService {
         message: 'A passenger does not need or does not belong to this booking',
       });
     }
-    if (new Set(requested.map((a) => a.passengerId)).size !== requested.length) {
+    if (
+      new Set(requested.map((a) => a.passengerId)).size !== requested.length
+    ) {
       throw new BadRequestException({
         code: 'DUPLICATE_PASSENGER',
         message: 'A passenger can hold only one seat',
@@ -141,7 +155,10 @@ export class SeatSelectionService {
     try {
       await this.connection.transaction(async (session) => {
         await this.claimModel
-          .deleteMany({ bookingId: booking._id, flightId: segment.flightId }, { session })
+          .deleteMany(
+            { bookingId: booking._id, flightId: segment.flightId },
+            { session },
+          )
           .exec();
         for (const a of assignments) {
           await this.releaseIfStale(
@@ -226,10 +243,13 @@ export class SeatSelectionService {
 }
 
 function isDuplicateKey(error: unknown): boolean {
-  const e = error as { code?: number; writeErrors?: { code?: number }[] } | null;
+  const e = error as {
+    code?: number;
+    writeErrors?: { code?: number }[];
+  } | null;
   return (
     e?.code === DUPLICATE_KEY ||
-    (Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w.code === DUPLICATE_KEY))
+    (Array.isArray(e?.writeErrors) &&
+      e.writeErrors.some((w) => w.code === DUPLICATE_KEY))
   );
 }
-

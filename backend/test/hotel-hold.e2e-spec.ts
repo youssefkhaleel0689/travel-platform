@@ -12,7 +12,10 @@ import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { Session } from './../src/auth/sessions/session.schema';
 import { User } from './../src/auth/schemas/user.schema';
-import { Availability, AvailabilityStatus } from './../src/availability/schemas/availability.schema';
+import {
+  Availability,
+  AvailabilityStatus,
+} from './../src/availability/schemas/availability.schema';
 import {
   GuestType,
   HotelBooking,
@@ -23,8 +26,14 @@ import { Room } from './../src/rooms/schemas/room.schema';
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const TEST_TIMEOUT_MS = 60_000;
-const LAST_FREE_NIGHT = { checkInDate: '2099-06-01', checkOutDate: '2099-06-02' };
-const MULTI_ROOM_NIGHT = { checkInDate: '2099-07-01', checkOutDate: '2099-07-02' };
+const LAST_FREE_NIGHT = {
+  checkInDate: '2099-06-01',
+  checkOutDate: '2099-06-02',
+};
+const MULTI_ROOM_NIGHT = {
+  checkInDate: '2099-07-01',
+  checkOutDate: '2099-07-02',
+};
 
 function accessTokenCookie(res: { headers: Record<string, unknown> }): string {
   const raw = res.headers['set-cookie'];
@@ -75,7 +84,12 @@ describe('Hotel room holds (HTL-18, e2e, shared database)', () => {
     const email = `e2e-hotel-hold-${Date.now()}@example.com`;
     const registered = await request(app.getHttpServer())
       .post('/api/auth/register')
-      .send({ name: 'Hold Tester', email, password: 'HoldTest123', acceptTerms: true })
+      .send({
+        name: 'Hold Tester',
+        email,
+        password: 'HoldTest123',
+        acceptTerms: true,
+      })
       .expect(201);
     cookie = accessTokenCookie(registered);
     userId = new Types.ObjectId((registered.body as { id: string }).id);
@@ -161,7 +175,9 @@ describe('Hotel room holds (HTL-18, e2e, shared database)', () => {
       ...night,
       rooms: roomIds.map((roomId) => ({
         roomId: String(roomId),
-        assignedGuests: [{ type: GuestType.ADULT, fullName: 'Hold Tester', age: 30 }],
+        assignedGuests: [
+          { type: GuestType.ADULT, fullName: 'Hold Tester', age: 30 },
+        ],
       })),
     };
   }
@@ -218,7 +234,9 @@ describe('Hotel room holds (HTL-18, e2e, shared database)', () => {
             bedsSnapshot: 1,
             maxOccupancySnapshot: 2,
             pricePerNightSnapshot: Types.Decimal128.fromString('100.00'),
-            assignedGuests: [{ type: GuestType.ADULT, fullName: 'Other Guest', age: 30 }],
+            assignedGuests: [
+              { type: GuestType.ADULT, fullName: 'Other Guest', age: 30 },
+            ],
             nights: 1,
             lineTotal: Types.Decimal128.fromString('100.00'),
           },

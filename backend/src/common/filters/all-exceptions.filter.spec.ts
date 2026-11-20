@@ -265,18 +265,21 @@ describe('AllExceptionsFilter', () => {
 
     it('turns a BSONError (malformed id) into 400 INVALID_ID, not 500', () => {
       jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
-      const bson = Object.assign(new Error('input must be a 24 character hex string'), {
-        name: 'BSONError',
-      });
+      const bson = Object.assign(
+        new Error('input must be a 24 character hex string'),
+        {
+          name: 'BSONError',
+        },
+      );
       const { status, body } = run(bson);
       expect(status).toBe(400);
       expect(body).toMatchObject({ code: 'INVALID_ID' });
     });
 
     it('names a 413 PAYLOAD_TOO_LARGE', () => {
-      expect(run(new HttpException('request entity too large', 413)).body.code).toBe(
-        'PAYLOAD_TOO_LARGE',
-      );
+      expect(
+        run(new HttpException('request entity too large', 413)).body.code,
+      ).toBe('PAYLOAD_TOO_LARGE');
     });
 
     it('turns an unknown error into 500 INTERNAL_ERROR without details', () => {

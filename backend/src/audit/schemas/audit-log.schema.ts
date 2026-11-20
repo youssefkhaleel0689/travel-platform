@@ -39,7 +39,9 @@ export class AuditLog {
 export const AuditLogSchema = SchemaFactory.createForClass(AuditLog);
 
 function appendOnly(): never {
-  throw new Error('auditLogs is append-only: rows cannot be changed or removed');
+  throw new Error(
+    'auditLogs is append-only: rows cannot be changed or removed',
+  );
 }
 
 // GEN-07: rows can be added and read, never changed or removed.

@@ -366,16 +366,16 @@ describe('RefundsService (PAY-03)', () => {
         paymentDoc({ userId: new Types.ObjectId(OTHER_USER_ID) }),
       );
 
-      await expect(
-        service.findOwnOrThrow(USER_ID, REFUND_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOwnOrThrow(USER_ID, REFUND_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('answers 404 for a missing or malformed id', async () => {
       model.findById.mockReturnValue(exec(null));
-      await expect(
-        service.findOwnOrThrow(USER_ID, REFUND_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.findOwnOrThrow(USER_ID, REFUND_ID)).rejects.toThrow(
+        NotFoundException,
+      );
 
       await expect(
         service.findOwnOrThrow(USER_ID, 'not-an-id'),
@@ -417,7 +417,9 @@ describe('RefundsService (PAY-03)', () => {
     });
 
     it("records Stripe's reason when the refund fails", async () => {
-      model.findOne.mockReturnValue(exec(refundDoc({ stripeRefundId: 're_9' })));
+      model.findOne.mockReturnValue(
+        exec(refundDoc({ stripeRefundId: 're_9' })),
+      );
 
       await service.syncFromStripe({
         id: 're_9',
@@ -437,10 +439,15 @@ describe('RefundsService (PAY-03)', () => {
 
     it('changes nothing when the status is already the same', async () => {
       model.findOne.mockReturnValue(
-        exec(refundDoc({ stripeRefundId: 're_9', status: RefundStatus.REFUNDED })),
+        exec(
+          refundDoc({ stripeRefundId: 're_9', status: RefundStatus.REFUNDED }),
+        ),
       );
 
-      await service.syncFromStripe({ id: 're_9', status: 'succeeded' } as never);
+      await service.syncFromStripe({
+        id: 're_9',
+        status: 'succeeded',
+      } as never);
 
       expect(model.findOneAndUpdate).not.toHaveBeenCalled();
     });
@@ -452,7 +459,10 @@ describe('RefundsService (PAY-03)', () => {
       model.findOneAndUpdate.mockReturnValue(
         exec({ ...pending, status: RefundStatus.REFUNDED }),
       );
-      stripe.retrieveRefund.mockResolvedValue({ id: 're_9', status: 'succeeded' });
+      stripe.retrieveRefund.mockResolvedValue({
+        id: 're_9',
+        status: 'succeeded',
+      });
 
       const refund = await service.findOwnOrThrow(USER_ID, REFUND_ID);
 

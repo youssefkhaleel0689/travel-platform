@@ -27,7 +27,10 @@ export class SeatAssignmentInputDto {
 
 /** FLT-28: choose seats for one segment of a confirmed booking. */
 export class SelectSeatsDto {
-  @ApiPropertyOptional({ example: 0, description: 'Segment index: 0 outbound, 1 return' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Segment index: 0 outbound, 1 return',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()

@@ -1,4 +1,3 @@
-
 // GEN-08 limits, shared by every module that stores images.
 export enum MediaTargetType {
   POST = 'POST',

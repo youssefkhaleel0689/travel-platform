@@ -88,9 +88,11 @@ describe('PaymentsService (PAY-01)', () => {
 
   beforeEach(() => {
     model = {
-      create: jest.fn().mockImplementation((doc) =>
-        Promise.resolve(paymentDoc(doc as Record<string, unknown>)),
-      ),
+      create: jest
+        .fn()
+        .mockImplementation((doc) =>
+          Promise.resolve(paymentDoc(doc as Record<string, unknown>)),
+        ),
       findOne: jest.fn().mockReturnValue(sortExec(null)),
       findById: jest.fn().mockReturnValue(exec(paymentDoc())),
       findOneAndUpdate: jest.fn().mockReturnValue(exec(paymentDoc())),

@@ -76,46 +76,41 @@ describe('Booking policies (e2e)', () => {
     owner = await createSignedInUser(app, { label: 'pay2-owner' });
     other = await createSignedInUser(app, { label: 'pay2-other' });
     createdUserIds.push(owner.userId, other.userId);
-
   }, CONNECT_TIMEOUT_MS);
 
   /** Stands in for the port a booking module will provide. */
   function standInForBookingModule(): void {
     const gateway = app.get(BookingsGateway);
-    jest
-      .spyOn(gateway, 'getPayableOrThrow')
-      .mockImplementation((type, id) => {
-        if (id !== bookingId) {
-          return Promise.reject(new NotFoundException('Booking not found'));
-        }
-        return Promise.resolve({
-          bookingId,
-          bookingType: type,
-          userId: owner.userId,
-          status: bookingStatus,
-          totalAmount: '420.00',
-          currency: 'USD',
-          holdExpiresAt:
-            bookingStatus === BookingStatus.PENDING_PAYMENT
-              ? new Date(Date.now() + 10 * 60 * 1000)
-              : null,
-          bookingReference: null,
-          providerType: ProviderType.HOTEL,
-          providerId: PROVIDER_ID,
-        });
+    jest.spyOn(gateway, 'getPayableOrThrow').mockImplementation((type, id) => {
+      if (id !== bookingId) {
+        return Promise.reject(new NotFoundException('Booking not found'));
+      }
+      return Promise.resolve({
+        bookingId,
+        bookingType: type,
+        userId: owner.userId,
+        status: bookingStatus,
+        totalAmount: '420.00',
+        currency: 'USD',
+        holdExpiresAt:
+          bookingStatus === BookingStatus.PENDING_PAYMENT
+            ? new Date(Date.now() + 10 * 60 * 1000)
+            : null,
+        bookingReference: null,
+        providerType: ProviderType.HOTEL,
+        providerId: PROVIDER_ID,
       });
-    jest
-      .spyOn(gateway, 'getPoliciesOrThrow')
-      .mockImplementation((type, id) =>
-        Promise.resolve({
-          bookingId: id,
-          bookingType: type,
-          providerType: ProviderType.HOTEL,
-          providerId: PROVIDER_ID,
-          policyVersion,
-          policySnapshot: POLICY_SNAPSHOT,
-        }),
-      );
+    });
+    jest.spyOn(gateway, 'getPoliciesOrThrow').mockImplementation((type, id) =>
+      Promise.resolve({
+        bookingId: id,
+        bookingType: type,
+        providerType: ProviderType.HOTEL,
+        providerId: PROVIDER_ID,
+        policyVersion,
+        policySnapshot: POLICY_SNAPSHOT,
+      }),
+    );
   }
 
   afterAll(async () => {
@@ -354,13 +349,17 @@ describe('Booking policies (e2e)', () => {
       expect(res.body.code).toBe('BOOKING_NOT_AWAITING_PAYMENT');
     });
 
-    it('answers 404 for another account’s booking', async () => {
-      await request(app.getHttpServer())
-        .post(acceptPath())
-        .set('Cookie', other.cookie)
-        .send({ accepted: true, policyVersion: 1 })
-        .expect(404);
-    }, SLOW_MS);
+    it(
+      'answers 404 for another account’s booking',
+      async () => {
+        await request(app.getHttpServer())
+          .post(acceptPath())
+          .set('Cookie', other.cookie)
+          .send({ accepted: true, policyVersion: 1 })
+          .expect(404);
+      },
+      SLOW_MS,
+    );
 
     it('rejects an anonymous request (401)', async () => {
       await request(app.getHttpServer())

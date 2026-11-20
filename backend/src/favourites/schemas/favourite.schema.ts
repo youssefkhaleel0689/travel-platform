@@ -29,8 +29,5 @@ export class Favourite {
 
 export const FavouriteSchema = SchemaFactory.createForClass(Favourite);
 
-FavouriteSchema.index(
-  { userId: 1, type: 1, targetId: 1 },
-  { unique: true },
-);
+FavouriteSchema.index({ userId: 1, type: 1, targetId: 1 }, { unique: true });
 FavouriteSchema.index({ userId: 1, createdAt: -1 });

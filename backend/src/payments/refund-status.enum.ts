@@ -24,7 +24,9 @@ export enum CancelledBy {
 }
 
 /** Maps a Stripe refund status onto ours. */
-export function fromStripeRefundStatus(stripeStatus: string | null): RefundStatus {
+export function fromStripeRefundStatus(
+  stripeStatus: string | null,
+): RefundStatus {
   switch (stripeStatus) {
     case 'succeeded':
       return RefundStatus.REFUNDED;

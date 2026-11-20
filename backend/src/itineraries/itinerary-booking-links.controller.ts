@@ -1,5 +1,10 @@
 import { Controller, Delete, Param, Post, Body } from '@nestjs/common';
-import { ApiCookieAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiCookieAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import { LinkBookingDto } from './dto/booking-link.dto';
@@ -22,7 +27,8 @@ export class ItineraryBookingLinksController {
 
   @Post(':id/days/:dayId/bookings')
   @ApiOperation({
-    summary: 'Link a confirmed flight or hotel booking to an itinerary day (ITN-27)',
+    summary:
+      'Link a confirmed flight or hotel booking to an itinerary day (ITN-27)',
     description:
       'The booking must be yours and CONFIRMED or COMPLETED. Its total is ' +
       'snapshotted into the day and counted in the budget (hotel as ' +

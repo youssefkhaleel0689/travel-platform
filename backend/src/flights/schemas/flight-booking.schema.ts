@@ -58,7 +58,8 @@ export class SeatAssignment {
   @Prop({ type: String, required: true, match: /^[1-9]\d*[A-F]$/ })
   seatNumber: string;
 }
-export const SeatAssignmentSchema = SchemaFactory.createForClass(SeatAssignment);
+export const SeatAssignmentSchema =
+  SchemaFactory.createForClass(SeatAssignment);
 
 // One flight of the booking with the flight and cabin as they were when it was held.
 // Later price or schedule edits (FLT-05) never change an existing booking.

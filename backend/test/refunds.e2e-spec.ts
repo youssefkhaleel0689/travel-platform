@@ -20,7 +20,10 @@ import {
   ProviderType,
 } from './../src/common/bookings/booking-status';
 import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
-import { CancelledBy, RefundStatus } from './../src/payments/refund-status.enum';
+import {
+  CancelledBy,
+  RefundStatus,
+} from './../src/payments/refund-status.enum';
 import { RefundsService } from './../src/payments/refunds.service';
 import { Payment } from './../src/payments/schemas/payment.schema';
 import { PolicyAcceptance } from './../src/payments/schemas/policy-acceptance.schema';
@@ -110,14 +113,16 @@ describe('Refunds (e2e)', () => {
         policySnapshot: CANCELLATION_TIERS,
       }),
     );
-    jest.spyOn(gateway, 'confirmAfterPayment').mockImplementation((type, id) => {
-      bookingStatus = BookingStatus.CONFIRMED;
-      return Promise.resolve({
-        bookingId: id,
-        status: BookingStatus.CONFIRMED,
-        bookingReference: 'NILE-4821',
+    jest
+      .spyOn(gateway, 'confirmAfterPayment')
+      .mockImplementation((type, id) => {
+        bookingStatus = BookingStatus.CONFIRMED;
+        return Promise.resolve({
+          bookingId: id,
+          status: BookingStatus.CONFIRMED,
+          bookingReference: 'NILE-4821',
+        });
       });
-    });
     jest.spyOn(gateway, 'releaseHold').mockResolvedValue(undefined);
 
     const stripe = app.get(StripeService);
@@ -254,207 +259,243 @@ describe('Refunds (e2e)', () => {
   });
 
   describe('a user cancellation refunds the tier share', () => {
-    it('refunds 50% of what was captured and records it', async () => {
-      const paymentId = await payAndConfirm();
+    it(
+      'refunds 50% of what was captured and records it',
+      async () => {
+        const paymentId = await payAndConfirm();
 
-      // What HTL-21 does when the traveller cancels within the 50% tier.
+        // What HTL-21 does when the traveller cancels within the 50% tier.
+        const refund = await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller 3 days before check-in',
+          policySnapshot: CANCELLATION_TIERS,
+        });
+
+        expect(refund).not.toBeNull();
+        expect(refundRequests[0].amount).toBe('210.00');
+
+        const res = await request(app.getHttpServer())
+          .get(`/api/refunds/${refund!._id.toString()}`)
+          .set('Cookie', owner.cookie)
+          .expect(200);
+
+        expect(res.body).toMatchObject({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          paymentId,
+          amount: '210.00',
+          currency: 'USD',
+          status: RefundStatus.REFUNDED,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          policySnapshot: CANCELLATION_TIERS,
+        });
+        expect(res.body.stripeRefundId).toMatch(/^re_/);
+        expect(res.body.completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      },
+      SLOW_MS,
+    );
+
+    it(
+      'tells the user about it (GEN-01)',
+      async () => {
+        await payAndConfirm();
+        await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller',
+        });
+
+        const res = await request(app.getHttpServer())
+          .get('/api/notifications')
+          .set('Cookie', owner.cookie)
+          .expect(200);
+
+        const refundNotice = res.body.items.find(
+          (item: { type: string }) => item.type === 'REFUND_ISSUED',
+        );
+        expect(refundNotice).toBeDefined();
+        expect(refundNotice.message).toContain('210.00 USD');
+      },
+      SLOW_MS,
+    );
+  });
+
+  // PAY-03: a provider-initiated cancellation is always a full refund.
+  it(
+    'refunds a provider cancellation in full, whatever the tier says',
+    async () => {
+      await payAndConfirm();
+
       const refund = await refunds.issueForCancellation({
         bookingType: BookingType.HOTEL,
         bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        reason: 'Cancelled by the traveller 3 days before check-in',
+        cancelledBy: CancelledBy.PROVIDER,
+        refundPercentage: 25,
+        reason: 'The hotel cancelled the reservation',
         policySnapshot: CANCELLATION_TIERS,
       });
 
-      expect(refund).not.toBeNull();
-      expect(refundRequests[0].amount).toBe('210.00');
+      expect(refundRequests[0].amount).toBe('420.00');
+      expect(refund?.refundPercentage).toBe(100);
+    },
+    SLOW_MS,
+  );
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/refunds/${refund!._id.toString()}`)
-        .set('Cookie', owner.cookie)
-        .expect(200);
-
-      expect(res.body).toMatchObject({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        paymentId,
-        amount: '210.00',
-        currency: 'USD',
-        status: RefundStatus.REFUNDED,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        policySnapshot: CANCELLATION_TIERS,
-      });
-      expect(res.body.stripeRefundId).toMatch(/^re_/);
-      expect(res.body.completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    }, SLOW_MS);
-
-    it('tells the user about it (GEN-01)', async () => {
+  it(
+    'issues nothing when the tier gives 0%',
+    async () => {
       await payAndConfirm();
-      await refunds.issueForCancellation({
+
+      await expect(
+        refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 0,
+          reason: 'Cancelled too late for a refund',
+        }),
+      ).resolves.toBeNull();
+
+      expect(refundRequests).toEqual([]);
+      await expect(
+        refundModel
+          .countDocuments({ bookingId: new Types.ObjectId(bookingId) })
+          .exec(),
+      ).resolves.toBe(0);
+    },
+    SLOW_MS,
+  );
+
+  it(
+    'issues nothing for a booking that was never paid',
+    async () => {
+      await expect(
+        refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.PROVIDER,
+          refundPercentage: 100,
+          reason: 'The hotel cancelled an unpaid hold',
+        }),
+      ).resolves.toBeNull();
+      expect(refundRequests).toEqual([]);
+    },
+    SLOW_MS,
+  );
+
+  it(
+    'refuses to refund the same booking twice',
+    async () => {
+      await payAndConfirm();
+      const first = {
         bookingType: BookingType.HOTEL,
         bookingId,
         cancelledBy: CancelledBy.USER,
         refundPercentage: 50,
         reason: 'Cancelled by the traveller',
+      };
+      await refunds.issueForCancellation(first);
+
+      await expect(refunds.issueForCancellation(first)).rejects.toMatchObject({
+        response: { code: 'REFUND_ALREADY_ISSUED' },
       });
-
-      const res = await request(app.getHttpServer())
-        .get('/api/notifications')
-        .set('Cookie', owner.cookie)
-        .expect(200);
-
-      const refundNotice = res.body.items.find(
-        (item: { type: string }) => item.type === 'REFUND_ISSUED',
-      );
-      expect(refundNotice).toBeDefined();
-      expect(refundNotice.message).toContain('210.00 USD');
-    }, SLOW_MS);
-  });
-
-  // PAY-03: a provider-initiated cancellation is always a full refund.
-  it('refunds a provider cancellation in full, whatever the tier says', async () => {
-    await payAndConfirm();
-
-    const refund = await refunds.issueForCancellation({
-      bookingType: BookingType.HOTEL,
-      bookingId,
-      cancelledBy: CancelledBy.PROVIDER,
-      refundPercentage: 25,
-      reason: 'The hotel cancelled the reservation',
-      policySnapshot: CANCELLATION_TIERS,
-    });
-
-    expect(refundRequests[0].amount).toBe('420.00');
-    expect(refund?.refundPercentage).toBe(100);
-  }, SLOW_MS);
-
-  it('issues nothing when the tier gives 0%', async () => {
-    await payAndConfirm();
-
-    await expect(
-      refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 0,
-        reason: 'Cancelled too late for a refund',
-      }),
-    ).resolves.toBeNull();
-
-    expect(refundRequests).toEqual([]);
-    await expect(
-      refundModel
-        .countDocuments({ bookingId: new Types.ObjectId(bookingId) })
-        .exec(),
-    ).resolves.toBe(0);
-  }, SLOW_MS);
-
-  it('issues nothing for a booking that was never paid', async () => {
-    await expect(
-      refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.PROVIDER,
-        refundPercentage: 100,
-        reason: 'The hotel cancelled an unpaid hold',
-      }),
-    ).resolves.toBeNull();
-    expect(refundRequests).toEqual([]);
-  }, SLOW_MS);
-
-  it('refuses to refund the same booking twice', async () => {
-    await payAndConfirm();
-    const first = {
-      bookingType: BookingType.HOTEL,
-      bookingId,
-      cancelledBy: CancelledBy.USER,
-      refundPercentage: 50,
-      reason: 'Cancelled by the traveller',
-    };
-    await refunds.issueForCancellation(first);
-
-    await expect(refunds.issueForCancellation(first)).rejects.toMatchObject({
-      response: { code: 'REFUND_ALREADY_ISSUED' },
-    });
-    expect(refundRequests).toHaveLength(1);
-  }, SLOW_MS);
+      expect(refundRequests).toHaveLength(1);
+    },
+    SLOW_MS,
+  );
 
   describe('when Stripe refuses the refund', () => {
     // The cancellation has already happened, so the refund has to be visible
     // as FAILED rather than disappearing behind an error.
-    it('records it as FAILED and still shows it on the booking', async () => {
-      await payAndConfirm();
-      refundOutcome = new Error('Stripe is unavailable');
+    it(
+      'records it as FAILED and still shows it on the booking',
+      async () => {
+        await payAndConfirm();
+        refundOutcome = new Error('Stripe is unavailable');
 
-      const refund = await refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        reason: 'Cancelled by the traveller',
-      });
+        const refund = await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller',
+        });
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/refunds/${refund!._id.toString()}`)
-        .set('Cookie', owner.cookie)
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .get(`/api/refunds/${refund!._id.toString()}`)
+          .set('Cookie', owner.cookie)
+          .expect(200);
 
-      expect(res.body.status).toBe(RefundStatus.FAILED);
-      expect(res.body.failureMessage).toContain('Stripe is unavailable');
-      expect(res.body.stripeRefundId).toBeNull();
-      expect(res.body.completedAt).toBeNull();
-    }, SLOW_MS);
+        expect(res.body.status).toBe(RefundStatus.FAILED);
+        expect(res.body.failureMessage).toContain('Stripe is unavailable');
+        expect(res.body.stripeRefundId).toBeNull();
+        expect(res.body.completedAt).toBeNull();
+      },
+      SLOW_MS,
+    );
 
-    it('can be retried, with a new idempotency key', async () => {
-      await payAndConfirm();
-      refundOutcome = new Error('Stripe is unavailable');
-      await refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        reason: 'Cancelled by the traveller',
-      });
+    it(
+      'can be retried, with a new idempotency key',
+      async () => {
+        await payAndConfirm();
+        refundOutcome = new Error('Stripe is unavailable');
+        await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller',
+        });
 
-      // A fresh attempt after the failure, allowed because the first failed.
-      refundOutcome = { id: `re_retry_${Date.now()}`, status: 'succeeded' };
-      const retried = await refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        reason: 'Cancelled by the traveller',
-      });
+        // A fresh attempt after the failure, allowed because the first failed.
+        refundOutcome = { id: `re_retry_${Date.now()}`, status: 'succeeded' };
+        const retried = await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller',
+        });
 
-      expect(retried?.status).toBe(RefundStatus.REFUNDED);
-      expect(refundRequests[1].idempotencyKey).toBe(
-        `refund:HOTEL:${bookingId}:2`,
-      );
-      // The amount never changes between attempts.
-      expect(refundRequests[1].amount).toBe('210.00');
-    }, SLOW_MS);
+        expect(retried?.status).toBe(RefundStatus.REFUNDED);
+        expect(refundRequests[1].idempotencyKey).toBe(
+          `refund:HOTEL:${bookingId}:2`,
+        );
+        // The amount never changes between attempts.
+        expect(refundRequests[1].amount).toBe('210.00');
+      },
+      SLOW_MS,
+    );
   });
 
   describe('GET /api/refunds/:id', () => {
-    it('answers 404 for another account’s refund (ACC-11)', async () => {
-      await payAndConfirm();
-      const refund = await refunds.issueForCancellation({
-        bookingType: BookingType.HOTEL,
-        bookingId,
-        cancelledBy: CancelledBy.USER,
-        refundPercentage: 50,
-        reason: 'Cancelled by the traveller',
-      });
+    it(
+      'answers 404 for another account’s refund (ACC-11)',
+      async () => {
+        await payAndConfirm();
+        const refund = await refunds.issueForCancellation({
+          bookingType: BookingType.HOTEL,
+          bookingId,
+          cancelledBy: CancelledBy.USER,
+          refundPercentage: 50,
+          reason: 'Cancelled by the traveller',
+        });
 
-      const res = await request(app.getHttpServer())
-        .get(`/api/refunds/${refund!._id.toString()}`)
-        .set('Cookie', other.cookie)
-        .expect(404);
+        const res = await request(app.getHttpServer())
+          .get(`/api/refunds/${refund!._id.toString()}`)
+          .set('Cookie', other.cookie)
+          .expect(404);
 
-      expect(res.body.code).toBe('NOT_FOUND');
-    }, SLOW_MS);
+        expect(res.body.code).toBe('NOT_FOUND');
+      },
+      SLOW_MS,
+    );
 
     it.each(['6720f1c2a1b2c3d4e5f60999', 'not-an-id'])(
       'answers 404 for %s',

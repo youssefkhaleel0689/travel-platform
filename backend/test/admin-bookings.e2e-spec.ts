@@ -95,7 +95,9 @@ describe('Admin booking list (ACC-17, e2e)', () => {
       .set('Cookie', user.cookie);
   }
 
-  function flightRow(overrides: Partial<AdminBookingRow> = {}): AdminBookingRow {
+  function flightRow(
+    overrides: Partial<AdminBookingRow> = {},
+  ): AdminBookingRow {
     return {
       bookingId: new Types.ObjectId().toString(),
       bookingType: BookingType.FLIGHT,
@@ -261,9 +263,7 @@ describe('Admin booking list (ACC-17, e2e)', () => {
 
       const res = await list('').expect(200);
 
-      expect(
-        (res.body.items as BookingRow[]).map((row) => row.type),
-      ).toEqual([
+      expect((res.body.items as BookingRow[]).map((row) => row.type)).toEqual([
         BookingType.FLIGHT,
         BookingType.HOTEL,
         BookingType.FLIGHT,
@@ -278,7 +278,12 @@ describe('Admin booking list (ACC-17, e2e)', () => {
 
       const res = await list('').expect(200);
 
-      for (const field of ['passengers', 'segments', 'baggage', 'roomsSnapshot']) {
+      for (const field of [
+        'passengers',
+        'segments',
+        'baggage',
+        'roomsSnapshot',
+      ]) {
         expect(res.body.items[0]).not.toHaveProperty(field);
       }
     });
@@ -378,7 +383,9 @@ describe('Admin booking list (ACC-17, e2e)', () => {
           ),
         ).toBe(true);
 
-        const flightsOnly = await list(`?type=${BookingType.FLIGHT}`).expect(200);
+        const flightsOnly = await list(`?type=${BookingType.FLIGHT}`).expect(
+          200,
+        );
         expect(flightsOnly.body.items).toEqual([]);
         expect(flightsOnly.body.meta.totalItems).toBe(0);
       } finally {

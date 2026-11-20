@@ -10,13 +10,19 @@ import { Connection, Model, Types } from 'mongoose';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { ownerFilter } from '../../common/auth/ownership';
-import { BookingStatus, BookingType } from '../../common/bookings/booking-status';
+import {
+  BookingStatus,
+  BookingType,
+} from '../../common/bookings/booking-status';
 import { PLATFORM_CURRENCY } from '../../common/money/money';
 import { PaymentsService } from '../../payments/payments.service';
 import { StripeService } from '../../payments/stripe.service';
 import { ChangeFlightDto } from './dto/change-flight.dto';
 import { fareFor } from './flight-booking-pricing';
-import { SeatInventoryService, SeatChange } from '../seat-inventory/seat-inventory.service';
+import {
+  SeatInventoryService,
+  SeatChange,
+} from '../seat-inventory/seat-inventory.service';
 import { Airline, AirlineStatus } from '../schemas/airline.schema';
 import {
   FlightBooking,
@@ -54,7 +60,11 @@ export class ChangeFlightService {
   ) {}
 
   /** FLT-27: same route + cabin, with the fare difference charged or refunded. */
-  async request(user: AuthenticatedUser, bookingId: string, dto: ChangeFlightDto) {
+  async request(
+    user: AuthenticatedUser,
+    bookingId: string,
+    dto: ChangeFlightDto,
+  ) {
     const booking = await this.owned(user, bookingId);
     if (booking.status !== BookingStatus.CONFIRMED) {
       throw new ConflictException({
@@ -72,7 +82,10 @@ export class ChangeFlightService {
     const index = dto.segmentIndex ?? 0;
     const segment = booking.segments[index];
     if (!segment) {
-      throw new NotFoundException({ code: 'SEGMENT_NOT_FOUND', message: 'Segment not found' });
+      throw new NotFoundException({
+        code: 'SEGMENT_NOT_FOUND',
+        message: 'Segment not found',
+      });
     }
     if (segment.departureAtUtc.getTime() <= Date.now()) {
       throw new ConflictException({
@@ -108,7 +121,8 @@ export class ChangeFlightService {
         message: 'The new flight has no such cabin',
       });
     }
-    const free = newCabin.totalSeats - newCabin.bookedSeats - newCabin.heldSeats;
+    const free =
+      newCabin.totalSeats - newCabin.bookedSeats - newCabin.heldSeats;
     if (free < segment.seatsRequired) {
       throw new ConflictException({
         code: 'SEATS_UNAVAILABLE',
@@ -116,19 +130,32 @@ export class ChangeFlightService {
       });
     }
 
-    const difference = this.fareDifference(booking, segment.cabinPrice, newCabin.price);
+    const difference = this.fareDifference(
+      booking,
+      segment.cabinPrice,
+      newCabin.price,
+    );
     const currency = booking.priceSnapshot?.currency || PLATFORM_CURRENCY;
 
     if (difference.isZero()) {
       await this.apply(booking, index, next, newCabin.price, difference);
-      return { requiresPayment: false, applied: true, amountDifference: '0.00', currency };
+      return {
+        requiresPayment: false,
+        applied: true,
+        amountDifference: '0.00',
+        currency,
+      };
     }
 
     if (difference.isNegative()) {
       // The cheaper flight is taken first: the seats move and the booking
       // records the new price whether or not Stripe answers right away.
       await this.apply(booking, index, next, newCabin.price, difference);
-      const refunded = await this.refundDifference(bookingId, dto.newFlightId, difference.abs());
+      const refunded = await this.refundDifference(
+        bookingId,
+        dto.newFlightId,
+        difference.abs(),
+      );
       return {
         requiresPayment: false,
         applied: true,
@@ -149,7 +176,11 @@ export class ChangeFlightService {
     // pending change.
     const saved = await this.bookingModel
       .updateOne(
-        { _id: booking._id, status: BookingStatus.CONFIRMED, pendingChange: null },
+        {
+          _id: booking._id,
+          status: BookingStatus.CONFIRMED,
+          pendingChange: null,
+        },
         {
           $set: {
             pendingChange: {
@@ -221,13 +252,19 @@ export class ChangeFlightService {
 
   private async owned(user: AuthenticatedUser, id: string) {
     if (!Types.ObjectId.isValid(id)) {
-      throw new NotFoundException({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found' });
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+      });
     }
     const booking = await this.bookingModel
       .findOne({ _id: id, ...ownerFilter(user) })
       .exec();
     if (!booking) {
-      throw new NotFoundException({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found' });
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
+      });
     }
     return booking;
   }
@@ -262,10 +299,14 @@ export class ChangeFlightService {
   ): void {
     const outbound = index === 0 ? next : booking.segments[0];
     const inbound = index === 1 ? next : booking.segments[1];
-    if (inbound && outbound.arrivalAtUtc.getTime() >= inbound.departureAtUtc.getTime()) {
+    if (
+      inbound &&
+      outbound.arrivalAtUtc.getTime() >= inbound.departureAtUtc.getTime()
+    ) {
       throw new BadRequestException({
         code: 'TRIP_ORDER_INVALID',
-        message: 'The outbound flight must arrive before the return flight departs',
+        message:
+          'The outbound flight must arrive before the return flight departs',
       });
     }
   }

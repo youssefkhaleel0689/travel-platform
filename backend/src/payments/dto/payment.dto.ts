@@ -33,7 +33,10 @@ export class PaymentDto {
   })
   amount: string;
 
-  @ApiProperty({ example: 'USD', description: 'Always the platform currency (PAY-04)' })
+  @ApiProperty({
+    example: 'USD',
+    description: 'Always the platform currency (PAY-04)',
+  })
   currency: string;
 
   @ApiProperty({

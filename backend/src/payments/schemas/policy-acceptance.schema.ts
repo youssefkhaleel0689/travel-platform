@@ -29,7 +29,12 @@ export class PolicyAcceptance {
   @Prop({ type: SchemaTypes.ObjectId, required: true })
   bookingId: Types.ObjectId;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: User.name, required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: User.name,
+    required: true,
+    index: true,
+  })
   userId: Types.ObjectId;
 
   @Prop({

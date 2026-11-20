@@ -7,10 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  BookingStatus,
-  BookingType,
-} from '../common/bookings/booking-status';
+import { BookingStatus, BookingType } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { PayableBooking } from '../common/bookings/bookings.port';
 import { PLATFORM_CURRENCY, toDecimal128 } from '../common/money/money';
@@ -304,9 +301,14 @@ export class PaymentsService {
     if (actual === payment.status) {
       return payment;
     }
-    const updated = await this.applyStatus(payment._id, payment.status, actual, {
-      failureMessage: intent.last_payment_error?.message ?? null,
-    });
+    const updated = await this.applyStatus(
+      payment._id,
+      payment.status,
+      actual,
+      {
+        failureMessage: intent.last_payment_error?.message ?? null,
+      },
+    );
     return updated ?? payment;
   }
 
@@ -344,7 +346,10 @@ export class PaymentsService {
         message: `This booking is ${booking.status} and cannot be paid for`,
       });
     }
-    if (booking.holdExpiresAt && booking.holdExpiresAt.getTime() <= Date.now()) {
+    if (
+      booking.holdExpiresAt &&
+      booking.holdExpiresAt.getTime() <= Date.now()
+    ) {
       // The seats or rooms are no longer reserved, so taking money now would
       // sell something the platform does not have.
       throw new ConflictException({

@@ -31,7 +31,10 @@ const TAG_MESSAGE =
   'each tag may contain only letters, digits, spaces, hyphens and underscores';
 
 export class CreatePostDto {
-  @ApiProperty({ example: 'Three days in Luxor', maxLength: POST_TITLE_MAX_LENGTH })
+  @ApiProperty({
+    example: 'Three days in Luxor',
+    maxLength: POST_TITLE_MAX_LENGTH,
+  })
   @Transform(trimText)
   @IsString()
   @IsNotEmpty()
@@ -84,7 +87,9 @@ export class UpdatePostDto {
   @MaxLength(POST_TITLE_MAX_LENGTH)
   title?: string;
 
-  @ApiPropertyOptional({ example: 'Updated: we added a day for the West Bank.' })
+  @ApiPropertyOptional({
+    example: 'Updated: we added a day for the West Bank.',
+  })
   @IsOptional()
   @Transform(trimText)
   @IsString()

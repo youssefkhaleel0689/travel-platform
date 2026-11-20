@@ -107,7 +107,9 @@ export class PostDetailDto {
   @ApiProperty({ example: 'Three days in Luxor' })
   title: string;
 
-  @ApiProperty({ example: 'We started at Karnak at sunrise, before the tour buses...' })
+  @ApiProperty({
+    example: 'We started at Karnak at sunrise, before the tour buses...',
+  })
   body: string;
 
   @ApiProperty({ enum: PostStatus, example: PostStatus.PUBLISHED })

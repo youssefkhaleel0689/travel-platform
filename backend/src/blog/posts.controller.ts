@@ -75,7 +75,10 @@ const IMAGE_ID_PARAM = {
   example: IMAGE_ID,
 };
 
-function postNotFound(path: string, description: string): ApiErrorResponseOptions {
+function postNotFound(
+  path: string,
+  description: string,
+): ApiErrorResponseOptions {
   return {
     status: 404,
     description,
@@ -104,7 +107,10 @@ export class PostsController {
   @ApiErrorResponse(
     validationFailed(POSTS, [
       { field: 'title', messages: ['title should not be empty'] },
-      { field: 'tags', messages: ['tags must contain no more than 5 elements'] },
+      {
+        field: 'tags',
+        messages: ['tags must contain no more than 5 elements'],
+      },
     ]),
   )
   @ApiErrorResponse(unauthenticated(POSTS))
@@ -145,11 +151,15 @@ export class PostsController {
       'count. Posts an admin hid are included and marked HIDDEN.',
   })
   @ApiPaginatedResponse(MyPostDto)
-  @ApiErrorResponse(validationFailed(`${POSTS}/mine`, [
-    { field: 'page', messages: ['page must not be less than 1'] },
-  ]))
+  @ApiErrorResponse(
+    validationFailed(`${POSTS}/mine`, [
+      { field: 'page', messages: ['page must not be less than 1'] },
+    ]),
+  )
   @ApiErrorResponse(unauthenticated(`${POSTS}/mine`))
-  @ApiErrorResponse(forbidden(`${POSTS}/mine`, { role: false, passwordChange: true }))
+  @ApiErrorResponse(
+    forbidden(`${POSTS}/mine`, { role: false, passwordChange: true }),
+  )
   listMine(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: PaginationQueryDto,
@@ -224,17 +234,29 @@ export class PostsController {
   })
   @ApiParam(POST_ID_PARAM)
   @ApiOkResponse({ type: PostDetailDto })
-  @ApiErrorResponse(validationFailed(`${POST}/itinerary`, [
-    { field: 'itineraryId', messages: ['itineraryId must be a MongoDB id'] },
-  ]))
+  @ApiErrorResponse(
+    validationFailed(`${POST}/itinerary`, [
+      { field: 'itineraryId', messages: ['itineraryId must be a MongoDB id'] },
+    ]),
+  )
   @ApiErrorResponse(unauthenticated(`${POST}/itinerary`))
-  @ApiErrorResponse(forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }))
+  @ApiErrorResponse(
+    forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }),
+  )
   @ApiErrorResponse({
     status: 404,
     description: 'No such public itinerary',
-    examples: [{ code: 'ITINERARY_NOT_FOUND', message: 'Public itinerary not found', path: `${POST}/itinerary` }],
+    examples: [
+      {
+        code: 'ITINERARY_NOT_FOUND',
+        message: 'Public itinerary not found',
+        path: `${POST}/itinerary`,
+      },
+    ],
   })
-  @ApiErrorResponse(postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'))
+  @ApiErrorResponse(
+    postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'),
+  )
   attachItinerary(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -251,8 +273,12 @@ export class PostsController {
   @ApiParam(POST_ID_PARAM)
   @ApiOkResponse({ type: PostDetailDto })
   @ApiErrorResponse(unauthenticated(`${POST}/itinerary`))
-  @ApiErrorResponse(forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }))
-  @ApiErrorResponse(postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'))
+  @ApiErrorResponse(
+    forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }),
+  )
+  @ApiErrorResponse(
+    postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'),
+  )
   detachItinerary(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -288,10 +314,14 @@ export class PostsController {
   })
   @ApiParam(POST_ID_PARAM)
   @ApiPaginatedResponse(CommentDto)
-  @ApiErrorResponse(validationFailed(`${POST}/comments`, [
-    { field: 'page', messages: ['page must not be less than 1'] },
-  ]))
-  @ApiErrorResponse(postNotFound(`${POST}/comments`, 'No such post, or you may not see it'))
+  @ApiErrorResponse(
+    validationFailed(`${POST}/comments`, [
+      { field: 'page', messages: ['page must not be less than 1'] },
+    ]),
+  )
+  @ApiErrorResponse(
+    postNotFound(`${POST}/comments`, 'No such post, or you may not see it'),
+  )
   listComments(
     @Param('id') id: string,
     @Query() query: PaginationQueryDto,

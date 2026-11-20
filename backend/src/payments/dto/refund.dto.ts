@@ -25,7 +25,10 @@ export class RefundDto {
   })
   stripeRefundId: string | null;
 
-  @ApiProperty({ example: '210.00', description: 'A string: stored as Decimal128' })
+  @ApiProperty({
+    example: '210.00',
+    description: 'A string: stored as Decimal128',
+  })
   amount: string;
 
   @ApiProperty({ example: 'USD' })

@@ -125,7 +125,10 @@ describe('StripeService (PAY-01)', () => {
 
       expect(attempt).toThrow(
         expect.objectContaining({
-          response: { code: 'INVALID_WEBHOOK_SIGNATURE', message: 'Invalid webhook signature' },
+          response: {
+            code: 'INVALID_WEBHOOK_SIGNATURE',
+            message: 'Invalid webhook signature',
+          },
         }) as never,
       );
     });
@@ -135,7 +138,11 @@ describe('StripeService (PAY-01)', () => {
     const service = serviceWith({ STRIPE_SECRET_KEY: 'sk_test_placeholder' });
 
     function stripeClient(): {
-      paymentIntents: { create: jest.Mock; retrieve: jest.Mock; cancel: jest.Mock };
+      paymentIntents: {
+        create: jest.Mock;
+        retrieve: jest.Mock;
+        cancel: jest.Mock;
+      };
       refunds: { create: jest.Mock };
     } {
       return (service as unknown as { client: never })
@@ -172,14 +179,12 @@ describe('StripeService (PAY-01)', () => {
     // A Stripe outage is not the client's fault, so it must not look like a
     // bad request the client should change.
     it('turns an outage into 503, not 400', async () => {
-      jest
-        .spyOn(stripeClient().paymentIntents, 'create')
-        .mockRejectedValue(
-          new Stripe.errors.StripeConnectionError({
-            type: 'invalid_request_error',
-            message: 'network down',
-          }),
-        );
+      jest.spyOn(stripeClient().paymentIntents, 'create').mockRejectedValue(
+        new Stripe.errors.StripeConnectionError({
+          type: 'invalid_request_error',
+          message: 'network down',
+        }),
+      );
 
       await expect(create()).rejects.toMatchObject({
         response: { code: 'STRIPE_UNAVAILABLE' },
@@ -210,7 +215,10 @@ describe('StripeService (PAY-01)', () => {
     it('sends whole minor units, the platform currency and the booking metadata', async () => {
       const create = jest
         .spyOn(client.paymentIntents, 'create')
-        .mockResolvedValue({ id: 'pi_1', status: 'requires_payment_method' } as never);
+        .mockResolvedValue({
+          id: 'pi_1',
+          status: 'requires_payment_method',
+        } as never);
 
       await service.createPaymentIntent({
         amount: '19.99',

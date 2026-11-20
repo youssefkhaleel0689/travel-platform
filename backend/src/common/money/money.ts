@@ -1,4 +1,7 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Types } from 'mongoose';
 
@@ -65,9 +68,9 @@ export function formatMoney(amount: Decimal | string): string {
  * number of cents and small enough to be exact in a double.
  */
 export function toMinorUnits(amount: string | Decimal): number {
-  const minor = (
-    amount instanceof Decimal ? amount : parseMoney(amount)
-  ).times(MINOR_UNITS_PER_UNIT);
+  const minor = (amount instanceof Decimal ? amount : parseMoney(amount)).times(
+    MINOR_UNITS_PER_UNIT,
+  );
 
   if (!minor.isInteger()) {
     throw new InternalServerErrorException(

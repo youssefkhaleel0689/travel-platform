@@ -14,7 +14,11 @@ import {
 
 // ACC-17, the hotel half of BookingsPort.listForAdmin. Only the booking model
 // and HotelsService.briefs matter here; the casts are done only here.
-function setup(rows: Record<string, unknown>[], total: number, names: Record<string, string>) {
+function setup(
+  rows: Record<string, unknown>[],
+  total: number,
+  names: Record<string, string>,
+) {
   type Chain = {
     sort: jest.Mock<Chain>;
     limit: jest.Mock<Chain>;
@@ -35,7 +39,9 @@ function setup(rows: Record<string, unknown>[], total: number, names: Record<str
   };
   const hotels = {
     briefs: jest.fn(() =>
-      Promise.resolve(new Map(Object.entries(names).map(([id, name]) => [id, { id, name }]))),
+      Promise.resolve(
+        new Map(Object.entries(names).map(([id, name]) => [id, { id, name }])),
+      ),
     ),
   };
   const service = new HotelBookingsService(
@@ -69,7 +75,9 @@ function reservation(overrides: Record<string, unknown> = {}) {
 describe('HotelBookingsService.listForAdminPort (ACC-17)', () => {
   it('maps a reservation to an admin row: stay dates, the amount as a string, the hotel name', async () => {
     const r = reservation();
-    const { service } = setup([r], 1, { [String(r.hotelId)]: 'Nile View Hotel' });
+    const { service } = setup([r], 1, {
+      [String(r.hotelId)]: 'Nile View Hotel',
+    });
 
     const list = await service.listForAdminPort({ limit: 10 });
 
@@ -127,7 +135,11 @@ describe('HotelBookingsService.listForAdminPort (ACC-17)', () => {
   });
 
   it('still lists a reservation whose hotel has gone, with a null name', async () => {
-    const { service } = setup([reservation({ bookingReference: undefined })], 1, {});
+    const { service } = setup(
+      [reservation({ bookingReference: undefined })],
+      1,
+      {},
+    );
 
     const [row] = (await service.listForAdminPort({ limit: 10 })).rows;
 

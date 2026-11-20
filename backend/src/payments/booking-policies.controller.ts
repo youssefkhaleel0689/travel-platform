@@ -14,10 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiErrorResponse } from '../common/swagger/api-error-response.decorator';
-import {
-  forbidden,
-  unauthenticated,
-} from '../common/swagger/standard-errors';
+import { forbidden, unauthenticated } from '../common/swagger/standard-errors';
 import { CurrentUser } from '../common/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { AcceptPoliciesDto } from './dto/accept-policies.dto';
@@ -35,22 +32,34 @@ import { PolicyAcceptancesService } from './policy-acceptances.service';
  */
 @ApiTags('Payments and policies')
 @ApiCookieAuth()
-@ApiErrorResponse(unauthenticated('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'))
-@ApiErrorResponse(forbidden('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'))
+@ApiErrorResponse(
+  unauthenticated('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'),
+)
+@ApiErrorResponse(
+  forbidden('/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies'),
+)
 @ApiErrorResponse({
-    status: 404,
-    description: 'No such booking for this account',
-    examples: [
-      { code: 'NOT_FOUND', message: 'Booking not found', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
-    ],
-  })
+  status: 404,
+  description: 'No such booking for this account',
+  examples: [
+    {
+      code: 'NOT_FOUND',
+      message: 'Booking not found',
+      path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies',
+    },
+  ],
+})
 @ApiErrorResponse({
-    status: 400,
-    description: 'Bad booking type or id, or a body that fails validation',
-    examples: [
-      { code: 'VALIDATION_FAILED', message: 'Bad booking type or id, or a body that fails validation', path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies' },
-    ],
-  })
+  status: 400,
+  description: 'Bad booking type or id, or a body that fails validation',
+  examples: [
+    {
+      code: 'VALIDATION_FAILED',
+      message: 'Bad booking type or id, or a body that fails validation',
+      path: '/api/bookings/hotel/6720f1c2a1b2c3d4e5f60718/policies',
+    },
+  ],
+})
 @Controller('bookings')
 export class BookingPoliciesController {
   constructor(private readonly policies: PolicyAcceptancesService) {}

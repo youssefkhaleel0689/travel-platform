@@ -223,10 +223,23 @@ export class ReviewsService {
    * recompute the hotel's rating, because only VISIBLE reviews count (HTL-24).
    * Deleting is soft: the row keeps moderationState DELETED.
    */
-  async moderate(id: string, to: ModerationState, actorId: string): Promise<ModerationResult | null> {
-    const result = await applyModeration(this.reviewModel as never, id, to, actorId);
+  async moderate(
+    id: string,
+    to: ModerationState,
+    actorId: string,
+  ): Promise<ModerationResult | null> {
+    const result = await applyModeration(
+      this.reviewModel as never,
+      id,
+      to,
+      actorId,
+    );
     if (result?.changed) {
-      const review = await this.reviewModel.findById(id).select('hotelId').lean().exec();
+      const review = await this.reviewModel
+        .findById(id)
+        .select('hotelId')
+        .lean()
+        .exec();
       if (review) await this.recalculateHotelRating(review.hotelId);
     }
     return result;

@@ -27,7 +27,8 @@ export class FlightSeatClaim {
   passengerId: Types.ObjectId;
 }
 
-export const FlightSeatClaimSchema = SchemaFactory.createForClass(FlightSeatClaim);
+export const FlightSeatClaimSchema =
+  SchemaFactory.createForClass(FlightSeatClaim);
 
 FlightSeatClaimSchema.index(
   { flightId: 1, cabinCategory: 1, seatNumber: 1 },

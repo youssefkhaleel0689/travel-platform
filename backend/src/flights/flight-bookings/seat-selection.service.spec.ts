@@ -39,18 +39,27 @@ function booking(inDays = 10, status = BookingStatus.CONFIRMED) {
 
 function setup(
   doc: FlightBookingDocument,
-  options: { existingClaim?: unknown; holderStillConfirmed?: boolean; insertError?: unknown } = {},
+  options: {
+    existingClaim?: unknown;
+    holderStillConfirmed?: boolean;
+    insertError?: unknown;
+  } = {},
 ) {
-  const exec = (value: unknown) => ({ exec: jest.fn().mockResolvedValue(value) });
+  const exec = (value: unknown) => ({
+    exec: jest.fn().mockResolvedValue(value),
+  });
   const bookingModel = {
     findOne: jest.fn().mockReturnValue(exec(doc)),
     exists: jest.fn().mockReturnValue({
-      session: () => exec(options.holderStillConfirmed ? { _id: OTHER_BOOKING } : null),
+      session: () =>
+        exec(options.holderStillConfirmed ? { _id: OTHER_BOOKING } : null),
     }),
   };
   const flightModel = {
     findById: jest.fn().mockReturnValue(
-      exec({ cabinInventory: [{ category: CabinCategory.ECONOMY, totalSeats: 120 }] }),
+      exec({
+        cabinInventory: [{ category: CabinCategory.ECONOMY, totalSeats: 120 }],
+      }),
     ),
   };
   const claimModel = {
@@ -62,7 +71,9 @@ function setup(
       : jest.fn().mockResolvedValue([]),
   };
   const connection = {
-    transaction: jest.fn(async (fn: (s: ClientSession) => Promise<void>) => fn(SESSION)),
+    transaction: jest.fn(async (fn: (s: ClientSession) => Promise<void>) =>
+      fn(SESSION),
+    ),
   };
   const service = new SeatSelectionService(
     bookingModel as unknown as Model<FlightBookingDocument>,
@@ -95,8 +106,14 @@ describe('SeatSelectionService (FLT-28)', () => {
   it('claims a free seat and saves it on the booking', async () => {
     const doc = booking();
     const { service, claimModel } = setup(doc);
-    const result = await service.select(USER, doc._id.toString(), pick('12a'.toUpperCase()));
-    expect(result.seats).toEqual([{ passengerId: PASSENGER_ID.toString(), seatNumber: '12A' }]);
+    const result = await service.select(
+      USER,
+      doc._id.toString(),
+      pick('12a'.toUpperCase()),
+    );
+    expect(result.seats).toEqual([
+      { passengerId: PASSENGER_ID.toString(), seatNumber: '12A' },
+    ]);
     expect(claimModel.insertMany).toHaveBeenCalled();
     expect(doc.save).toHaveBeenCalledWith({ session: SESSION });
   });
@@ -107,33 +124,47 @@ describe('SeatSelectionService (FLT-28)', () => {
       existingClaim: { _id: new Types.ObjectId(), bookingId: OTHER_BOOKING },
       holderStillConfirmed: true,
     });
-    expect(await codeOf(service.select(USER, doc._id.toString(), pick('3C')))).toBe('SEAT_ALREADY_TAKEN');
+    expect(
+      await codeOf(service.select(USER, doc._id.toString(), pick('3C'))),
+    ).toBe('SEAT_ALREADY_TAKEN');
   });
 
   it('takes over a seat whose holder was cancelled or changed', async () => {
     const doc = booking();
     const stale = { _id: new Types.ObjectId(), bookingId: OTHER_BOOKING };
-    const { service, claimModel } = setup(doc, { existingClaim: stale, holderStillConfirmed: false });
+    const { service, claimModel } = setup(doc, {
+      existingClaim: stale,
+      holderStillConfirmed: false,
+    });
     await service.select(USER, doc._id.toString(), pick('3C'));
-    expect(claimModel.deleteOne).toHaveBeenCalledWith({ _id: stale._id }, { session: SESSION });
+    expect(claimModel.deleteOne).toHaveBeenCalledWith(
+      { _id: stale._id },
+      { session: SESSION },
+    );
     expect(claimModel.insertMany).toHaveBeenCalled();
   });
 
   it('turns a lost race (duplicate key) into 409, not 500', async () => {
     const doc = booking();
     const { service } = setup(doc, { insertError: { code: 11000 } });
-    expect(await codeOf(service.select(USER, doc._id.toString(), pick('3C')))).toBe('SEAT_ALREADY_TAKEN');
+    expect(
+      await codeOf(service.select(USER, doc._id.toString(), pick('3C'))),
+    ).toBe('SEAT_ALREADY_TAKEN');
   });
 
   it('refuses seats after departure', async () => {
     const doc = booking(-1);
     const { service } = setup(doc);
-    expect(await codeOf(service.select(USER, doc._id.toString(), pick('3C')))).toBe('SEGMENT_ALREADY_DEPARTED');
+    expect(
+      await codeOf(service.select(USER, doc._id.toString(), pick('3C'))),
+    ).toBe('SEGMENT_ALREADY_DEPARTED');
   });
 
   it('refuses a booking that is not confirmed', async () => {
     const doc = booking(10, BookingStatus.CANCELLED);
     const { service } = setup(doc);
-    expect(await codeOf(service.select(USER, doc._id.toString(), pick('3C')))).toBe('BOOKING_NOT_CONFIRMED');
+    expect(
+      await codeOf(service.select(USER, doc._id.toString(), pick('3C'))),
+    ).toBe('BOOKING_NOT_CONFIRMED');
   });
 });

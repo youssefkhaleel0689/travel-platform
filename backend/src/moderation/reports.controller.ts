@@ -37,7 +37,12 @@ export class ReportsController {
         code: 'VALIDATION_FAILED',
         message: 'Validation failed',
         path: PATH,
-        errors: [{ field: 'details', messages: ['details is required when reason is OTHER'] }],
+        errors: [
+          {
+            field: 'details',
+            messages: ['details is required when reason is OTHER'],
+          },
+        ],
       },
       {
         code: 'CANNOT_REPORT_OWN_CONTENT',
@@ -51,13 +56,19 @@ export class ReportsController {
   @ApiErrorResponse({
     status: 404,
     description: 'No such item, or it is not visible to you',
-    examples: [{ code: 'CONTENT_NOT_FOUND', message: 'Content not found', path: PATH }],
+    examples: [
+      { code: 'CONTENT_NOT_FOUND', message: 'Content not found', path: PATH },
+    ],
   })
   @ApiErrorResponse({
     status: 409,
     description: 'You already reported this item',
     examples: [
-      { code: 'ALREADY_REPORTED', message: 'You have already reported this item', path: PATH },
+      {
+        code: 'ALREADY_REPORTED',
+        message: 'You have already reported this item',
+        path: PATH,
+      },
     ],
   })
   report(
