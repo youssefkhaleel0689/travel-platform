@@ -28,6 +28,9 @@ function user(overrides: Partial<User> = {}): User {
     failedLoginAttempts: 0,
     lockedUntil: null,
     mustChangePassword: false,
+    temporaryPasswordIssuedAt: null,
+    suspendedAt: null,
+    deactivatedAt: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -94,6 +97,8 @@ function setup(
       Promise.resolve(options.passwordMatches ?? true),
     ),
     verifyDummy: jest.fn((_plain: string) => Promise.resolve(false as const)),
+    // ACC-07a: used by resetPasswordToTemporary.
+    generateTemporary: jest.fn(() => 'Tmpabcde12349'),
   };
   const service = new UsersService(
     userModel as unknown as Model<User>,
@@ -168,6 +173,10 @@ describe('UsersService.create (ACC-01, GEN-13)', () => {
         'status',
         'mustChangePassword',
         'createdAt',
+        // ACC-12, ACC-16: when the owner deactivated the account and when an
+        // admin suspended it, so the profile and the admin list can show it.
+        'suspendedAt',
+        'deactivatedAt',
       ].sort(),
     );
     expect(profile.id).toBe(USER_ID.toString());
@@ -558,5 +567,63 @@ describe('UsersService.verifyCredentials lockout tickets (ACC-05)', () => {
       { _id: USER_ID },
       { $set: { failedLoginAttempts: 0, lockedUntil: null } },
     );
+  });
+});
+
+// ACC-05 + ACC-07a: the Leader asked whether an admin password reset should
+// also clear a running lock. It should, and does: the admin has just given the
+// account a new password, so making the person wait out a lockout earned by the
+// old one would be pointless, and there would be no other way to clear it.
+// The same applies to a password change (ACC-08) and to reactivation (ACC-16).
+describe('clearing an ACC-05 lockout', () => {
+  const locked = () =>
+    user({
+      failedLoginAttempts: MAX_FAILED_LOGIN_ATTEMPTS,
+      lockedUntil: new Date(NOW.getTime() + LOCKOUT_DURATION_MS),
+    });
+
+  function updateFor(userModel: { updateOne: jest.Mock }): Record<string, unknown> {
+    const [, update] = userModel.updateOne.mock.calls[0] as [
+      unknown,
+      { $set: Record<string, unknown> },
+    ];
+    return update.$set;
+  }
+
+  it('resetPasswordToTemporary clears the counter and the lock (ACC-07a)', async () => {
+    const { service, userModel } = setup({ stored: locked(), byId: locked() });
+
+    await service.resetPasswordToTemporary(USER_ID.toString(), NOW);
+
+    const set = updateFor(userModel);
+    expect(set.lockedUntil).toBeNull();
+    expect(set.failedLoginAttempts).toBe(0);
+    expect(set.mustChangePassword).toBe(true);
+  });
+
+  it('changeOwnPassword clears them too (ACC-08)', async () => {
+    const { service, userModel } = setup({
+      stored: locked(),
+      byId: locked(),
+      passwordMatches: true,
+    });
+
+    // The current password matches, then the new one differs from it.
+    const passwords = service as unknown as {
+      passwordService: { verify: jest.Mock };
+    };
+    passwords.passwordService.verify
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await service.changeOwnPassword(
+      USER_ID.toString(),
+      'OldPass123',
+      'NewPass123',
+    );
+
+    const set = updateFor(userModel);
+    expect(set.lockedUntil).toBeNull();
+    expect(set.failedLoginAttempts).toBe(0);
   });
 });
