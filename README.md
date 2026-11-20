@@ -70,6 +70,10 @@ Check that it works:
 | `ADMIN_EMAIL` | Only for `npm run seed:admin` | Email of the admin account the seed creates (see "Admin account (ACC-18)"). Not needed to start the app |
 | `ADMIN_PASSWORD` | Only for `npm run seed:admin` | Password of that admin; it must pass the password rules. Not needed to start the app |
 | `ADMIN_NAME` | No | Name of that admin; empty or unset means `Platform Admin`; at most 100 characters |
+| `STRIPE_SECRET_KEY` | For `test:e2e` | Stripe **test mode** secret key (`sk_test_...`). Any placeholder runs the tests, which stand in for Stripe's HTTP API; a real test key is only needed to demonstrate a live payment. Unset, every payment endpoint answers 503 `PAYMENTS_UNAVAILABLE` |
+| `STRIPE_WEBHOOK_SECRET` | For `test:e2e` | Any `whsec_...` value; `stripe listen` prints a real one. The payment e2e suites sign their own deliveries with whatever the app verifies against, so unset they stop with a message saying so, and at runtime every webhook delivery is rejected |
+| `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
+| `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
 
 Generate a `JWT_SECRET` (PowerShell, or any shell with Node) and paste the output after `JWT_SECRET=`:
 
@@ -81,10 +85,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 **Never commit `ADMIN_EMAIL` or `ADMIN_PASSWORD`, and never paste the admin password into any tool, chat or screenshot.**
 
-| `STRIPE_SECRET_KEY` | No | Stripe **test mode** secret key (`sk_test_...`). Without it the payment endpoints answer 503 and everything else works, so only the people demonstrating payments need one |
-| `STRIPE_WEBHOOK_SECRET` | No | The `whsec_...` printed by `stripe listen`. Without it every webhook delivery is rejected, because an unverified event is never trusted |
-| `FXRATES_API_KEY` | No | FXRatesAPI key used by the backend to convert itinerary budgets. Optional, stays on the server |
-| `FXRATES_API_URL` | No | Overrides the FXRatesAPI endpoint, defaults to `https://api.fxratesapi.com/latest` |
+**`npm run test:e2e` needs both Stripe values set to something.** `backend/.env.example` ships placeholders that work, so copying it is enough:
+
+~~~
+STRIPE_SECRET_KEY=sk_test_placeholder
+STRIPE_WEBHOOK_SECRET=whsec_local_test_only
+~~~
+
+Neither is a secret and no request leaves your machine during the tests: the payment suites stand in for Stripe's HTTP API and sign their own webhook deliveries with whatever the app verifies against. Without them the payment suites fail - the webhook ones stop with a message naming the variable, and an unset secret key makes every payment endpoint answer 503 before a test reaches its assertion. The trade-off of the placeholder secret key is that a *real* payment call then reaches Stripe and is refused, so you get 503 `STRIPE_UNAVAILABLE` rather than the clearer 503 `PAYMENTS_UNAVAILABLE`; leave it empty if you prefer the second message and are not running the payment tests.
 
 `.env` is ignored by Git. **Never commit it**, never paste the connection string into an AI tool, a chat, an issue or a pull request. If the password contains special characters (`@`, `#`, `/`), URL-encode them (`@` becomes `%40`).
 
@@ -111,14 +119,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 | `ADMIN_PASSWORD is required` | `ADMIN_PASSWORD` is missing from `backend/.env` or empty |
 | `ADMIN_PASSWORD: password must ...` (for example `ADMIN_PASSWORD: password must contain at least one digit`) | The password breaks the rule named after the colon (see the password rules in "Accounts and authentication"); the value itself is never printed |
 | `ADMIN_EMAIL belongs to a non-admin account (USER) and will not be promoted` (or another role) | That email is already registered as a non-admin account. The seed never promotes an account: use another email for the admin |
-| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
-| `501 BOOKING_TYPE_UNAVAILABLE` | No booking module provides a `BookingsPort` yet; expected until A1 or B2 lands |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Copy it from `.env.example`; `npm run test:e2e` needs it |
+| `501 BOOKING_TYPE_UNAVAILABLE` | A booking type whose module provides no `BookingsPort`. Flights and hotels both provide one now, so this should no longer appear; if it does, that module stopped being `@Global()` and the gateway cannot see its port |
 | `501 PROVIDER_TYPE_UNAVAILABLE` | ACC-13 was asked for a moderator of a provider type whose module is not wired (both airline and hotel are wired now) |
 | `bad auth` | Wrong user or password in the connection string |
 | `ENOTFOUND` | Wrong host in the connection string |
 | `querySrv ECONNREFUSED` | Your machine's DNS resolver will not answer the SRV lookup `mongodb+srv://` needs. Use the non-SRV form of the string (`mongodb://host1,host2,host3/db?replicaSet=...&authSource=admin&ssl=true`) in your own `.env` |
 | `Cannot GET /` | Expected: all routes start with `/api` |
-| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set; expected unless you are working on payments |
+| `503 PAYMENTS_UNAVAILABLE` | `STRIPE_SECRET_KEY` is not set. Copy it from `.env.example`; `npm run test:e2e` needs it |
 
 ## API error format
 
@@ -1518,21 +1526,51 @@ await this.refunds.issueForCancellation({
 
 ### Environment and running it locally
 
-`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **optional**: without them every other module works normally and only the payment endpoints answer 503 `PAYMENTS_UNAVAILABLE`, so a teammate who is not working on payments does not need a Stripe account. Use test-mode keys only, never a live key.
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` need **no Stripe account**: the placeholders in `.env.example` run the app and the whole test suite, and only a real demonstration of a live payment needs test-mode keys of your own. `npm run test:e2e` does need both set to something (see "Environment variables"). Use test-mode keys only, never a live key.
 
-To demonstrate a payment end to end, forward Stripe's webhooks to the local server and copy the `whsec_` it prints into `.env`:
+To demonstrate a payment end to end against Stripe itself:
+
+**What it needs.** A real Stripe **test-mode** secret key in `backend/.env` (the
+`sk_test_placeholder` from `.env.example` cannot reach Stripe, so payments answer
+503), and the Stripe CLI: `npm install -g @stripe/cli`, Stripe's own package. Sign
+the CLI in with `stripe login`, or give it the key in a `STRIPE_API_KEY`
+environment variable.
+
+**1. Get the webhook signing secret** and put it in `backend/.env` as
+`STRIPE_WEBHOOK_SECRET`, then restart the server:
 
 ~~~
-stripe listen --forward-to localhost:3000/api/payments/webhook
+stripe listen --print-secret
 ~~~
 
-Then confirm the PaymentIntent with a test card, using the `clientSecret` from `POST /api/payments`:
+**2. Forward Stripe's webhooks** to the local server, and leave this running:
 
 ~~~
-stripe payment_intents confirm pi_xxx --payment-method pm_card_visa
+stripe listen --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled --forward-to localhost:3000/api/payments/webhook
 ~~~
 
-The booking is confirmed when the webhook arrives, not when the command returns. `POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
+`--events` is not optional any more: current CLIs refuse to start without it
+(`must specify events to forward using --events`). These three are the ones the
+webhook handles.
+
+**3. Pay**, with the `stripePaymentIntentId` that `POST /api/payments` returns:
+
+~~~
+stripe payment_intents confirm pi_xxx --payment-method=pm_card_visa --return-url=https://example.com/return
+~~~
+
+`--return-url` is required too. Our PaymentIntents use automatic payment methods,
+and Stripe refuses to confirm one of those without it (`you must provide a
+return_url`); a card never actually redirects there.
+
+The booking is confirmed when the webhook arrives — the `stripe listen` window
+logs `[200] POST .../api/payments/webhook` — not when the command returns.
+
+**To see a refund as well**, cancel the confirmed booking. A refund is only created
+for a non-zero tier, and a hotel with no cancellation policy refunds 0%, so pick one
+that has tiers and book far enough ahead to be inside one.
+
+`POST /api/payments/webhook` is excluded from Swagger on purpose: a request without Stripe's signature can only ever fail, so a "Try it out" button would be misleading.
 
 ### Tests
 
