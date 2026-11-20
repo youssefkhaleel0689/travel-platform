@@ -860,3 +860,67 @@ describe('FlightBookingsService.eTicket (FLT-23)', () => {
     });
   });
 });
+
+describe('FlightBookingsService.findUserIdsWithUpcomingConfirmedFlights (ACC-15)', () => {
+  const AIRLINE = new Types.ObjectId();
+
+  function readerSetup(userIds: Types.ObjectId[]) {
+    const bookingModel = {
+      distinct: jest.fn(() => ({ exec: () => Promise.resolve(userIds) })),
+      updateOne: jest.fn(),
+      updateMany: jest.fn(),
+      findOneAndUpdate: jest.fn(),
+    };
+    const service = new FlightBookingsService(
+      {} as unknown as Model<Flight>,
+      {} as unknown as Model<Airline>,
+      bookingModel as unknown as Model<FlightBooking>,
+      {} as unknown as Connection,
+      {} as unknown as SeatInventoryService,
+      {} as unknown as ReferenceDataService,
+      {} as unknown as FlightBookingPolicyReader,
+    );
+    return { service, bookingModel };
+  }
+
+  it('returns the distinct users of CONFIRMED bookings with a future segment of the airline', async () => {
+    const first = new Types.ObjectId();
+    const second = new Types.ObjectId();
+    const { service, bookingModel } = readerSetup([first, second]);
+
+    const ids = await service.findUserIdsWithUpcomingConfirmedFlights(
+      AIRLINE.toString(),
+    );
+
+    expect(ids).toEqual([first.toString(), second.toString()]);
+    // The airline and the future departure must hold for the SAME segment.
+    expect(bookingModel.distinct).toHaveBeenCalledWith('userId', {
+      status: BookingStatus.CONFIRMED,
+      segments: {
+        $elemMatch: {
+          airlineId: AIRLINE,
+          departureAtUtc: { $gt: expect.any(Date) },
+        },
+      },
+    });
+  });
+
+  it('only reads: no booking is changed (confirmed bookings remain valid)', async () => {
+    const { service, bookingModel } = readerSetup([]);
+
+    expect(
+      await service.findUserIdsWithUpcomingConfirmedFlights(AIRLINE.toString()),
+    ).toEqual([]);
+    expect(bookingModel.updateOne).not.toHaveBeenCalled();
+    expect(bookingModel.updateMany).not.toHaveBeenCalled();
+    expect(bookingModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns [] for a malformed id without querying', async () => {
+    const { service, bookingModel } = readerSetup([]);
+    expect(
+      await service.findUserIdsWithUpcomingConfirmedFlights('nope'),
+    ).toEqual([]);
+    expect(bookingModel.distinct).not.toHaveBeenCalled();
+  });
+});

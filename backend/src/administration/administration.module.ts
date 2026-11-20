@@ -6,13 +6,17 @@ import {
   HOTEL_MODERATOR_ASSIGNMENT_PORT,
 } from '../common/providers/moderator-assignment.port';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
+import { FlightBookingsModule } from '../flights/flight-bookings/flight-bookings.module';
 import { FlightsModule } from '../flights/flights.module';
+import { HotelBookingsModule } from '../hotel-bookings/hotel-bookings.module';
 import { HotelsModule } from '../hotels/hotels.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AdminAccountsController } from './admin-accounts.controller';
 import { AdminAccountsService } from './admin-accounts.service';
 import { AdminModeratorsController } from './admin-moderators.controller';
 import { AdminModeratorsService } from './admin-moderators.service';
+import { AdminProvidersController } from './admin-providers.controller';
+import { AdminProvidersService } from './admin-providers.service';
 import { AirlineModeratorAssignmentAdapter } from './airline-moderator-assignment.adapter';
 import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.adapter';
 
@@ -27,6 +31,11 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
  * so it goes through the services those modules export rather than the
  * collections.
  *
+ * ACC-15's provider half (AdminProvidersService) works the same way: the status
+ * change is HotelsService / AirlinesService's own, and the users to notify come
+ * from the read-only methods HotelBookingsModule and FlightBookingsModule
+ * export. Neither of those imports this module, so there is no cycle.
+ *
  * ModeratorAssignmentsGateway is provided here rather than in a module of its
  * own under common/, which is where BookingsGateway lives. That is on purpose:
  * BookingsModule exists because two modules consume it (auth for ACC-12 and
@@ -39,12 +48,20 @@ import { HotelModeratorAssignmentAdapter } from './hotel-moderator-assignment.ad
     NotificationsModule,
     FlightsModule,
     HotelsModule,
+    // ACC-15: who holds upcoming bookings with a provider (read-only).
+    HotelBookingsModule,
+    FlightBookingsModule,
     AuditModule,
   ],
-  controllers: [AdminAccountsController, AdminModeratorsController],
+  controllers: [
+    AdminAccountsController,
+    AdminModeratorsController,
+    AdminProvidersController,
+  ],
   providers: [
     AdminAccountsService,
     AdminModeratorsService,
+    AdminProvidersService,
     ModeratorAssignmentsGateway,
     {
       provide: AIRLINE_MODERATOR_ASSIGNMENT_PORT,

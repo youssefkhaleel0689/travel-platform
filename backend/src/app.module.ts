@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AdministrationModule } from './administration/administration.module';
 import { AuditModule } from './audit/audit.module';
 import { BlogModule } from './blog/blog.module';
+import { ModerationModule } from './moderation/moderation.module';
 import { AuthModule } from './auth/auth.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
@@ -15,6 +16,7 @@ import { HotelsModule } from './hotels/hotels.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ItinerariesModule } from './itineraries/itineraries.module';
+import { ItineraryHotelsModule } from './itineraries/itinerary-hotels/itinerary-hotels.module';
 
 // B2 (Hotel side) — feature modules live flat in src/.
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
@@ -61,8 +63,12 @@ import { ReviewsModule } from './reviews/reviews.module';
     ItinerariesModule,
     // ITN-26: flight search from an itinerary (needs FlightsModule and ItinerariesModule).
     ItineraryFlightsModule,
+    // ITN-25: hotel search from an itinerary's city group (needs HotelSearchModule and ItinerariesModule).
+    ItineraryHotelsModule,
     AuditModule,
     BlogModule,
+    // D2: reports and admin moderation (GEN-09, GEN-10).
+    ModerationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

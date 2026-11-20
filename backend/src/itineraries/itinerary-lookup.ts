@@ -6,6 +6,7 @@ import {
   Itinerary,
   ItineraryDay,
   ItineraryDocument,
+  NOT_DELETED,
 } from './schemas/itinerary.schema';
 
 const OBJECT_ID = /^[0-9a-f]{24}$/i;
@@ -37,6 +38,7 @@ export async function findOwnedByChildOrThrow(
   const doc = await model
     .findOne({
       ...ownerFilter(user),
+      ...NOT_DELETED,
       [path]: new Types.ObjectId(childId),
     })
     .exec();

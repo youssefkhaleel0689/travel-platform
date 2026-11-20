@@ -158,6 +158,33 @@ export class FlightBookingsService {
   }
 
   /**
+   * ACC-15: the distinct users holding a CONFIRMED booking with a segment of this airline
+   * that has not departed yet, so the admin module can tell them their booking stays
+   * valid when the airline is deactivated. Read-only: it never changes a booking. The
+   * airline is read from segments[].airlineId (each flight's own airline at booking
+   * time), not from the policy snapshot, which holds only the outbound airline.
+   */
+  async findUserIdsWithUpcomingConfirmedFlights(
+    airlineId: string,
+  ): Promise<string[]> {
+    if (!Types.ObjectId.isValid(airlineId)) {
+      return [];
+    }
+    const userIds = await this.bookingModel
+      .distinct('userId', {
+        status: BookingStatus.CONFIRMED,
+        segments: {
+          $elemMatch: {
+            airlineId: new Types.ObjectId(airlineId),
+            departureAtUtc: { $gt: new Date() },
+          },
+        },
+      })
+      .exec();
+    return userIds.map((id) => id.toString());
+  }
+
+  /**
    * FLT-23: the e-ticket of one of the caller's bookings, as a PDF. Only a CONFIRMED or
    * COMPLETED booking has one: before payment there is no ticket, and a cancelled or
    * expired booking no longer flies. Built on every download from the booking itself, so

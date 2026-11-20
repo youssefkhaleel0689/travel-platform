@@ -1,5 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import {
+  MODERATION_STATES,
+  ModerationState,
+} from '../../common/moderation/moderation-state';
 
 export enum Visibility {
   PRIVATE = 'private',
@@ -149,6 +153,27 @@ export class Itinerary {
   @Prop({ type: ClonedFromSchema })
   clonedFrom?: ClonedFrom;
 
+  // GEN-10: set by admin moderation. Itineraries saved before this field
+  // existed have no value, so queries treat a missing state as VISIBLE.
+  @Prop({
+    type: String,
+    enum: MODERATION_STATES,
+    default: ModerationState.VISIBLE,
+  })
+  moderationState?: ModerationState;
+
+  @Prop({ type: Date, default: null })
+  hiddenAt?: Date | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  hiddenBy?: Types.ObjectId | null;
+
+  @Prop({ type: Date, default: null })
+  deletedAt?: Date | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  deletedBy?: Types.ObjectId | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,3 +181,12 @@ export class Itinerary {
 export type ItineraryDocument = HydratedDocument<Itinerary>;
 export const ItinerarySchema = SchemaFactory.createForClass(Itinerary);
 ItinerarySchema.index({ userId: 1, updatedAt: -1 });
+
+// Public listings skip hidden and deleted itineraries; owners only lose
+// deleted ones.
+export const PUBLICLY_VISIBLE = {
+  moderationState: { $nin: [ModerationState.HIDDEN, ModerationState.DELETED] },
+};
+export const NOT_DELETED = {
+  moderationState: { $ne: ModerationState.DELETED },
+};

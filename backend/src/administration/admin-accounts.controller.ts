@@ -39,8 +39,8 @@ import { TemporaryPasswordDto } from './dto/temporary-password.dto';
  * AuthenticatedGuard must come first: it is what puts the account on the
  * request for RolesGuard to check.
  *
- * Provider deactivation (PATCH /api/admin/providers/...) is a separate part of
- * ACC-15 and needs the airlines and hotels collections, so it is not here.
+ * Provider deactivation (PATCH /api/admin/providers/...) is the other part of
+ * ACC-15 and lives in AdminProvidersController.
  */
 @ApiTags('Administration')
 @ApiCookieAuth()

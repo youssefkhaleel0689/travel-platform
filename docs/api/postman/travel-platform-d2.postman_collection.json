@@ -1,0 +1,1607 @@
+{
+  "info": {
+    "name": "Travel Platform - D2 (blog, uploads, moderation, audit)",
+    "description": "Manual test collection for BLG-01 to BLG-10, BLG-12, GEN-07 to GEN-10. Run the folders in order with the Collection Runner, or request by request. Authentication is the httpOnly cookie: each folder starts with its own sign-in. Folder 20 needs you to choose an image file. Folder 40 needs the seeded admin's credentials in the collection variables (never commit them). See docs/api/POSTMAN-D2.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 Accounts for the run",
+      "description": "Registers the two D2 test accounts (test_ prefix, as the shared-database rules require).",
+      "item": [
+        {
+          "name": "Register the author (201, or 409 if it already exists)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "ACC-01. Run once; 409 EMAIL_ALREADY_REGISTERED on later runs is fine.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"D2 Test Author\",\n  \"email\": \"{{authorEmail}}\",\n  \"password\": \"{{authorPassword}}\",\n  \"acceptTerms\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 or 409', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register the reader (201, or 409 if it already exists)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "ACC-01. Run once; 409 EMAIL_ALREADY_REGISTERED on later runs is fine.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"D2 Test Reader\",\n  \"email\": \"{{readerEmail}}\",\n  \"password\": \"{{readerPassword}}\",\n  \"acceptTerms\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 or 409', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "10 Posts as the author (BLG-01 to BLG-04, BLG-08)",
+      "item": [
+        {
+          "name": "Sign in as the author",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Stores the author's httpOnly cookie in Postman's cookie jar; every later request sends it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{authorEmail}}\",\n  \"password\": \"{{authorPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json(); const id = (b.user && b.user.id) || b.id; if (id) pm.collectionVariables.set('authorId', id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01 Create a DRAFT (BLG-01)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts"
+              ]
+            },
+            "description": "Saves postId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Three days in Luxor {{runTag}}\",\n  \"body\": \"We started at Karnak at sunrise, before the tour buses arrived.\",\n  \"tags\": [\n    \"Egypt\",\n    \" egypt \",\n    \"Nile  Cruise\"\n  ],\n  \"status\": \"DRAFT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 '.trim(), () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('draft, never published', () => { pm.expect(b.status).to.eql('DRAFT'); pm.expect(b.publishedAt).to.eql(null); });",
+                  "pm.test('tags normalised (BLG-08)', () => pm.expect(b.tags).to.eql(['egypt', 'nile cruise']));",
+                  "pm.collectionVariables.set('postId', b.id);"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get('runTag')) pm.collectionVariables.set('runTag', 'zq' + Date.now().toString(36));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Six tags are refused (BLG-08)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts"
+              ]
+            },
+            "description": "400 with a field error on tags.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Too many tags\",\n  \"body\": \"x\",\n  \"status\": \"DRAFT\",\n  \"tags\": [\n    \"a\",\n    \"b\",\n    \"c\",\n    \"d\",\n    \"e\",\n    \"f\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 '.trim(), () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));",
+                  "pm.test('error on tags', () => pm.expect(pm.response.json().errors.map(e => e.field)).to.include('tags'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 My posts include the draft (BLG-03)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/mine",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "mine"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('draft listed', () => pm.expect(pm.response.json().items.map(p => p.id)).to.include(pm.collectionVariables.get('postId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Publish it (BLG-04)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PUBLISHED\",\n  \"tags\": [\n    \"egypt\",\n    \"luxor\",\n    \"{{runTag}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('published with a date', () => { pm.expect(pm.response.json().status).to.eql('PUBLISHED'); pm.expect(pm.response.json().publishedAt).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Empty edit is refused",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 '.trim(), () => pm.response.to.have.status(400));",
+                  "pm.test('code NOTHING_TO_UPDATE', () => pm.expect(pm.response.json().code).to.eql('NOTHING_TO_UPDATE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "20 Images as the author (BLG-10, GEN-08)",
+      "description": "Before running: open request 01, Body > form-data, and choose a JPG or PNG file for the key 'file'. Then try request 03 with a .gif, .txt or a file over 5 MB.",
+      "item": [
+        {
+          "name": "01 Upload an image (choose a JPG/PNG first)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/images",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "images"
+              ]
+            },
+            "description": "Multipart field 'file'. Saves imageUrl.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a JPG or PNG of at most 5 MB"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 '.trim(), () => pm.response.to.have.status(201));",
+                  "const b = pm.response.json();",
+                  "pm.test('served by URL', () => pm.expect(b.url).to.include('/images/'));",
+                  "pm.collectionVariables.set('imageId', b.id);",
+                  "pm.collectionVariables.set('imageUrl', b.url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Download it",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/images/{{imageId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "images",
+                "{{imageId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('image content type', () => pm.expect(pm.response.headers.get('Content-Type')).to.match(/image\\/(png|jpeg)/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 A non-image is refused (choose a .txt or .gif)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/images",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "images"
+              ]
+            },
+            "description": "Expect 400 INVALID_FILE_TYPE (or FILE_TOO_LARGE for a file over 5 MB). The type is checked on the bytes, so renaming a file to .png does not help.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Pick a JPG or PNG of at most 5 MB"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 '.trim(), () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "30 Reader: likes, comments, search, reports (BLG-02, 05 to 09, 12, GEN-09)",
+      "item": [
+        {
+          "name": "Sign in as the reader",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Stores the reader's httpOnly cookie in Postman's cookie jar; every later request sends it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{readerEmail}}\",\n  \"password\": \"{{readerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01 Open the post (BLG-02)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('page fields', () => { pm.expect(b).to.include.keys('title','author','body','tags','images','likeCount','comments'); pm.expect(b.isAuthor).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Like it (BLG-06)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "like"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('liked once', () => pm.expect(pm.response.json()).to.include({liked: true, likeCount: 1}));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Like it again: still 1 (BLG-06)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "like"
+              ]
+            },
+            "description": "The unique (postId, userId) index makes a second like a no-op."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('still 1', () => pm.expect(pm.response.json().likeCount).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Comment (BLG-05)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "comments"
+              ]
+            },
+            "description": "Saves commentId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Great tips! Did you need a guide inside the tombs?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 '.trim(), () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('commentId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 A 501-character comment is refused (BLG-05)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}",
+                "comments"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 '.trim(), () => pm.response.to.have.status(400));",
+                  "pm.test('code VALIDATION_FAILED', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_FAILED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Edit the comment (BLG-07)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/comments/{{commentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "comments",
+                "{{commentId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Great tips! Edited.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('marked edited', () => pm.expect(pm.response.json().edited).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 The reader cannot edit the author's post (ACC-11)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": "Another user's post answers the same 404 as a missing one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Mine now\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 '.trim(), () => pm.response.to.have.status(404));",
+                  "pm.test('code POST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('POST_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 Search by keyword (BLG-09)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts?keyword={{runTag}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "{{runTag}}"
+                }
+              ]
+            },
+            "description": "Ranked by likes + comments, newest first on a tie."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('found', () => pm.expect(pm.response.json().items.map(p => p.id)).to.include(pm.collectionVariables.get('postId')));",
+                  "pm.test('has excerpt', () => pm.expect(pm.response.json().items[0]).to.have.property('excerpt'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 Search with no results (BLG-09)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts?keyword={{runTag}}nothing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "{{runTag}}nothing"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('empty page', () => pm.expect(pm.response.json().meta.totalItems).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10 Tag page, any letter case (BLG-08)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tags/EGYPT/posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tags",
+                "EGYPT",
+                "posts"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('found', () => pm.expect(pm.response.json().items.map(p => p.id)).to.include(pm.collectionVariables.get('postId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11 Author page (BLG-12)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/authors/{{authorId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "authors",
+                "{{authorId}}"
+              ]
+            },
+            "description": "authorId is saved when folder 10 signs the author in."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('posts listed', () => pm.expect(pm.response.json().posts.items.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12 Report the post (GEN-09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ]
+            },
+            "description": "Saves reportId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetType\": \"post\",\n  \"targetId\": \"{{postId}}\",\n  \"reason\": \"SPAM\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 '.trim(), () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('reportId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13 Report it again: 409 (GEN-09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetType\": \"POST\",\n  \"targetId\": \"{{postId}}\",\n  \"reason\": \"SPAM\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 '.trim(), () => pm.response.to.have.status(409));",
+                  "pm.test('code ALREADY_REPORTED', () => pm.expect(pm.response.json().code).to.eql('ALREADY_REPORTED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14 Report the author's comment? Own comment: 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ]
+            },
+            "description": "The reader wrote this comment, so it is their own content.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetType\": \"comment\",\n  \"targetId\": \"{{commentId}}\",\n  \"reason\": \"OTHER\",\n  \"details\": \"test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 '.trim(), () => pm.response.to.have.status(400));",
+                  "pm.test('code CANNOT_REPORT_OWN_CONTENT', () => pm.expect(pm.response.json().code).to.eql('CANNOT_REPORT_OWN_CONTENT'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15 Non-admin cannot see reports (403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 '.trim(), () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "40 Admin moderation and audit log (GEN-07, GEN-10)",
+      "description": "Needs a seeded admin (npm run seed:admin); set adminEmail and adminPassword in the collection variables. Never put them in a file you commit.",
+      "item": [
+        {
+          "name": "Sign in as the admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Stores the admin's httpOnly cookie in Postman's cookie jar; every later request sends it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01 Open reports (GEN-10)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports?status=OPEN",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "OPEN"
+                }
+              ]
+            },
+            "description": "Oldest first."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('our report is open', () => pm.expect(pm.response.json().items.map(r => r.id)).to.include(pm.collectionVariables.get('reportId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02 Resolve it: HIDE",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/{{reportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "{{reportId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"HIDE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('report closed as HIDDEN', () => pm.expect(pm.response.json().status).to.eql('HIDDEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03 Resolving twice: 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reports/{{reportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "reports",
+                "{{reportId}}"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"DISMISS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 '.trim(), () => pm.response.to.have.status(409));",
+                  "pm.test('code REPORT_ALREADY_RESOLVED', () => pm.expect(pm.response.json().code).to.eql('REPORT_ALREADY_RESOLVED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04 Audit log shows CONTENT_HIDDEN (GEN-07)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs?entityId={{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "entityId",
+                  "value": "{{postId}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "const row = pm.response.json().items[0];",
+                  "pm.test('hidden by this admin', () => { pm.expect(row.action).to.eql('CONTENT_HIDDEN'); pm.expect(row.before.moderationState).to.eql('VISIBLE'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05 Restore the post",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/content/post/{{postId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "content",
+                "post",
+                "{{postId}}",
+                "restore"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('visible again', () => pm.expect(pm.response.json()).to.include({before: 'HIDDEN', after: 'VISIBLE', changed: true}));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06 Hide the comment directly",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/content/comment/{{commentId}}/hide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "content",
+                "comment",
+                "{{commentId}}",
+                "hide"
+              ]
+            },
+            "description": "The post's commentCount drops by one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07 Delete the post directly (soft delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/content/post/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "content",
+                "post",
+                "{{postId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));",
+                  "pm.test('deleted', () => pm.expect(pm.response.json().after).to.eql('DELETED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08 A deleted post cannot be restored: 409",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/content/post/{{postId}}/restore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "content",
+                "post",
+                "{{postId}}",
+                "restore"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 '.trim(), () => pm.response.to.have.status(409));",
+                  "pm.test('code INVALID_MODERATION_CHANGE', () => pm.expect(pm.response.json().code).to.eql('INVALID_MODERATION_CHANGE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "09 The whole audit log (GEN-07)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ]
+            },
+            "description": "Newest first, 10 per page."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "50 Author after moderation",
+      "item": [
+        {
+          "name": "Sign in as the author",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Stores the author's httpOnly cookie in Postman's cookie jar; every later request sends it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{authorEmail}}\",\n  \"password\": \"{{authorPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 '.trim(), () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01 The deleted post is gone for its author too",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 '.trim(), () => pm.response.to.have.status(404));",
+                  "pm.test('code POST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('POST_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "authorEmail",
+      "value": "test_d2_author@example.com"
+    },
+    {
+      "key": "authorPassword",
+      "value": "ManualTest123"
+    },
+    {
+      "key": "readerEmail",
+      "value": "test_d2_reader@example.com"
+    },
+    {
+      "key": "readerPassword",
+      "value": "ManualTest123"
+    },
+    {
+      "key": "adminEmail",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "runTag",
+      "value": ""
+    },
+    {
+      "key": "authorId",
+      "value": ""
+    },
+    {
+      "key": "postId",
+      "value": ""
+    },
+    {
+      "key": "imageId",
+      "value": ""
+    },
+    {
+      "key": "imageUrl",
+      "value": ""
+    },
+    {
+      "key": "commentId",
+      "value": ""
+    },
+    {
+      "key": "reportId",
+      "value": ""
+    }
+  ]
+}

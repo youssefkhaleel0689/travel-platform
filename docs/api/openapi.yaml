@@ -6267,6 +6267,93 @@ paths:
       summary: One of your flight bookings (FLT-22, ACC-11)
       tags:
         - Flight bookings
+  /api/flight-bookings/{id}/e-ticket:
+    get:
+      description: A PDF with the booking reference, the flights in local times, the passengers (document numbers masked), the baggage, the price and the cancellation policy. Only for your own booking once it is CONFIRMED (or COMPLETED). Generated on every download from the booking itself.
+      operationId: FlightBookingsController_eTicket
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The e-ticket, downloaded as e-ticket-<reference>.pdf
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/e-ticket
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/e-ticket
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/e-ticket
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such booking, or it belongs to another account (BOOKING_NOT_FOUND)
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: BOOKING_NOT_FOUND
+                error: Not Found
+                message: Booking not found
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/e-ticket
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The booking is not paid yet, or it was cancelled or expired (TICKET_NOT_AVAILABLE)
+          content:
+            application/pdf:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: TICKET_NOT_AVAILABLE
+                error: Conflict
+                message: The e-ticket is available once the booking is paid and confirmed
+                path: /api/flight-bookings/6720f1c2a1b2c3d4e5f60720/e-ticket
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - access_token: []
+      summary: Download the e-ticket of a confirmed booking (FLT-23)
+      tags:
+        - Flight bookings
   /api/admin/accounts:
     get:
       description: Pages of 10, newest registration first (GEN-05). search matches a fragment of the name or the email, case-insensitively and literally; role and status narrow the list further.
@@ -6777,6 +6864,432 @@ paths:
       security:
         - cookie: []
       summary: Create an airline or hotel moderator account (ACC-13)
+      tags:
+        - Administration
+  /api/admin/providers/{type}/{id}/deactivate:
+    patch:
+      description: Its listings are hidden from search and cannot be booked; existing CONFIRMED bookings stay valid and are not changed. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_deactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_DEACTIVATED:
+                  summary: Hotel is already deactivated
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Hotel is already deactivated
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_DEACTIVATED:
+                  summary: Airline is already deactivated
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_DEACTIVATED
+                    error: Conflict
+                    message: Airline is already deactivated
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/deactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Deactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
+  /api/admin/providers/{type}/{id}/reactivate:
+    patch:
+      description: Its listings can be searched and booked again. The change is written to the audit log (GEN-07), and its moderators and the users with an upcoming confirmed booking get an in-app notification (GEN-01).
+      operationId: AdminProvidersController_reactivate
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: Which kind of provider the id names
+          schema:
+            enum:
+              - hotel
+              - airline
+            type: string
+            example: hotel
+        - name: id
+          required: true
+          in: path
+          description: The hotel or airline id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60788
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProviderStatusDto'
+        '400':
+          description: type is not hotel or airline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - type must be hotel or airline
+                path: /api/admin/providers/train/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No hotel or airline with this id, or a malformed id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_NOT_FOUND:
+                  summary: Hotel not found
+                  value:
+                    statusCode: 404
+                    code: HOTEL_NOT_FOUND
+                    error: Not Found
+                    message: Hotel not found
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_NOT_FOUND:
+                  summary: Airline not found
+                  value:
+                    statusCode: 404
+                    code: AIRLINE_NOT_FOUND
+                    error: Not Found
+                    message: Airline not found
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The provider is already active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                HOTEL_ALREADY_ACTIVE:
+                  summary: Hotel is already active
+                  value:
+                    statusCode: 409
+                    code: HOTEL_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Hotel is already active
+                    path: /api/admin/providers/hotel/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                AIRLINE_ALREADY_ACTIVE:
+                  summary: Airline is already active
+                  value:
+                    statusCode: 409
+                    code: AIRLINE_ALREADY_ACTIVE
+                    error: Conflict
+                    message: Airline is already active
+                    path: /api/admin/providers/airline/6720f1c2a1b2c3d4e5f60788/reactivate
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Reactivate a hotel or an airline (ACC-15)
+      tags:
+        - Administration
+  /api/admin/audit-logs:
+    get:
+      description: 'Newest first, pages of 10 (GEN-05). Suspensions, reactivations, password resets, moderator creation, provider deactivation and every moderation decision (hide, restore, delete, dismiss) are recorded. Read-only: rows can never be changed or removed.'
+      operationId: AuditLogsController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: action
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - ACCOUNT_SUSPENDED
+              - ACCOUNT_REACTIVATED
+              - ACCOUNT_PASSWORD_RESET
+              - MODERATOR_CREATED
+              - PROVIDER_DEACTIVATED
+              - PROVIDER_REACTIVATED
+              - CONTENT_HIDDEN
+              - CONTENT_RESTORED
+              - CONTENT_DELETED
+              - REPORT_DISMISSED
+        - name: entityType
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - ACCOUNT
+              - HOTEL
+              - AIRLINE
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+              - REPORT
+        - name: entityId
+          required: false
+          in: query
+          description: Only rows about this post, comment, account, ...
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: actorId
+          required: false
+          in: query
+          description: Only rows written by this admin
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60701
+            type: string
+        - name: from
+          required: false
+          in: query
+          description: Only rows at or after this instant (ISO 8601)
+          schema:
+            format: date-time
+            example: '2026-11-01T00:00:00.000Z'
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: Only rows at or before this instant (ISO 8601)
+          schema:
+            format: date-time
+            example: '2026-11-30T23:59:59.999Z'
+            type: string
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLogDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: action
+                    messages:
+                      - 'action must be one of the following values: ...'
+                path: /api/admin/audit-logs
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/audit-logs
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/audit-logs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/audit-logs
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List the audit log of admin actions (GEN-07)
       tags:
         - Administration
   /api/bookings/{type}/{id}/policies:
@@ -9487,6 +10000,2398 @@ paths:
       summary: Latest exchange rates used for budget conversion (ITN-18)
       tags:
         - Exchange Rates
+  /api/itineraries/{id}/flights:
+    get:
+      description: One way or round trip from originAirportId to any airport in the city of the itinerary's first day. departureDate defaults to the itinerary's start date and returnDate (ROUND_TRIP only) to its last day's date. Passengers, cabin, price range, sorting and paging work as in GET /api/flights/search, which this reuses.
+      operationId: ItineraryFlightsController_search
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: tripType
+          required: false
+          in: query
+          schema:
+            default: ONE_WAY
+            type: string
+            enum:
+              - ONE_WAY
+              - ROUND_TRIP
+        - name: adults
+          required: false
+          in: query
+          description: Passengers aged 12 or more.
+          schema:
+            minimum: 1
+            maximum: 9
+            default: 1
+            type: integer
+        - name: children
+          required: false
+          in: query
+          description: Passengers aged 2 to 11. adults + children is at most 9.
+          schema:
+            minimum: 0
+            default: 0
+            type: integer
+        - name: infants
+          required: false
+          in: query
+          description: Passengers under 2. They sit on an adult's lap, so there are at most as many infants as adults.
+          schema:
+            minimum: 0
+            default: 0
+            type: integer
+        - name: cabin
+          required: false
+          in: query
+          description: Only flights with seats in this cabin.
+          schema:
+            type: string
+            enum:
+              - ECONOMY
+              - PREMIUM_ECONOMY
+              - BUSINESS
+              - FIRST
+        - name: minPrice
+          required: false
+          in: query
+          description: Inclusive, per seat in USD.
+          schema:
+            example: '100.00'
+            type: string
+        - name: maxPrice
+          required: false
+          in: query
+          description: Inclusive, per seat in USD. Not below minPrice.
+          schema:
+            example: '500.00'
+            type: string
+        - name: sortBy
+          required: false
+          in: query
+          schema:
+            default: price
+            type: string
+            enum:
+              - price
+              - duration
+              - departureTime
+        - name: sortOrder
+          required: false
+          in: query
+          schema:
+            default: asc
+            type: string
+            enum:
+              - asc
+              - desc
+        - name: returnPage
+          required: false
+          in: query
+          description: Page of the return flights (ROUND_TRIP). `page` is the page of the outbound flights.
+          schema:
+            minimum: 1
+            default: 1
+            type: integer
+        - name: originAirportId
+          required: true
+          in: query
+          description: IATA code of the airport you fly from (GET /api/airports).
+          schema:
+            example: CAI
+            type: string
+        - name: departureDate
+          required: false
+          in: query
+          description: Defaults to the itinerary's start date. On the calendar of the origin airport; not before today there.
+          schema:
+            example: '2026-12-20'
+            type: string
+        - name: returnDate
+          required: false
+          in: query
+          description: Only for a ROUND_TRIP. Defaults to the date of the itinerary's last day. On the calendar of the airport the return flight leaves from; not before departureDate.
+          schema:
+            example: '2026-12-27'
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryFlightSearchResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: originAirportId
+                        messages:
+                          - originAirportId must be a 3-letter IATA code (for example CAI)
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_AIRPORT:
+                  summary: 'Unknown airport: XXX'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_AIRPORT
+                    error: Bad Request
+                    message: 'Unknown airport: XXX'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                ORIGIN_IN_DESTINATION_CITY:
+                  summary: originAirportId must not be in dubai, the itinerary's first city
+                  value:
+                    statusCode: 400
+                    code: ORIGIN_IN_DESTINATION_CITY
+                    error: Bad Request
+                    message: originAirportId must not be in dubai, the itinerary's first city
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                DEPARTURE_DATE_IN_PAST:
+                  summary: departureDate must not be before today at CAI
+                  value:
+                    statusCode: 400
+                    code: DEPARTURE_DATE_IN_PAST
+                    error: Bad Request
+                    message: departureDate must not be before today at CAI
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                RETURN_BEFORE_DEPARTURE:
+                  summary: returnDate (2026-12-27, the itinerary's last day) must not be before departureDate (2026-12-30)
+                  value:
+                    statusCode: 400
+                    code: RETURN_BEFORE_DEPARTURE
+                    error: Bad Request
+                    message: returnDate (2026-12-27, the itinerary's last day) must not be before departureDate (2026-12-30)
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The itinerary has no day yet (ITINERARY_HAS_NO_DAYS), or its first city has no airport (NO_AIRPORT_IN_CITY)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                ITINERARY_HAS_NO_DAYS:
+                  summary: Add a day with a city to the itinerary before searching flights
+                  value:
+                    statusCode: 409
+                    code: ITINERARY_HAS_NO_DAYS
+                    error: Conflict
+                    message: Add a day with a city to the itinerary before searching flights
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NO_AIRPORT_IN_CITY:
+                  summary: The itinerary's first city (luxor) has no airport
+                  value:
+                    statusCode: 409
+                    code: NO_AIRPORT_IN_CITY
+                    error: Conflict
+                    message: The itinerary's first city (luxor) has no airport
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/flights
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Search flights to the itinerary's first city (ITN-26)
+      tags:
+        - Itineraries
+  /api/itineraries/{id}/hotels:
+    get:
+      description: Hotels in the city of the chosen city group (cityGroups in GET /api/itineraries/:id, numbered from 1), with check-in on the date of its first day and check-out the day after its last day. Guests, rooms, price and rating filters, sorting and paging work as in GET /api/hotels/search, which this reuses.
+      operationId: ItineraryHotelsController_search
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: guestCount
+          required: true
+          in: query
+          schema:
+            example: 2
+            type: number
+        - name: roomCount
+          required: false
+          in: query
+          schema:
+            default: 1
+            type: number
+        - name: minPricePerNight
+          required: false
+          in: query
+          description: Inclusive; price of the cheapest qualifying room
+          schema:
+            type: string
+        - name: maxPricePerNight
+          required: false
+          in: query
+          description: Inclusive
+          schema:
+            type: string
+        - name: minAverageRating
+          required: false
+          in: query
+          description: Unrated hotels are excluded when set
+          schema:
+            minimum: 1
+            maximum: 5
+            type: number
+        - name: sortBy
+          required: false
+          in: query
+          schema:
+            default: price
+            type: string
+            enum:
+              - price
+              - rating
+        - name: sortOrder
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+        - name: cityGroup
+          required: true
+          in: query
+          description: 1-based position of the city group in the cityGroups array of GET /api/itineraries/:id.
+          schema:
+            minimum: 1
+            example: 1
+            type: number
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItineraryHotelSearchResponseDto'
+        '400':
+          description: Validation failed (one entry per invalid field), or a value is not in the seeded reference data or breaks a rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: guestCount
+                        messages:
+                          - guestCount must not be less than 1
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                UNKNOWN_CITY_GROUP:
+                  summary: 'cityGroup must be between 1 and 2: this itinerary has 2 city groups'
+                  value:
+                    statusCode: 400
+                    code: UNKNOWN_CITY_GROUP
+                    error: Bad Request
+                    message: 'cityGroup must be between 1 and 2: this itinerary has 2 city groups'
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                BAD_REQUEST:
+                  summary: checkInDate cannot be in the past
+                  value:
+                    statusCode: 400
+                    code: BAD_REQUEST
+                    error: Bad Request
+                    message: checkInDate cannot be in the past
+                    path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: Not found. A malformed id, a missing row and another account’s row all answer the same, so ids cannot be probed (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: ITINERARY_NOT_FOUND
+                error: Not Found
+                message: Itinerary not found
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The itinerary has no day yet (ITINERARY_HAS_NO_DAYS)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: ITINERARY_HAS_NO_DAYS
+                error: Conflict
+                message: Add a day with a city to the itinerary before searching hotels
+                path: /api/itineraries/6720f1c2a1b2c3d4e5f60718/hotels
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Search hotels for one of the itinerary's city groups (ITN-25)
+      tags:
+        - Itineraries
+  /api/posts:
+    post:
+      description: Title and body are required; up to 5 tags. Add images afterwards with POST /api/posts/{id}/images (BLG-10).
+      operationId: PostsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostDetailDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: title
+                    messages:
+                      - title should not be empty
+                  - field: tags
+                    messages:
+                      - tags must contain no more than 5 elements
+                path: /api/posts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Write a post, as a draft or published (BLG-01, BLG-08)
+      tags:
+        - Blog
+    get:
+      description: 'Public. Without keyword: newest first. With keyword: matches the title, a tag or the author name, ordered by interaction score (likes + comments), newest first on a tie. tag narrows to one tag. An empty items array with totalItems 0 means "no results".'
+      operationId: PostsController_list
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: keyword
+          required: false
+          in: query
+          description: 'BLG-09: matches the title, a tag or the author name (case-insensitive, literal). With a keyword, results are ordered by interaction score (likes + comments), newest first on a tie. Without one, newest first.'
+          schema:
+            example: luxor
+            type: string
+        - name: tag
+          required: false
+          in: query
+          description: 'BLG-02, BLG-08: only posts with this tag'
+          schema:
+            example: egypt
+            type: string
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PostSummaryDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: keyword
+                    messages:
+                      - keyword should not be empty
+                path: /api/posts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Browse and search published posts (BLG-02, BLG-09)
+      tags:
+        - Blog
+  /api/posts/mine:
+    get:
+      description: Newest first, 10 per page, with status, date, like count and comment count. Posts an admin hid are included and marked HIDDEN.
+      operationId: PostsController_listMine
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MyPostDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: page
+                    messages:
+                      - page must not be less than 1
+                path: /api/posts/mine
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/mine
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/mine
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List your own posts, drafts included (BLG-03)
+      tags:
+        - Blog
+  /api/posts/{id}:
+    get:
+      description: Title, author, date, body, tags, images, like count and the first page of comments. Drafts and posts an admin hid are visible only to their author and to admins; anyone else gets the same 404 as for a post that does not exist.
+      operationId: PostsController_getOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostDetailDto'
+        '404':
+          description: No such post, or you may not see it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Open a post (BLG-02)
+      tags:
+        - Blog
+    patch:
+      description: Send only the fields that change. tags replaces the whole list. Publishing a draft sets its publication date.
+      operationId: PostsController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePostDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostDetailDto'
+        '400':
+          description: An invalid field, or an empty body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: title
+                        messages:
+                          - title should not be empty
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                NOTHING_TO_UPDATE:
+                  summary: Send at least one of title, body, tags or status
+                  value:
+                    statusCode: 400
+                    code: NOTHING_TO_UPDATE
+                    error: Bad Request
+                    message: Send at least one of title, body, tags or status
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or it is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit your post, its tags or its status (BLG-04, BLG-08)
+      tags:
+        - Blog
+    delete:
+      description: 'Permanent: the post, its comments, likes and images are removed.'
+      operationId: PostsController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '204':
+          description: The post is gone
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or it is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete your post (BLG-04)
+      tags:
+        - Blog
+  /api/posts/{id}/comments:
+    get:
+      description: 10 per page. Drafts and posts an admin hid are visible only to their author and to admins; anyone else gets the same 404 as for a post that does not exist.
+      operationId: PostsController_listComments
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/CommentDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: page
+                    messages:
+                      - page must not be less than 1
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or you may not see it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Read the comments of a post, oldest first (BLG-02, BLG-05)
+      tags:
+        - Blog
+    post:
+      description: Non-empty, at most 500 characters.
+      operationId: CommentsController_create
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentBodyDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: body
+                    messages:
+                      - body must be shorter than or equal to 500 characters
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such published post
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/comments
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Comment on a published post (BLG-05)
+      tags:
+        - Blog
+  /api/posts/{id}/like:
+    post:
+      description: A user likes a post at most once; liking again changes nothing and returns the same answer.
+      operationId: PostsController_like
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeStatusDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such published post
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Like a published post (BLG-06)
+      tags:
+        - Blog
+    delete:
+      operationId: PostsController_unlike
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikeStatusDto'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or you may not see it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/like
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Remove your like (BLG-06)
+      tags:
+        - Blog
+  /api/posts/{id}/images:
+    post:
+      description: 'Multipart, field "file": one JPG or PNG of at most 5 MB. A post holds at most 5 images. The response has the URL that serves it.'
+      operationId: PostsController_addImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: One JPG or PNG image, at most 5 MB
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostImageDto'
+        '400':
+          description: No file, not a JPG or PNG (checked on the bytes, not the name), larger than 5 MB, or not sent in the "file" field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FILE_REQUIRED:
+                  summary: An image file is required
+                  value:
+                    statusCode: 400
+                    code: FILE_REQUIRED
+                    error: Bad Request
+                    message: An image file is required
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_FILE_TYPE:
+                  summary: Only JPG and PNG images are accepted
+                  value:
+                    statusCode: 400
+                    code: INVALID_FILE_TYPE
+                    error: Bad Request
+                    message: Only JPG and PNG images are accepted
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                FILE_TOO_LARGE:
+                  summary: Images must be at most 5 MB
+                  value:
+                    statusCode: 400
+                    code: FILE_TOO_LARGE
+                    error: Bad Request
+                    message: Images must be at most 5 MB
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_UPLOAD:
+                  summary: Send exactly one image in the form field "file"
+                  value:
+                    statusCode: 400
+                    code: INVALID_UPLOAD
+                    error: Bad Request
+                    message: Send exactly one image in the form field "file"
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post, or it is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: POST_NOT_FOUND
+                error: Not Found
+                message: Post not found
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: The post already has its maximum number of images
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: IMAGE_LIMIT_REACHED
+                error: Conflict
+                message: A post can have at most 5 images
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Attach an image to your post (BLG-10, GEN-08)
+      tags:
+        - Blog
+  /api/posts/{id}/images/{imageId}:
+    get:
+      description: Served to whoever may see the post. Drafts and posts an admin hid are visible only to their author and to admins; anyone else gets the same 404 as for a post that does not exist.
+      operationId: PostsController_getImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: imageId
+          required: true
+          in: path
+          description: Image id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60760
+            type: string
+      responses:
+        '200':
+          description: The image file
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No such post or image, or you may not see the post
+          content:
+            image/jpeg:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                POST_NOT_FOUND:
+                  summary: Post not found
+                  value:
+                    statusCode: 404
+                    code: POST_NOT_FOUND
+                    error: Not Found
+                    message: Post not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+            image/png:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                POST_NOT_FOUND:
+                  summary: Post not found
+                  value:
+                    statusCode: 404
+                    code: POST_NOT_FOUND
+                    error: Not Found
+                    message: Post not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      summary: Download an image of a post (BLG-10, GEN-08)
+      tags:
+        - Blog
+    delete:
+      operationId: PostsController_removeImage
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Post id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+        - name: imageId
+          required: true
+          in: path
+          description: Image id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60760
+            type: string
+      responses:
+        '204':
+          description: The image is gone
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such post or image, or the post is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                POST_NOT_FOUND:
+                  summary: Post not found
+                  value:
+                    statusCode: 404
+                    code: POST_NOT_FOUND
+                    error: Not Found
+                    message: Post not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                IMAGE_NOT_FOUND:
+                  summary: Image not found
+                  value:
+                    statusCode: 404
+                    code: IMAGE_NOT_FOUND
+                    error: Not Found
+                    message: Image not found
+                    path: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Remove an image from your post (BLG-10)
+      tags:
+        - Blog
+  /api/comments/{id}:
+    patch:
+      operationId: CommentsController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Comment id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60750
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentBodyDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: body
+                    messages:
+                      - body must be shorter than or equal to 500 characters
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such comment, or it is not yours (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: COMMENT_NOT_FOUND
+                error: Not Found
+                message: Comment not found
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Edit your comment (BLG-07)
+      tags:
+        - Blog
+    delete:
+      operationId: CommentsController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Comment id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60750
+            type: string
+      responses:
+        '204':
+          description: The comment is gone
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such comment, or it is not yours (ACC-11)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: COMMENT_NOT_FOUND
+                error: Not Found
+                message: Comment not found
+                path: /api/comments/6720f1c2a1b2c3d4e5f60750
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete your comment (BLG-07)
+      tags:
+        - Blog
+  /api/tags/{tag}/posts:
+    get:
+      description: Public, newest first, 10 per page. The tag is matched in its stored form, so "Egypt" and "egypt" are the same tag.
+      operationId: TagsController_list
+      parameters:
+        - name: tag
+          required: true
+          in: path
+          schema:
+            example: egypt
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PostSummaryDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: page
+                    messages:
+                      - page must not be less than 1
+                path: /api/tags/egypt/posts
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: List the published posts with a tag (BLG-08)
+      tags:
+        - Blog
+  /api/authors/{id}:
+    get:
+      description: Public. page pages the posts, itinerariesPage the public itineraries (ITN-20). A deactivated account has no page.
+      operationId: AuthorsController_getOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Account id of the author
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60701
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: itinerariesPage
+          required: false
+          in: query
+          description: Page of the public itineraries (page is for the posts)
+          schema:
+            minimum: 1
+            default: 1
+            type: integer
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorPageDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: itinerariesPage
+                    messages:
+                      - itinerariesPage must not be less than 1
+                path: /api/authors/6720f1c2a1b2c3d4e5f60701
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such account, or it was deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: AUTHOR_NOT_FOUND
+                error: Not Found
+                message: Author not found
+                path: /api/authors/6720f1c2a1b2c3d4e5f60701
+                timestamp: '2026-11-12T10:00:00.000Z'
+      summary: 'Public author page: name, join date, posts, itineraries (BLG-12)'
+      tags:
+        - Blog
+  /api/reports:
+    post:
+      description: Login required. One report per user per item. Only content everyone can see can be reported, and never your own. reason OTHER needs details.
+      operationId: ReportsController_report
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportDto'
+      responses:
+        '201':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDto'
+        '400':
+          description: An invalid field, or your own content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                VALIDATION_FAILED:
+                  summary: Validation failed
+                  value:
+                    statusCode: 400
+                    code: VALIDATION_FAILED
+                    error: Bad Request
+                    message: Validation failed
+                    errors:
+                      - field: details
+                        messages:
+                          - details is required when reason is OTHER
+                    path: /api/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                CANNOT_REPORT_OWN_CONTENT:
+                  summary: You cannot report your own content
+                  value:
+                    statusCode: 400
+                    code: CANNOT_REPORT_OWN_CONTENT
+                    error: Bad Request
+                    message: You cannot report your own content
+                    path: /api/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 403
+                code: PASSWORD_CHANGE_REQUIRED
+                error: Forbidden
+                message: A new password must be set before continuing
+                path: /api/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such item, or it is not visible to you
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: CONTENT_NOT_FOUND
+                error: Not Found
+                message: Content not found
+                path: /api/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: You already reported this item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 409
+                code: ALREADY_REPORTED
+                error: Conflict
+                message: You have already reported this item
+                path: /api/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Report a post, comment, review or itinerary (GEN-09)
+      tags:
+        - Moderation
+  /api/admin/reports:
+    get:
+      description: Open reports oldest first (a queue); resolved ones newest first. Each row shows the reported item, its current state and a preview.
+      operationId: AdminModerationController_listReports
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Page number, starting at 1. Page size is fixed at 10.
+          schema:
+            minimum: 1
+            default: 1
+            example: 1
+            type: integer
+        - name: status
+          required: false
+          in: query
+          schema:
+            default: OPEN
+            type: string
+            enum:
+              - OPEN
+              - DISMISSED
+              - HIDDEN
+              - DELETED
+        - name: targetType
+          required: false
+          in: query
+          schema:
+            type: string
+            enum:
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+      responses:
+        '200':
+          description: A page of results (page size 10).
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageDto'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ReportDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: status
+                    messages:
+                      - 'status must be one of the following values: OPEN, DISMISSED, HIDDEN, DELETED'
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: List reports, open ones by default (GEN-09, GEN-10)
+      tags:
+        - Moderation
+  /api/admin/reports/{id}:
+    patch:
+      description: HIDE and DELETE act on the reported item and close every open report on it. Hidden content stays visible to its author and admins only.
+      operationId: AdminModerationController_resolve
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: Report id
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60740
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveReportDto'
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: decision
+                    messages:
+                      - 'decision must be one of the following values: DISMISS, HIDE, DELETE'
+                path: /api/admin/reports/6720f1c2a1b2c3d4e5f60740
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: REPORT_NOT_FOUND
+                error: Not Found
+                message: Report not found
+                path: /api/admin/reports/6720f1c2a1b2c3d4e5f60740
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: Already resolved, the reported item no longer exists, or the item cannot take that state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                REPORT_ALREADY_RESOLVED:
+                  summary: This report has already been resolved
+                  value:
+                    statusCode: 409
+                    code: REPORT_ALREADY_RESOLVED
+                    error: Conflict
+                    message: This report has already been resolved
+                    path: /api/admin/reports/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                CONTENT_GONE:
+                  summary: The reported content no longer exists; dismiss the report instead
+                  value:
+                    statusCode: 409
+                    code: CONTENT_GONE
+                    error: Conflict
+                    message: The reported content no longer exists; dismiss the report instead
+                    path: /api/admin/reports/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                INVALID_MODERATION_CHANGE:
+                  summary: Content that is DELETED cannot be made HIDDEN
+                  value:
+                    statusCode: 409
+                    code: INVALID_MODERATION_CHANGE
+                    error: Conflict
+                    message: Content that is DELETED cannot be made HIDDEN
+                    path: /api/admin/reports/6720f1c2a1b2c3d4e5f60740
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: 'Resolve a report: dismiss, hide or delete (GEN-10)'
+      tags:
+        - Moderation
+  /api/admin/content/{type}/{id}/hide:
+    patch:
+      description: Only its author and admins can still see it. Closes its open reports.
+      operationId: AdminModerationController_hide
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: post, comment, review or itinerary (any letter case)
+          schema:
+            example: post
+            type: string
+            enum:
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationOutcomeDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - 'type must be one of the following values: POST, COMMENT, REVIEW, ITINERARY'
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/hide
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: CONTENT_NOT_FOUND
+                error: Not Found
+                message: Content not found
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/hide
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: Not allowed from the current state (a deleted item cannot be hidden or restored), or another admin changed it at the same moment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                INVALID_MODERATION_CHANGE:
+                  summary: Content that is DELETED cannot be made VISIBLE
+                  value:
+                    statusCode: 409
+                    code: INVALID_MODERATION_CHANGE
+                    error: Conflict
+                    message: Content that is DELETED cannot be made VISIBLE
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/hide
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                MODERATION_CONFLICT:
+                  summary: The content changed at the same time; try again
+                  value:
+                    statusCode: 409
+                    code: MODERATION_CONFLICT
+                    error: Conflict
+                    message: The content changed at the same time; try again
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/hide
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Hide any post, comment, review or itinerary (GEN-10)
+      tags:
+        - Moderation
+  /api/admin/content/{type}/{id}/restore:
+    patch:
+      description: Deleted content cannot be restored.
+      operationId: AdminModerationController_restore
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: post, comment, review or itinerary (any letter case)
+          schema:
+            example: post
+            type: string
+            enum:
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationOutcomeDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - 'type must be one of the following values: POST, COMMENT, REVIEW, ITINERARY'
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/restore
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: CONTENT_NOT_FOUND
+                error: Not Found
+                message: Content not found
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/restore
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: Not allowed from the current state (a deleted item cannot be hidden or restored), or another admin changed it at the same moment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                INVALID_MODERATION_CHANGE:
+                  summary: Content that is DELETED cannot be made VISIBLE
+                  value:
+                    statusCode: 409
+                    code: INVALID_MODERATION_CHANGE
+                    error: Conflict
+                    message: Content that is DELETED cannot be made VISIBLE
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/restore
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                MODERATION_CONFLICT:
+                  summary: The content changed at the same time; try again
+                  value:
+                    statusCode: 409
+                    code: MODERATION_CONFLICT
+                    error: Conflict
+                    message: The content changed at the same time; try again
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718/restore
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Make hidden content visible again (GEN-10)
+      tags:
+        - Moderation
+  /api/admin/content/{type}/{id}:
+    delete:
+      description: 'A soft delete: nobody but admins can see it any more, and the row stays for the audit trail. Closes its open reports.'
+      operationId: AdminModerationController_remove
+      parameters:
+        - name: type
+          required: true
+          in: path
+          description: post, comment, review or itinerary (any letter case)
+          schema:
+            example: post
+            type: string
+            enum:
+              - POST
+              - COMMENT
+              - REVIEW
+              - ITINERARY
+        - name: id
+          required: true
+          in: path
+          schema:
+            example: 6720f1c2a1b2c3d4e5f60718
+            type: string
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationOutcomeDto'
+        '400':
+          description: Validation failed, with one entry per invalid field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 400
+                code: VALIDATION_FAILED
+                error: Bad Request
+                message: Validation failed
+                errors:
+                  - field: type
+                    messages:
+                      - 'type must be one of the following values: POST, COMMENT, REVIEW, ITINERARY'
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '401':
+          description: Not logged in, the cookie is missing or invalid, or the account is not active (UNAUTHENTICATED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 401
+                code: UNAUTHENTICATED
+                error: Unauthorized
+                message: Authentication required
+                path: /api/admin/reports
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '403':
+          description: The role is not allowed (FORBIDDEN), or a password change is pending (PASSWORD_CHANGE_REQUIRED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                FORBIDDEN:
+                  summary: You do not have permission to do this
+                  value:
+                    statusCode: 403
+                    code: FORBIDDEN
+                    error: Forbidden
+                    message: You do not have permission to do this
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                PASSWORD_CHANGE_REQUIRED:
+                  summary: A new password must be set before continuing
+                  value:
+                    statusCode: 403
+                    code: PASSWORD_CHANGE_REQUIRED
+                    error: Forbidden
+                    message: A new password must be set before continuing
+                    path: /api/admin/reports
+                    timestamp: '2026-11-12T10:00:00.000Z'
+        '404':
+          description: No such item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              example:
+                statusCode: 404
+                code: CONTENT_NOT_FOUND
+                error: Not Found
+                message: Content not found
+                path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718
+                timestamp: '2026-11-12T10:00:00.000Z'
+        '409':
+          description: Not allowed from the current state (a deleted item cannot be hidden or restored), or another admin changed it at the same moment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponseDto'
+              examples:
+                INVALID_MODERATION_CHANGE:
+                  summary: Content that is DELETED cannot be made VISIBLE
+                  value:
+                    statusCode: 409
+                    code: INVALID_MODERATION_CHANGE
+                    error: Conflict
+                    message: Content that is DELETED cannot be made VISIBLE
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+                MODERATION_CONFLICT:
+                  summary: The content changed at the same time; try again
+                  value:
+                    statusCode: 409
+                    code: MODERATION_CONFLICT
+                    error: Conflict
+                    message: The content changed at the same time; try again
+                    path: /api/admin/content/post/6720f1c2a1b2c3d4e5f60718
+                    timestamp: '2026-11-12T10:00:00.000Z'
+      security:
+        - cookie: []
+      summary: Delete any post, comment, review or itinerary (GEN-10)
+      tags:
+        - Moderation
 components:
   securitySchemes:
     cookie:
@@ -10171,6 +13076,7 @@ components:
             - FLIGHT_CANCELLED
             - ACCOUNT_SUSPENDED
             - PROVIDER_SUSPENDED
+            - PROVIDER_REACTIVATED
           example: BOOKING_CONFIRMED
         title:
           type: string
@@ -11881,6 +14787,112 @@ components:
         - providerId
         - temporaryPassword
         - message
+    AdminProviderStatusDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - hotel
+            - airline
+          example: hotel
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60788
+        name:
+          type: string
+          example: Nile View Hotel
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - DEACTIVATED
+          example: DEACTIVATED
+        deactivatedAt:
+          type: string
+          nullable: true
+          example: '2026-11-19T10:00:00.000Z'
+          description: When it was deactivated; null while it is active
+        notifiedUsers:
+          type: number
+          example: 3
+          description: 'Accounts sent an in-app notification: the provider''s moderators and the users with an upcoming CONFIRMED booking with it. 0 if notifying failed; the status change stands either way.'
+      required:
+        - type
+        - id
+        - name
+        - status
+        - deactivatedAt
+        - notifiedUsers
+    AuditLogDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60730
+        actorId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60701
+        actorName:
+          type: object
+          example: Platform Admin
+          nullable: true
+          description: Name of the admin who acted; null if that account is gone
+        action:
+          type: string
+          enum:
+            - ACCOUNT_SUSPENDED
+            - ACCOUNT_REACTIVATED
+            - ACCOUNT_PASSWORD_RESET
+            - MODERATOR_CREATED
+            - PROVIDER_DEACTIVATED
+            - PROVIDER_REACTIVATED
+            - CONTENT_HIDDEN
+            - CONTENT_RESTORED
+            - CONTENT_DELETED
+            - REPORT_DISMISSED
+          example: CONTENT_HIDDEN
+        entityType:
+          type: string
+          enum:
+            - ACCOUNT
+            - HOTEL
+            - AIRLINE
+            - POST
+            - COMMENT
+            - REVIEW
+            - ITINERARY
+            - REPORT
+          example: POST
+        entityId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        before:
+          type: object
+          additionalProperties: true
+          nullable: true
+          example:
+            moderationState: VISIBLE
+        after:
+          type: object
+          additionalProperties: true
+          nullable: true
+          example:
+            moderationState: HIDDEN
+            reportId: 6720f1c2a1b2c3d4e5f60740
+        createdAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+      required:
+        - id
+        - actorId
+        - actorName
+        - action
+        - entityType
+        - entityId
+        - before
+        - after
+        - createdAt
     BookingPoliciesDto:
       type: object
       properties:
@@ -12895,3 +15907,742 @@ components:
         - rates
         - rateDate
         - stale
+    ItineraryFlightSearchResponseDto:
+      type: object
+      properties:
+        destinationCityId:
+          type: string
+          example: dubai
+          description: The city of the itinerary's first day.
+        destinationAirportIds:
+          example:
+            - DXB
+          description: 'Every seeded airport of that city: the outbound flights land at any of them.'
+          type: array
+          items:
+            type: string
+        departureDate:
+          type: string
+          example: '2026-12-20'
+          description: 'The outbound date used: the one asked for, or the itinerary''s start date.'
+        returnDate:
+          type: string
+          example: '2026-12-27'
+          nullable: true
+          description: 'The return date used for a ROUND_TRIP: the one asked for, or the itinerary''s last day. Null one way.'
+        outbound:
+          description: From the origin airport to any airport of the city.
+          allOf:
+            - $ref: '#/components/schemas/FlightSearchPageDto'
+        inbound:
+          nullable: true
+          description: 'Only for a ROUND_TRIP: from any airport of the city back to the origin airport.'
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/FlightSearchPageDto'
+      required:
+        - destinationCityId
+        - destinationAirportIds
+        - departureDate
+        - returnDate
+        - outbound
+        - inbound
+    ItineraryHotelCityGroupDto:
+      type: object
+      properties:
+        index:
+          type: number
+          example: 1
+          description: The cityGroup asked for (1-based).
+        city:
+          type: string
+          example: cairo
+          description: Seeded city id of the group.
+        fromDay:
+          type: number
+          example: 1
+          description: Day number of its first day.
+        toDay:
+          type: number
+          example: 2
+          description: Day number of its last day.
+        checkInDate:
+          type: string
+          example: '2026-12-20'
+          description: The date of its first day.
+        checkOutDate:
+          type: string
+          example: '2026-12-22'
+          description: The day after its last day.
+      required:
+        - index
+        - city
+        - fromDay
+        - toDay
+        - checkInDate
+        - checkOutDate
+    ItineraryHotelResultDto:
+      type: object
+      properties:
+        hotelId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60788
+        name:
+          type: string
+          example: Nile View Hotel
+        address:
+          type: string
+          example: 1 Corniche El Nil
+        cityId:
+          type: string
+          example: cairo
+        countryId:
+          type: string
+          example: EG
+        starClass:
+          type: number
+          example: 4
+        photo:
+          type: object
+          additionalProperties: true
+          description: The hotel's first photo, when it has one (GEN-08).
+        ratingAverage:
+          type: number
+          example: 4.5
+          nullable: true
+        ratingCount:
+          type: number
+          example: 12
+        pricePerNight:
+          type: string
+          example: '120.00'
+          description: Price per night of the cheapest qualifying room (USD).
+        freeRoomCount:
+          type: number
+          example: 3
+      required:
+        - hotelId
+        - name
+        - ratingAverage
+        - ratingCount
+        - pricePerNight
+        - freeRoomCount
+    ItineraryHotelSearchResponseDto:
+      type: object
+      properties:
+        itineraryId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        cityGroup:
+          $ref: '#/components/schemas/ItineraryHotelCityGroupDto'
+        checkInDate:
+          type: string
+          example: '2026-12-20T00:00:00.000Z'
+          description: Check-in as hotel search echoes it (UTC midnight).
+        checkOutDate:
+          type: string
+          example: '2026-12-22T00:00:00.000Z'
+        nights:
+          type: number
+          example: 2
+        guestCount:
+          type: number
+          example: 2
+        roomCount:
+          type: number
+          example: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItineraryHotelResultDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - itineraryId
+        - cityGroup
+        - checkInDate
+        - checkOutDate
+        - nights
+        - guestCount
+        - roomCount
+        - items
+        - meta
+    CreatePostDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Three days in Luxor
+          maxLength: 150
+        body:
+          type: string
+          example: We started at Karnak at sunrise, before the tour buses...
+          maxLength: 20000
+        tags:
+          example:
+            - egypt
+            - history
+            - nile cruise
+          maxItems: 5
+          description: At most 5 tags, each at most 30 characters of letters, digits, spaces, hyphens or underscores. Stored in lower case without duplicates.
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+            - DRAFT
+            - PUBLISHED
+          example: PUBLISHED
+          description: DRAFT is visible only to you; PUBLISHED appears in the blog, search and your author page. Images are added afterwards with POST /api/posts/{id}/images.
+      required:
+        - title
+        - body
+        - status
+    AuthorBriefDto:
+      type: object
+      properties:
+        id:
+          type: object
+          example: 6720f1c2a1b2c3d4e5f60701
+          nullable: true
+          description: null for an account its owner deactivated
+        name:
+          type: string
+          example: Mona Adel
+          description: '"Deleted user" for an account its owner deactivated (ACC-12)'
+      required:
+        - id
+        - name
+    PostImageDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60760
+        url:
+          type: string
+          example: /api/posts/6720f1c2a1b2c3d4e5f60718/images/6720f1c2a1b2c3d4e5f60760
+          description: Fetch the image from this URL (GEN-08)
+        mimeType:
+          type: string
+          example: image/jpeg
+          enum:
+            - image/jpeg
+            - image/png
+        sizeBytes:
+          type: number
+          example: 284113
+      required:
+        - id
+        - url
+        - mimeType
+        - sizeBytes
+    CommentDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60750
+        postId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        author:
+          $ref: '#/components/schemas/AuthorBriefDto'
+        body:
+          type: string
+          example: Great tips! Did you need a guide inside the tombs?
+        edited:
+          type: boolean
+          example: false
+          description: True once the author edited it
+        moderationState:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          description: 'Present only when it is not VISIBLE: a hidden comment is shown to its author and to admins only (GEN-10)'
+        createdAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+        updatedAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+      required:
+        - id
+        - postId
+        - author
+        - body
+        - edited
+        - createdAt
+        - updatedAt
+    CommentPageDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - items
+        - meta
+    PostDetailDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Three days in Luxor
+        body:
+          type: string
+          example: We started at Karnak at sunrise, before the tour buses...
+        status:
+          type: string
+          enum:
+            - DRAFT
+            - PUBLISHED
+          example: PUBLISHED
+        moderationState:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          example: VISIBLE
+        author:
+          $ref: '#/components/schemas/AuthorBriefDto'
+        tags:
+          example:
+            - egypt
+            - history
+          type: array
+          items:
+            type: string
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostImageDto'
+        likeCount:
+          type: number
+          example: 4
+        commentCount:
+          type: number
+          example: 2
+        likedByMe:
+          type: boolean
+          example: true
+          description: Whether you liked it; absent for a guest
+        isAuthor:
+          type: boolean
+          example: true
+          description: Whether you wrote it
+        publishedAt:
+          type: object
+          example: '2026-11-18T10:00:00.000Z'
+          nullable: true
+        createdAt:
+          type: string
+          example: '2026-11-18T09:00:00.000Z'
+        updatedAt:
+          type: string
+          example: '2026-11-18T10:05:00.000Z'
+        comments:
+          description: 'The first page of comments, oldest first. Further pages: GET /api/posts/{id}/comments?page=2'
+          allOf:
+            - $ref: '#/components/schemas/CommentPageDto'
+      required:
+        - id
+        - title
+        - body
+        - status
+        - moderationState
+        - author
+        - tags
+        - images
+        - likeCount
+        - commentCount
+        - isAuthor
+        - publishedAt
+        - createdAt
+        - updatedAt
+        - comments
+    PostSummaryDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Three days in Luxor
+        excerpt:
+          type: string
+          example: We started at Karnak at sunrise, before the tour buses...
+          description: The first 200 characters of the body
+        author:
+          $ref: '#/components/schemas/AuthorBriefDto'
+        tags:
+          example:
+            - egypt
+            - history
+          type: array
+          items:
+            type: string
+        likeCount:
+          type: number
+          example: 4
+        commentCount:
+          type: number
+          example: 2
+        interactionScore:
+          type: number
+          example: 6
+          description: likeCount + commentCount
+        publishedAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+      required:
+        - id
+        - title
+        - excerpt
+        - author
+        - tags
+        - likeCount
+        - commentCount
+        - interactionScore
+        - publishedAt
+    MyPostDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        title:
+          type: string
+          example: Three days in Luxor
+        status:
+          type: string
+          enum:
+            - DRAFT
+            - PUBLISHED
+          example: DRAFT
+        moderationState:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          example: VISIBLE
+          description: 'HIDDEN when an admin hid it: only you and admins see it'
+        likeCount:
+          type: number
+          example: 4
+        commentCount:
+          type: number
+          example: 2
+        createdAt:
+          type: string
+          example: '2026-11-18T09:00:00.000Z'
+        publishedAt:
+          type: object
+          example: '2026-11-18T10:00:00.000Z'
+          nullable: true
+          description: null while the post has never been published
+        updatedAt:
+          type: string
+          example: '2026-11-18T10:05:00.000Z'
+      required:
+        - id
+        - title
+        - status
+        - moderationState
+        - likeCount
+        - commentCount
+        - createdAt
+        - publishedAt
+        - updatedAt
+    UpdatePostDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Four days in Luxor
+        body:
+          type: string
+          example: 'Updated: we added a day for the West Bank.'
+        tags:
+          example:
+            - egypt
+            - luxor
+          description: At most 5 tags, each at most 30 characters of letters, digits, spaces, hyphens or underscores. Stored in lower case without duplicates. Replaces the whole list.
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+            - DRAFT
+            - PUBLISHED
+          description: Publish a draft, or move a published post back to DRAFT
+    LikeStatusDto:
+      type: object
+      properties:
+        postId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        liked:
+          type: boolean
+          example: true
+        likeCount:
+          type: number
+          example: 5
+      required:
+        - postId
+        - liked
+        - likeCount
+    CommentBodyDto:
+      type: object
+      properties:
+        body:
+          type: string
+          example: Great tips! Did you need a guide inside the tombs?
+          maxLength: 500
+      required:
+        - body
+    AuthorPostPageDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostSummaryDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - items
+        - meta
+    AuthorItineraryPageDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicItinerarySummaryDto'
+        meta:
+          $ref: '#/components/schemas/PageMetaDto'
+      required:
+        - items
+        - meta
+    AuthorPageDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60701
+        name:
+          type: string
+          example: Mona Adel
+        joinedAt:
+          type: string
+          example: '2026-11-02T08:30:00.000Z'
+        posts:
+          description: Published posts, newest first
+          allOf:
+            - $ref: '#/components/schemas/AuthorPostPageDto'
+        publicItineraries:
+          description: Public itineraries (ITN-20), newest first
+          allOf:
+            - $ref: '#/components/schemas/AuthorItineraryPageDto'
+      required:
+        - id
+        - name
+        - joinedAt
+        - posts
+        - publicItineraries
+    CreateReportDto:
+      type: object
+      properties:
+        targetType:
+          type: string
+          enum:
+            - POST
+            - COMMENT
+            - REVIEW
+            - ITINERARY
+          example: POST
+        targetId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        reason:
+          type: string
+          enum:
+            - SPAM
+            - HARASSMENT
+            - HATE_SPEECH
+            - INAPPROPRIATE
+            - MISINFORMATION
+            - OTHER
+          example: SPAM
+        details:
+          type: string
+          example: The same link was posted under every article.
+          maxLength: 500
+          description: Required when reason is OTHER
+      required:
+        - targetType
+        - targetId
+        - reason
+    ReportedContentDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - POST
+            - COMMENT
+            - REVIEW
+            - ITINERARY
+          example: POST
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        exists:
+          type: boolean
+          example: true
+          description: False when its author deleted it in the meantime
+        moderationState:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          example: VISIBLE
+        ownerId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60702
+        preview:
+          type: string
+          example: Three days in Luxor
+      required:
+        - type
+        - id
+        - exists
+    ReportDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60740
+        target:
+          $ref: '#/components/schemas/ReportedContentDto'
+        reason:
+          type: string
+          enum:
+            - SPAM
+            - HARASSMENT
+            - HATE_SPEECH
+            - INAPPROPRIATE
+            - MISINFORMATION
+            - OTHER
+          example: SPAM
+        details:
+          type: object
+          example: null
+          nullable: true
+        status:
+          type: string
+          enum:
+            - OPEN
+            - DISMISSED
+            - HIDDEN
+            - DELETED
+          example: OPEN
+        reporterId:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60701
+        reporterName:
+          type: object
+          example: Mona Adel
+          nullable: true
+        reviewerId:
+          type: object
+          example: null
+          nullable: true
+        reviewedAt:
+          type: object
+          example: null
+          nullable: true
+        createdAt:
+          type: string
+          example: '2026-11-18T10:00:00.000Z'
+      required:
+        - id
+        - target
+        - reason
+        - details
+        - status
+        - reporterId
+        - reviewerId
+        - reviewedAt
+        - createdAt
+    ResolveReportDto:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum:
+            - DISMISS
+            - HIDE
+            - DELETE
+          example: HIDE
+          description: DISMISS closes the report and leaves the content alone. HIDE makes the content visible only to its author and admins. DELETE removes it for everyone but admins. HIDE and DELETE also close every other open report on the same item.
+      required:
+        - decision
+    ModerationOutcomeDto:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - POST
+            - COMMENT
+            - REVIEW
+            - ITINERARY
+          example: POST
+        id:
+          type: string
+          example: 6720f1c2a1b2c3d4e5f60718
+        before:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          example: VISIBLE
+        after:
+          type: string
+          enum:
+            - VISIBLE
+            - HIDDEN
+            - DELETED
+          example: HIDDEN
+        changed:
+          type: boolean
+          example: true
+          description: False when it already was in that state (nothing changed, nothing logged)
+        reportsClosed:
+          type: number
+          example: 2
+          description: Open reports on this item that the action closed
+      required:
+        - type
+        - id
+        - before
+        - after
+        - changed
+        - reportsClosed

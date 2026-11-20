@@ -362,9 +362,10 @@ Feature modules:
 | `payments` | Stripe payments, refunds |
 | `itineraries` | Itineraries, days, activities, budgets, exchange rates |
 | `blog` | Posts, comments, likes, tags, author pages |
-| `administration` | Moderator accounts, account suspension |
+| `administration` | Moderator accounts, account suspension, provider deactivation (ACC-15) |
 | `media` | The shared image-upload service (GEN-08) |
 | `audit` | The append-only admin audit log (GEN-07) |
+| `moderation` | Content reports and admin moderation (GEN-09, GEN-10) |
 
 Where bookings live is decided at the data-model review: flight bookings live in `flights` (`flightBookings`, see "Seat inventory and flight bookings (FLT-22)").
 
@@ -1314,6 +1315,37 @@ on top of the `HotelsService` that `HotelsModule` exports. A provider type whose
 module is not wired would answer **501 `PROVIDER_TYPE_UNAVAILABLE`** instead of
 the app refusing to start.
 
+## Provider deactivation (ACC-15)
+
+ACC-15 has two halves. The moderator-account half is `PATCH /api/admin/accounts/:id/suspend` and `/reactivate` (see "Account management"). This is the provider half: an admin deactivates or reactivates a hotel or an airline.
+
+| Endpoint | Notes |
+| --- | --- |
+| `PATCH /api/admin/providers/:type/:id/deactivate` | `ACTIVE` -> `DEACTIVATED`, sets `deactivatedAt` |
+| `PATCH /api/admin/providers/:type/:id/reactivate` | `DEACTIVATED` -> `ACTIVE`, clears `deactivatedAt` |
+
+`:type` is `hotel` or `airline`. Both endpoints are admin-only and answer `{ type, id, name, status, deactivatedAt, notifiedUsers }`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `VALIDATION_FAILED` | `:type` is not `hotel` or `airline` (field error on `type`) |
+| 404 | `HOTEL_NOT_FOUND` / `AIRLINE_NOT_FOUND` | No such provider, or a malformed id (same answer, ACC-11) |
+| 409 | `HOTEL_ALREADY_DEACTIVATED` / `AIRLINE_ALREADY_DEACTIVATED` | Deactivating twice |
+| 409 | `HOTEL_ALREADY_ACTIVE` / `AIRLINE_ALREADY_ACTIVE` | Reactivating an active provider |
+
+What happens, in this order:
+
+1. The status changes through the owner's own service (`HotelsService.deactivate` / `reactivate`, `AirlinesService.deactivate` / `reactivate`), in one conditional update, so two admins cannot both succeed. Administration never touches the `hotels` or `airlines` collection.
+2. The audit log gets `PROVIDER_DEACTIVATED` or `PROVIDER_REACTIVATED`, entity `HOTEL` or `AIRLINE`, with `before` and `after` `{ status }` (GEN-07).
+3. In-app notifications (GEN-01) go to the provider's moderators and to every user with an upcoming `CONFIRMED` booking with it: a hotel stay that has not checked out, or a flight of that airline that has not departed. Deactivation uses `PROVIDER_SUSPENDED`, reactivation `PROVIDER_REACTIVATED`. Users are told their confirmed booking remains valid. `notifiedUsers` is how many accounts were sent one.
+
+Rules:
+
+- **Confirmed bookings stay valid.** Nothing is written to a booking. The users to notify come from read-only methods: `HotelBookingsService.findUserIdsWithUpcomingConfirmedStays` and `FlightBookingsService.findUserIdsWithUpcomingConfirmedFlights` (exported by `FlightBookingsModule` for this one caller).
+- **Hiding is already done by the status.** Flight search, flight details and flight holds only use `ACTIVE` airlines; hotel search, the public hotel profile and hotel holds only use `ACTIVE` hotels (`findActiveByCityOrCountry`, `getActiveHotelOrThrow`). ACC-15 adds no new check to them.
+- **The status change is the source of truth.** If finding the users or notifying them fails, a warning is logged and the answer is still 200 (with `notifiedUsers: 0`).
+- `test/admin-providers.e2e-spec.ts` covers the whole flow on the shared database, with its own airline, hotel, moderators and bookings, and deletes them afterwards.
+
 ## Notifications (GEN-01)
 
 `GET /api/notifications` (paginated, `?unreadOnly=true`), `GET /api/notifications/unread-count`, `PATCH /api/notifications/:id/read` and `PATCH /api/notifications/read-all`. Every route works on the account in the cookie.
@@ -1557,7 +1589,7 @@ Errors: 400 `FILE_REQUIRED`, `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_UPL
 
 ## Audit log (GEN-07)
 
-`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
+`AuditService` (`src/audit/`) is the only writer of `auditLogs`; admins read it at `GET /api/admin/audit-logs` (filters: `action`, `entityType`, `entityId`, `actorId`, `from`, `to`). Rows cannot be updated or deleted through the model. Suspend, reactivate, password reset, moderator creation, provider deactivation and reactivation (ACC-15) and every moderation decision are recorded. Call `record()` after the action succeeds; like `notify()` it never throws.
 
 ~~~
 await this.audit.record({
@@ -1594,6 +1626,30 @@ In e2e tests, remove your own audit rows with the driver (`connection.collection
 - The author page reads public itineraries through `PublicItinerariesService.listByAuthor`.
 
 Tests: `test/blog.e2e-spec.ts`.
+
+## Reports and moderation (GEN-09, GEN-10)
+
+`src/moderation/` owns the `reports` collection. It never reads or writes the reported content itself: each owner implements `ContentModerationPort` (`src/common/moderation/content-moderation.port.ts`), the same pattern as `BookingsPort`.
+
+| Endpoint | Who | Requirement |
+| --- | --- | --- |
+| `POST /api/reports` | Any logged-in user | GEN-09 |
+| `GET /api/admin/reports?status=OPEN&targetType=` | Admin | GEN-09, GEN-10 |
+| `PATCH /api/admin/reports/:id` `{ decision: DISMISS \| HIDE \| DELETE }` | Admin | GEN-10 |
+| `PATCH /api/admin/content/:type/:id/hide` and `/restore` | Admin | GEN-10 |
+| `DELETE /api/admin/content/:type/:id` | Admin | GEN-10 |
+
+`:type` is `post`, `comment`, `review` or `itinerary`, in any letter case.
+
+Rules worth knowing:
+
+- **Once per item** is a unique `(reporterId, targetType, targetId)` index: a second report answers 409 `ALREADY_REPORTED`. You cannot report your own content (400), or content you cannot see (404, so a report cannot probe for drafts). `reason` is a closed list; `OTHER` requires `details`.
+- **States** (`applyModeration`, shared by every owner): VISIBLE and HIDDEN switch both ways; either can become DELETED; DELETED is final (409 `INVALID_MODERATION_CHANGE`). The update filters on the state it read, so two admins acting at once get 409 `MODERATION_CONFLICT` instead of overwriting each other. Repeating an action changes nothing and logs nothing.
+- **Hidden** content is visible only to its author and admins; **deleted** content only to admins (a soft delete, so the audit trail still points at something). Only VISIBLE content appears in public lists, search, comment counts and hotel ratings.
+- **Resolving** with HIDE or DELETE acts on the item and closes every open report on it; acting on an item directly closes them too. Every decision is written to the audit log (GEN-07).
+- **Owners**: posts and comments come from `BlogModule`; reviews and itineraries through two small methods each on `ReviewsService` and `PublicItinerariesService` (`findForModeration`, `moderate`). Hiding a review recomputes the hotel rating. A hidden itinerary drops out of public search, the public view, cloning and author pages; a deleted one also disappears for its owner. Itineraries saved before this change have no `moderationState` and count as VISIBLE.
+
+Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
 
 ## Team workflow
 
