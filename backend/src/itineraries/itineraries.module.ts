@@ -14,6 +14,8 @@ import { DaysService } from './days.service';
 import { ItinerariesController } from './itineraries.controller';
 import { ItinerariesService } from './itineraries.service';
 import { ItineraryBudgetSummaryService } from './itinerary-budget-summary.service';
+import { ItineraryPdfController } from './itinerary-pdf.controller';
+import { ItineraryPdfService } from './itinerary-pdf.service';
 import { PublicItinerariesController } from './public-itineraries.controller';
 import { PublicItinerariesService } from './public-itineraries.service';
 import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
@@ -36,6 +38,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     BudgetsController,
     BudgetSummaryController,
     PublicItinerariesController,
+    ItineraryPdfController,
   ],
   providers: [
     ItinerariesService,
@@ -44,6 +47,7 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     BudgetsService,
     ItineraryBudgetSummaryService,
     PublicItinerariesService,
+    ItineraryPdfService,
   ],
   exports: [ItinerariesService, PublicItinerariesService],
 })
