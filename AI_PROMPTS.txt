@@ -1043,7 +1043,24 @@ Implement ITN-25: GET /api/itineraries/:id/hotels lets a user pick a city group 
 How the output was used:
 I wrote the specification: the route, the query fields, the error codes, that the groups must come from the same groupConsecutiveDays call GET /api/itineraries/:id uses so the numbering matches what the user sees, and that a check-in in the past keeps hotel search's own 400. The AI generated ItineraryHotelsModule (controller, service, query and response DTOs, the dayAfter helper) and the tests. The query DTO is built from HotelSearchDto with OmitType, so guestCount, roomCount, the filters, the sort enums and their validation are search's own, not copies. Hotel search has no response DTO, so the AI added uniquely named ones for this route. Giza is not a seeded city, so the e2e itinerary uses cairo, cairo, dubai instead of cairo, cairo, giza. Verified: tsc --noEmit clean, lint with only the 7 warnings already in teammates' files, unit tests 109 suites and 1615 tests, the itinerary-hotels e2e (8 tests) and swagger-docs e2e pass. I read the generated report and test results, then the team leader reviewed the diff on GitHub before merging.
 ================================================
-
+Date: 2026-11-19
+Student: Abdelrahman khaled
+Tool: Claude (chat)
+Related Requirement: ITN-12, ITN-25, ITN-27
+Prompt:
+Implement the remaining itinerary requirements on the current develop branch: activity images using the shared media upload (GEN-08), hotel search for an itinerary city group reusing hotel search (HTL-11), and the bonus of linking booked flights and hotels to itinerary days so they feed the budget. Include tests and step-by-step git instructions.
+How the output was used:
+Extracted the generated files into the repo and ran the build and the tests before committing. Claude found ITN-26 was already implemented by a teammate, so it was not redone. Claude ran the team's full e2e suite on a local database; the shared Atlas database and the live FXRatesAPI were not used, so I checked the new endpoints in Swagger myself. Linked booking prices stay in USD and are not converted (ITN-18, PAY-04).
+================================================
+Date: 2026-11-19
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: ITN-12
+Prompt:
+Review PR #65 (Abdelrahman: ITN-12, ITN-25, ITN-27). Keep ITN-25 as merged in #63, move the ITN-27 bonus to later, and deliver ITN-12 alone in a new PR with the blocking problems fixed.
+How the output was used:
+Claude built feature/ITN-12-activity-images from develop with only the ITN-12 parts of #65 (Abdelrahman's code, his authorship kept on that commit): the images controller, service methods, schema field, cleanup on delete, view and e2e test. It fixed the e2e helper's cookie type (string, not string[]) so tsc passes, and wrote the README section without removing the ACC-15 section that #65 had deleted. ITN-25 stays as merged in #63, and ITN-27 stays on Abdelrahman's branch for a later PR. Verified in the cloud: tsc clean, lint 0 errors (7 old warnings), unit tests 109 suites / 1615. The itinerary-images e2e needs MongoDB, so it runs on my machine before the merge.
+================================================
 Date: 2026-11-20
 Student: Taher Khalaf
 Tool: Claude Code

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { ReferenceDataService } from '../common/reference-data/reference-data.service';
+import { MediaService } from '../media/media.service';
+import { removeActivityImages } from './activity-images.cleanup';
 import { CreateDayDto, ReorderDaysDto, UpdateDayDto } from './dto/day.dto';
 import { ItinerariesService } from './itineraries.service';
 import { MAX_DAYS, moveItem } from './itinerary-days.logic';
@@ -13,6 +15,7 @@ export class DaysService {
   constructor(
     private readonly itineraries: ItinerariesService,
     private readonly referenceData: ReferenceDataService,
+    private readonly media: MediaService,
   ) {}
 
   // ITN-05: a new day goes at the end; its number and date follow from that.
@@ -53,10 +56,13 @@ export class DaysService {
   }
 
   // ITN-07: later days move up one number and one date automatically, and the
-  // day's activities, budget entries and transport costs go with it.
+  // day's activities (with their images, ITN-12), budget entries and transport
+  // costs go with it.
   async deleteDay(user: AuthenticatedUser, id: string, dayId: string) {
     const doc = await this.itineraries.findOwnedOrThrow(user, id);
-    const dayOid = findDayOrThrow(doc, dayId)._id;
+    const day = findDayOrThrow(doc, dayId);
+    const dayOid = day._id;
+    const activityIds = day.activities.map((a) => a._id.toString());
     const plain = doc.toObject();
     doc.set(
       'days',
@@ -67,6 +73,7 @@ export class DaysService {
       plain.transportCosts.filter((t) => !t.dayId.equals(dayOid)),
     );
     await doc.save();
+    await removeActivityImages(this.media, activityIds);
     return toItineraryView(doc);
   }
 
