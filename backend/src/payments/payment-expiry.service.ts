@@ -3,6 +3,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { BookingStatus } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { HoldReleaseReason } from '../common/bookings/bookings.port';
+import {
+  PaymentSettlementService,
+  SettlementOutcome,
+} from './payment-settlement.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
@@ -13,6 +17,12 @@ const SWEEP_BATCH_SIZE = 100;
 export interface SweepResult {
   checked: number;
   cancelled: number;
+  /**
+   * Intents Stripe would not cancel because they had already been paid. They
+   * are settled like a webhook success - confirmed, or refunded in full when
+   * the booking can no longer take them - and never recorded as cancelled.
+   */
+  settled: number;
 }
 
 /**
@@ -24,8 +34,11 @@ export interface SweepResult {
  * at Stripe, so a confirmation cannot arrive after the inventory has gone
  * back, and the seats or rooms must be released by the module that owns them.
  *
- * Cancelling at Stripe is what makes a late payment impossible rather than
- * merely ignored. The booking module releases the hold, and both steps are
+ * Cancelling at Stripe is what makes a late payment unlikely. It cannot make
+ * one impossible: a card can be charged in the moment between the hold ending
+ * and this sweep reaching it, and then Stripe refuses the cancel. That payment
+ * is settled instead (PaymentSettlementService), which refunds it in full when
+ * the booking can no longer take it. The booking module releases the hold, and both steps are
  * safe to repeat, so a sweep that dies halfway simply finishes next time.
  */
 @Injectable()
@@ -37,6 +50,7 @@ export class PaymentExpiryService {
     private readonly payments: PaymentsService,
     private readonly stripe: StripeService,
     private readonly bookings: BookingsGateway,
+    private readonly settlement: PaymentSettlementService,
   ) {}
 
   /**
@@ -57,9 +71,10 @@ export class PaymentExpiryService {
     this.running = true;
     try {
       const result = await this.sweep();
-      if (result.cancelled > 0) {
+      if (result.cancelled > 0 || result.settled > 0) {
         this.logger.log(
-          `Expiry sweep cancelled ${result.cancelled} of ${result.checked} open payment(s)`,
+          `Expiry sweep cancelled ${result.cancelled} and settled ` +
+            `${result.settled} of ${result.checked} open payment(s)`,
         );
       }
     } catch (error) {
@@ -81,6 +96,7 @@ export class PaymentExpiryService {
   async sweep(): Promise<SweepResult> {
     const open = await this.payments.findOpenPayments(SWEEP_BATCH_SIZE);
     let cancelled = 0;
+    let settled = 0;
 
     for (const payment of open) {
       const bookingId = payment.bookingId.toString();
@@ -103,7 +119,31 @@ export class PaymentExpiryService {
         const releaseInventory =
           booking.status === BookingStatus.PENDING_PAYMENT;
 
-        await this.stripe.cancelPaymentIntent(payment.stripePaymentIntentId);
+        const cancelledIntent = await this.stripe.cancelPaymentIntent(
+          payment.stripePaymentIntentId,
+        );
+        if (cancelledIntent === null) {
+          // Stripe would not cancel it because it had already finished. That
+          // can mean it was paid at the last moment: the money is taken, so it
+          // must be settled, not written off as cancelled with the seats gone.
+          const intent = await this.stripe.retrievePaymentIntent(
+            payment.stripePaymentIntentId,
+          );
+          if (intent.status === 'succeeded') {
+            const outcome = await this.settlement.settleSucceeded(payment);
+            if (outcome === SettlementOutcome.REFUNDED && releaseInventory) {
+              // Refunded because the hold had run out: the seats or rooms
+              // still go back, as they would for an unpaid hold.
+              await this.bookings.releaseHold(
+                payment.bookingType,
+                bookingId,
+                HoldReleaseReason.HOLD_EXPIRED,
+              );
+            }
+            settled += 1;
+            continue;
+          }
+        }
         const claimed = await this.payments.applyStatus(
           payment._id,
           payment.status,
@@ -130,6 +170,6 @@ export class PaymentExpiryService {
       }
     }
 
-    return { checked: open.length, cancelled };
+    return { checked: open.length, cancelled, settled };
   }
 }

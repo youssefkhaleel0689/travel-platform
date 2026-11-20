@@ -270,6 +270,40 @@ describe('StripeService (PAY-01)', () => {
       await expect(service.cancelPaymentIntent('pi_1')).resolves.toBeNull();
     });
 
+    // Stripe's own wording and code, as a live sweep received them. The test
+    // above used an invented message, which is how a matcher that missed the
+    // real one went unnoticed.
+    it.each(['succeeded', 'canceled'])(
+      "recognises Stripe's real refusal for a %s intent",
+      async (status) => {
+        jest.spyOn(client.paymentIntents, 'cancel').mockRejectedValue(
+          new Stripe.errors.StripeInvalidRequestError({
+            type: 'invalid_request_error',
+            code: 'payment_intent_unexpected_state',
+            message:
+              'You cannot cancel this PaymentIntent because it has a status of ' +
+              `${status}. Only a PaymentIntent with one of the following statuses ` +
+              'may be canceled: requires_payment_method, requires_capture, ' +
+              'requires_confirmation, requires_action, processing.',
+          }),
+        );
+
+        await expect(service.cancelPaymentIntent('pi_1')).resolves.toBeNull();
+      },
+    );
+
+    it('recognises the refusal by its code even if the wording changes again', async () => {
+      jest.spyOn(client.paymentIntents, 'cancel').mockRejectedValue(
+        new Stripe.errors.StripeInvalidRequestError({
+          type: 'invalid_request_error',
+          code: 'payment_intent_unexpected_state',
+          message: 'Some future wording',
+        }),
+      );
+
+      await expect(service.cancelPaymentIntent('pi_1')).resolves.toBeNull();
+    });
+
     it('still reports a real failure', async () => {
       jest
         .spyOn(client.paymentIntents, 'cancel')

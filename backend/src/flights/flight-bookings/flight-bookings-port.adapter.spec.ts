@@ -308,6 +308,41 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
       ]);
     });
 
+    it('refuses a second payment for a booking another payment confirmed (409), so it is refunded', async () => {
+      const { adapter, bookingModel, seatInventory } = setup(
+        booking({
+          status: BookingStatus.CONFIRMED,
+          bookingReference: 'K7Q2PX',
+          paymentId: new Types.ObjectId(),
+        }),
+      );
+
+      const error = await failure(
+        adapter.confirmAfterPayment(BOOKING_ID.toString(), PAYMENT_ID),
+      );
+
+      expect(error.getStatus()).toBe(409);
+      expect(error.getResponse()).toMatchObject({
+        code: 'ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT',
+      });
+      expect(bookingModel.updateOne).not.toHaveBeenCalled();
+      expect(seatInventory.convertHeldToBooked).not.toHaveBeenCalled();
+    });
+
+    it('answers the confirming payment again with the same reference', async () => {
+      const { adapter } = setup(
+        booking({
+          status: BookingStatus.CONFIRMED,
+          bookingReference: 'K7Q2PX',
+          paymentId: new Types.ObjectId(PAYMENT_ID),
+        }),
+      );
+
+      await expect(
+        adapter.confirmAfterPayment(BOOKING_ID.toString(), PAYMENT_ID),
+      ).resolves.toMatchObject({ bookingReference: 'K7Q2PX' });
+    });
+
     it('answers a repeated webhook with the same reference and changes nothing', async () => {
       const { adapter, bookingModel, seatInventory } = setup(
         booking({

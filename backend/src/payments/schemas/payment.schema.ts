@@ -83,6 +83,16 @@ export class Payment {
   @Prop({ type: String, default: null })
   failureMessage: string | null;
 
+  /**
+   * When this payment's booking was confirmed. Set once, by a conditional
+   * update, so however many times a success is settled (a webhook retry, the
+   * expiry sweep) the user is told "confirmed" only once. Null while the money
+   * has not been applied to a booking, and for a payment that was refunded
+   * because its booking could not take it.
+   */
+  @Prop({ type: Date, default: null })
+  bookingConfirmedAt: Date | null;
+
   createdAt: Date;
   updatedAt: Date;
 }

@@ -240,13 +240,25 @@ export class StripeService implements OnModuleInit {
 
 /**
  * Stripe refuses to cancel a PaymentIntent that has succeeded or is already
- * cancelled. For the expiry sweep that is the end state it wanted anyway.
+ * cancelled. For the expiry sweep that is the end state it wanted anyway (and
+ * the sweep then reads the intent to learn which of the two it was).
+ *
+ * Stripe's error code is what identifies it: the message has changed wording
+ * before ("You cannot cancel this PaymentIntent because it has a status of
+ * succeeded"), and a pattern that only knew the old wording let every such
+ * refusal through as a failure, so the sweep could never settle the payment.
+ * The message is kept as a fallback for an error that arrives without a code.
  */
 function isAlreadyFinished(error: unknown): boolean {
+  if (!(error instanceof Stripe.errors.StripeInvalidRequestError)) {
+    return false;
+  }
+  if (error.code === 'payment_intent_unexpected_state') {
+    return true;
+  }
   return (
-    error instanceof Stripe.errors.StripeInvalidRequestError &&
     typeof error.message === 'string' &&
-    /cannot be canceled|already (been )?(canceled|succeeded)/i.test(
+    /cannot be canceled|already (been )?(canceled|succeeded)|has a status of (succeeded|canceled)/i.test(
       error.message,
     )
   );
