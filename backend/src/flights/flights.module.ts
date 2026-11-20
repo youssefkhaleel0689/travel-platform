@@ -1,3 +1,4 @@
+import { AuditModule } from '../audit/audit.module';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
@@ -44,6 +45,8 @@ import { SeatInventoryService } from './seat-inventory/seat-inventory.service';
 @Module({
   imports: [
     ReferenceDataModule,
+    // FLT-06: the flight cancellation is recorded in the audit log (GEN-07).
+    AuditModule,
     // FLT-05 (time-change notices), FLT-06 and FLT-26 (cancellation notices).
     NotificationsModule,
     MongooseModule.forFeature([

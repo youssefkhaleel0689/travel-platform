@@ -9,6 +9,8 @@ export enum AuditAction {
   CONTENT_RESTORED = 'CONTENT_RESTORED',
   CONTENT_DELETED = 'CONTENT_DELETED',
   REPORT_DISMISSED = 'REPORT_DISMISSED',
+  // FLT-06: an airline moderator cancelled a flight.
+  FLIGHT_CANCELLED = 'FLIGHT_CANCELLED',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);
@@ -22,6 +24,7 @@ export enum AuditEntityType {
   REVIEW = 'REVIEW',
   ITINERARY = 'ITINERARY',
   REPORT = 'REPORT',
+  FLIGHT = 'FLIGHT',
 }
 
 export const AUDIT_ENTITY_TYPES = Object.values(AuditEntityType);
