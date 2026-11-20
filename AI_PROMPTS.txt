@@ -1197,3 +1197,12 @@ Two logo uploads for the same airline at the same moment: one of them gets 409 i
 How the output was used:
 Claude changed the logo upload so that when the one logo slot is taken it removes the logo and stores again, up to three times, so the last upload wins; after three taken slots in a row it answers 409 CONCURRENT_UPDATE. A bad file is still rejected before anything is removed. MediaService.removeAllForTarget now deletes only the rows it read, so an image stored in between keeps its row and its file instead of leaving an orphan file. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 120 suites / 1755 unit tests.
 ================================================
+Date: 2026-11-20
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: FLT-27, PAY-03 (plus CORS, X-Powered-By and Prettier, no requirement ID)
+Prompt:
+Fix the real issues from the review triage: on FLT-27 a double click on change-flight moves the seats twice, a cheaper flight's refund bypasses the refunds collection, cancelling after a change refunds the wrong amount, and a pricier flight is paid for without holding its seats. Also add CORS for the frontend, remove the X-Powered-By header and run Prettier on the backend.
+How the output was used:
+Each seat move runs in one transaction behind a conditional update of the booking, so a repeated request gets 409. A cheaper fare becomes a FARE_DIFFERENCE refund; a cancellation refunds its tier of what is still paid across all payments. A pricier fare holds the new seats until payment, and the hold-expiry job applies, refunds or releases it. CORS allows CORS_ORIGINS with cookies; X-Powered-By is off. Prettier ran as a separate commit. Verified: tsc and lint clean, 1786 unit and 531 e2e tests pass.
+================================================
