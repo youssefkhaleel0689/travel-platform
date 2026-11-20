@@ -13,6 +13,7 @@ import { dirname, resolve, sep } from 'node:path';
 import type { ClientSession, Model, UpdateQuery } from 'mongoose';
 import { Types } from 'mongoose';
 import { PageDto } from '../common/pagination/dto/page.dto';
+import { oid } from '../common/mongo';
 import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { City } from '../common/reference-data/schemas/city.schema';
 import { Country } from '../common/reference-data/schemas/country.schema';
@@ -137,6 +138,8 @@ export class HotelsService {
     hotelId: string,
     actor?: HotelActor,
   ): Promise<HotelResponseDto> {
+    // A malformed id is the same 404 as a missing one; never leak the field name.
+    oid(hotelId, 'hotelId');
     const hotel = await this.hotelModel.findById(hotelId).lean<HotelLean>();
     if (!hotel) throw this.hotelNotFound();
 

@@ -1,12 +1,11 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { Type } from "class-transformer";
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   ArrayMaxSize,
   Equals,
   IsArray,
   IsBoolean,
-  IsDateString,
   IsEnum,
   IsInt,
   IsMongoId,
@@ -16,9 +15,10 @@ import {
   MaxLength,
   Min,
   ValidateNested,
-} from "class-validator";
-import { PaginationQueryDto } from "../../common/pagination/dto/pagination-query.dto";
-import { GuestType, HotelBookingStatus } from "../schemas/hotel-booking.schema";
+} from 'class-validator';
+import { PaginationQueryDto } from '../../common/pagination/dto/pagination-query.dto';
+import { IsDateOnly } from '../../common/validation/date-only.decorator';
+import { GuestType, HotelBookingStatus } from '../schemas/hotel-booking.schema';
 
 export class AssignedGuestDto {
   @ApiProperty({ enum: GuestType }) @IsEnum(GuestType) type!: GuestType;
@@ -27,7 +27,7 @@ export class AssignedGuestDto {
   @IsString()
   @MaxLength(100)
   fullName?: string;
-  @ApiPropertyOptional({ description: "Required for CHILD (0-17)" })
+  @ApiPropertyOptional({ description: 'Required for CHILD (0-17)' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -51,8 +51,8 @@ export class RoomSelectionDto {
 // Prices, currency, nights, totals and guest counts are computed by the server.
 export class CreateHotelBookingDto {
   @ApiProperty() @IsMongoId() hotelId!: string;
-  @ApiProperty({ example: "2026-12-20" }) @IsDateString() checkInDate!: string;
-  @ApiProperty({ example: "2026-12-23" }) @IsDateString() checkOutDate!: string;
+  @ApiProperty({ example: '2026-12-20' }) @IsDateOnly() checkInDate!: string;
+  @ApiProperty({ example: '2026-12-23' }) @IsDateOnly() checkOutDate!: string;
   @ApiProperty({ type: [RoomSelectionDto] })
   @IsArray()
   @ArrayMinSize(1)
@@ -63,9 +63,9 @@ export class CreateHotelBookingDto {
 }
 
 export enum BookingGroup {
-  UPCOMING = "UPCOMING",
-  PAST = "PAST",
-  CANCELLED = "CANCELLED",
+  UPCOMING = 'UPCOMING',
+  PAST = 'PAST',
+  CANCELLED = 'CANCELLED',
 }
 
 export class ListBookingsQueryDto extends PaginationQueryDto {
@@ -77,10 +77,10 @@ export class ListBookingsQueryDto extends PaginationQueryDto {
 
 export class CancelBookingDto {
   @ApiProperty({
-    description: "GEN-03: user must confirm after seeing the refund preview",
+    description: 'GEN-03: user must confirm after seeing the refund preview',
   })
   @IsBoolean()
-  @Equals(true, { message: "confirm must be true to cancel the reservation" })
+  @Equals(true, { message: 'confirm must be true to cancel the reservation' })
   confirm!: boolean;
 
   @ApiPropertyOptional()

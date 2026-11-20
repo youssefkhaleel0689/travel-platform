@@ -1,9 +1,26 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { fieldBadRequest } from '../common/validation/field-error';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { HotelReview, HotelReviewDocument, ReviewModerationState } from './schemas/hotel-review.schema';
-import { HotelBooking, HotelBookingDocument, HotelBookingStatus } from '../hotel-bookings/schemas/hotel-booking.schema';
-import { CreateHotelReviewDto, ReplyReviewDto, UpdateHotelReviewDto } from './dto/review.dto';
+import {
+  HotelReview,
+  HotelReviewDocument,
+  ReviewModerationState,
+} from './schemas/hotel-review.schema';
+import {
+  HotelBooking,
+  HotelBookingDocument,
+  HotelBookingStatus,
+} from '../hotel-bookings/schemas/hotel-booking.schema';
+import {
+  CreateHotelReviewDto,
+  ReplyReviewDto,
+  UpdateHotelReviewDto,
+} from './dto/review.dto';
 import { HotelsService } from '../hotels/hotels.service';
 import { UsersService } from '../auth/users/users.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
@@ -15,23 +32,35 @@ import { todayUtc } from '../common/dates';
 @Injectable()
 export class ReviewsService {
   constructor(
-    @InjectModel(HotelReview.name) private readonly reviewModel: Model<HotelReviewDocument>,
-    @InjectModel(HotelBooking.name) private readonly bookingModel: Model<HotelBookingDocument>,
+    @InjectModel(HotelReview.name)
+    private readonly reviewModel: Model<HotelReviewDocument>,
+    @InjectModel(HotelBooking.name)
+    private readonly bookingModel: Model<HotelBookingDocument>,
     private readonly hotels: HotelsService,
     private readonly users: UsersService,
   ) {}
 
   /** HTL-23: one rating/review per COMPLETED reservation of the current user. */
-  async create(user: AuthenticatedUser, bookingId: string, dto: CreateHotelReviewDto) {
-    const booking = await this.bookingModel.findOne({ _id: oid(bookingId, 'bookingId'), userId: oid(user.userId) }).exec();
+  async create(
+    user: AuthenticatedUser,
+    bookingId: string,
+    dto: CreateHotelReviewDto,
+  ) {
+    const booking = await this.bookingModel
+      .findOne({ _id: oid(bookingId, 'bookingId'), userId: oid(user.userId) })
+      .exec();
     if (!booking) throw new NotFoundException('Hotel booking not found');
 
     // COMPLETED, or CONFIRMED whose check-out date has passed (the worker has just not flipped it yet)
     const stayFinished =
       booking.status === HotelBookingStatus.COMPLETED ||
-      (booking.status === HotelBookingStatus.CONFIRMED && booking.checkOutDate < todayUtc());
+      (booking.status === HotelBookingStatus.CONFIRMED &&
+        booking.checkOutDate < todayUtc());
     if (!stayFinished) {
-      throw new BadRequestException('Only COMPLETED reservations (check-out date passed) can be reviewed');
+      throw fieldBadRequest(
+        'bookingId',
+        'Only COMPLETED reservations (check-out date passed) can be reviewed',
+      );
     }
     if (await this.reviewModel.exists({ bookingId: booking._id }).exec()) {
       throw new ConflictException('This reservation has already been reviewed');
@@ -55,15 +84,18 @@ export class ReviewsService {
 
   private async getOwn(user: AuthenticatedUser, id: string) {
     const review = await this.reviewModel.findById(oid(id, 'id')).exec();
-    if (!review || String(review.userId) !== user.userId) throw new NotFoundException('Review not found');
+    if (!review || String(review.userId) !== user.userId)
+      throw new NotFoundException('Review not found');
     return review;
   }
 
   async update(user: AuthenticatedUser, id: string, dto: UpdateHotelReviewDto) {
-    if (dto.rating === undefined && dto.comment === undefined) throw new BadRequestException('Nothing to update');
+    if (dto.rating === undefined && dto.comment === undefined)
+      throw fieldBadRequest('rating', 'Nothing to update');
     const review = await this.getOwn(user, id);
     if (dto.rating !== undefined) review.rating = dto.rating;
-    if (dto.comment !== undefined) review.comment = dto.comment.trim() || undefined;
+    if (dto.comment !== undefined)
+      review.comment = dto.comment.trim() || undefined;
     await review.save();
     await this.recalculateHotelRating(review.hotelId);
     return review;
@@ -78,10 +110,19 @@ export class ReviewsService {
 
   /** HTL-26 (bonus): only the moderator assigned to the review's hotel can reply. */
   async reply(user: AuthenticatedUser, id: string, dto: ReplyReviewDto) {
-    const review = await this.reviewModel.findOne({ _id: oid(id, 'id'), moderationState: ReviewModerationState.VISIBLE }).exec();
+    const review = await this.reviewModel
+      .findOne({
+        _id: oid(id, 'id'),
+        moderationState: ReviewModerationState.VISIBLE,
+      })
+      .exec();
     if (!review) throw new NotFoundException('Review not found');
     await this.hotels.assertManagesHotel(user, String(review.hotelId));
-    review.reply = { body: dto.body.trim(), moderatorId: oid(user.userId), repliedAt: new Date() };
+    review.reply = {
+      body: dto.body.trim(),
+      moderatorId: oid(user.userId),
+      repliedAt: new Date(),
+    };
     await review.save();
     return review;
   }
@@ -89,9 +130,18 @@ export class ReviewsService {
   /** HTL-24: average, count and newest-first paginated VISIBLE reviews. */
   async listForHotel(hotelId: string, page: number) {
     const hotel = await this.hotels.getActiveHotelOrThrow(hotelId);
-    const filter = { hotelId: hotel._id, moderationState: ReviewModerationState.VISIBLE };
+    const filter = {
+      hotelId: hotel._id,
+      moderationState: ReviewModerationState.VISIBLE,
+    };
     const [items, total, agg] = await Promise.all([
-      this.reviewModel.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).lean().exec(),
+      this.reviewModel
+        .find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip((page - 1) * PAGE_SIZE)
+        .limit(PAGE_SIZE)
+        .lean()
+        .exec(),
       this.reviewModel.countDocuments(filter).exec(),
       this.aggregate(hotel._id),
     ]);
@@ -106,10 +156,14 @@ export class ReviewsService {
             id: r._id,
             rating: r.rating,
             comment: r.comment,
-            reply: r.reply ? { body: r.reply.body, repliedAt: r.reply.repliedAt } : undefined,
+            reply: r.reply
+              ? { body: r.reply.body, repliedAt: r.reply.repliedAt }
+              : undefined,
             createdAt: r.createdAt,
             updatedAt: r.updatedAt,
-            author: { name: !u || u.status === 'DEACTIVATED' ? 'Deleted user' : u.name }, // ACC-12
+            author: {
+              name: !u || u.status === 'DEACTIVATED' ? 'Deleted user' : u.name,
+            }, // ACC-12
           };
         }),
         PageMetaDto.create(page, total),
@@ -135,7 +189,10 @@ export class ReviewsService {
         { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
       ])
       .exec();
-    return { ratingAverage: row ? Math.round(row.avg * 100) / 100 : 0, ratingCount: row ? row.count : 0 };
+    return {
+      ratingAverage: row ? Math.round(row.avg * 100) / 100 : 0,
+      ratingCount: row ? row.count : 0,
+    };
   }
 
   /**
@@ -144,7 +201,11 @@ export class ReviewsService {
    */
   async recalculateHotelRating(hotelId: Types.ObjectId) {
     const { ratingAverage, ratingCount } = await this.aggregate(hotelId);
-    await this.hotels.setRatingAggregate(String(hotelId), ratingAverage, ratingCount);
+    await this.hotels.setRatingAggregate(
+      String(hotelId),
+      ratingAverage,
+      ratingCount,
+    );
     return { ratingAverage, ratingCount };
   }
 }
