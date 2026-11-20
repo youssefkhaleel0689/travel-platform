@@ -1687,9 +1687,9 @@ Rules worth knowing:
 
 Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
 
-## Optional bonus features (FLT-27, FLT-28, ITN-27, ITN-28, BLG-13, GEN-01-B, BON-02)
+## Optional bonus features (all 11: ACC-02, ACC-07, FLT-27, FLT-28, HTL-26, ITN-27, ITN-28, BLG-13, GEN-01-B, BON-01, BON-02)
 
-Built by Zeyad after the 110 mandatory endpoints were merged; reviewed and fixed before the merge. HTL-26 (moderator replies to reviews) came earlier with #30.
+Built by Zeyad after the 110 mandatory endpoints were merged (ACC-02, ACC-07 and BON-01 in #77); reviewed and fixed before the merge. HTL-26 (moderator replies to reviews) came earlier with #30.
 
 | Method | Path | Requirement | Who |
 | --- | --- | --- | --- |
@@ -1702,10 +1702,18 @@ Built by Zeyad after the 110 mandatory endpoints were merged; reviewed and fixed
 | PATCH, DELETE | `/api/posts/:id/itinerary` | BLG-13 | Post author |
 | POST, DELETE | `/api/favourites/hotels/:hotelId`, `/api/favourites/itineraries/:itineraryId` | BON-02 | Registered user |
 | GET | `/api/favourites` | BON-02 | Registered user |
+| GET | `/api/auth/verify-email?token=` | ACC-02 | Public (link from the email) |
+| POST | `/api/auth/forgot-password` | ACC-07 | Public |
+| POST | `/api/auth/reset-password` | ACC-07 | Public (code from the email) |
+| GET | `/api/admin/analytics?from=&to=&type=` | BON-01 | Admin |
 
 - **FLT-27:** same route and cabin only, on a SCHEDULED future flight of an ACTIVE airline, not the flight already booked, and a round trip must still land before the return leaves. The difference is computed per passenger with the booking's own rule (infants pay 10%). A higher fare opens a PaymentIntent and the change is applied by `/apply` once Stripe says it succeeded, to the segment and at the price that were quoted. A lower fare is applied at once and the difference refunded. Seats, every passenger's fare and the booking totals change in one transaction, so a later FLT-26 refund reads the new total.
 - **FLT-28:** one document per chosen seat in `flightSeatClaims`, unique per flight, cabin and seat. Two bookings picking the same seat at once: the database lets one win and the other gets 409 `SEAT_ALREADY_TAKEN`. A claim left by a cancelled or changed booking is taken over.
 - **ITN-27:** only your own Confirmed or Completed booking (another account's is 404, ACC-11), once per itinerary. Hotels count as accommodation and flights as intercity transport in the budget summary, at the price snapshot taken when linking. A public itinerary view does not show the links.
+- **ACC-02:** off unless `EMAIL_VERIFICATION_REQUIRED=true`. Then registration emails a link (base URL `APP_PUBLIC_URL`), and only the two routes that create a booking (`POST /api/flight-bookings/hold`, `POST /api/hotel-bookings`) answer 403 `EMAIL_NOT_VERIFIED` until it is opened; viewing and cancelling stay open. Only an explicit `emailVerifiedAt: null` blocks, so accounts created before this feature (no field) are not locked out. Seeded admins and admin-created moderators are verified at creation. It needs `SMTP_ENABLE=true` too, or the link never arrives.
+- **ACC-07:** `forgot-password` always answers 202 with the same message, and does not wait for the mail server, so an unknown email cannot be told apart. The email carries a single-use code valid for 30 minutes; a newer request invalidates the older code. `reset-password` sets the new password and revokes every session of the account.
+- **ACC-02 / ACC-07 tokens:** only a SHA-256 hash is stored (`emailVerificationTokens`, `passwordResetTokens`). A token is consumed with one conditional update, so the same link used twice at the same moment works once.
+- **BON-01:** counts every booking created in the UTC date range and sums revenue from Confirmed and Completed ones, per airline or hotel, in decimals. Amounts in different currencies are never added together.
 - **GEN-01-B:** off unless `SMTP_ENABLE=true` (see `.env.example`); with it off no email work is done at all. An email failure is logged and never fails the request.
 
 ## Team workflow

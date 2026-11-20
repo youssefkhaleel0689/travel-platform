@@ -46,9 +46,7 @@ describe('HotelModeratorAssignmentAdapter (ACC-13)', () => {
   });
 
   it('rejects a deactivated hotel with 400 PROVIDER_DEACTIVATED', async () => {
-    hotels.findById.mockResolvedValue(
-      hotel(HotelStatus.DEACTIVATED) as never,
-    );
+    hotels.findById.mockResolvedValue(hotel(HotelStatus.DEACTIVATED) as never);
 
     const result = adapter.assertAssignable(HOTEL_ID, ADMIN_ID);
     await expect(result).rejects.toBeInstanceOf(BadRequestException);

@@ -24,7 +24,11 @@ const PHONE_PATTERN = /^\+?\d{7,15}$/;
  * left out is not touched.
  */
 export class UpdateProfileDto {
-  @ApiPropertyOptional({ example: 'Taher Khalaf', minLength: 1, maxLength: 100 })
+  @ApiPropertyOptional({
+    example: 'Taher Khalaf',
+    minLength: 1,
+    maxLength: 100,
+  })
   @IsOptional()
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

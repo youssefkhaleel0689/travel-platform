@@ -9,6 +9,9 @@ import type { Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { REFRESH_TOKEN_COOKIE } from './auth.constants';
+import { EmailService } from '../notifications/email.service';
+import { EmailTokenService } from './email-token.service';
+import { PasswordService } from './password/password.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { unauthenticated } from './guards/jwt-auth.guard';
@@ -58,12 +61,21 @@ export function accountLocked(
   );
 }
 
+/** Where the API is reachable from an email link (ACC-02, ACC-07). */
+function publicApiUrl(): string {
+  const configured = process.env.APP_PUBLIC_URL?.replace(/\/+$/, '');
+  return configured || `http://localhost:${process.env.PORT ?? 3000}`;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly users: UsersService,
     private readonly accessTokens: AccessTokenService,
     private readonly sessions: SessionsService,
+    private readonly emailTokens: EmailTokenService,
+    private readonly email: EmailService,
+    private readonly passwords: PasswordService,
   ) {}
 
   /**
@@ -78,6 +90,17 @@ export class AuthService {
       role: Role.USER,
       termsAcceptedAt: new Date(),
     });
+    if (process.env.EMAIL_VERIFICATION_REQUIRED === 'true') {
+      const token = await this.emailTokens.issueVerification(profile.id);
+      await this.email.send({
+        to: profile.email,
+        subject: 'Verify your Travel Platform email',
+        text:
+          `Open this link to verify your email:\n` +
+          `${publicApiUrl()}/api/auth/verify-email?token=${token}\n` +
+          `The link expires in 30 minutes.`,
+      });
+    }
     return this.startSession(res, profile);
   }
 
@@ -218,6 +241,42 @@ export class AuthService {
     if (refreshToken !== '') {
       await this.sessions.revokeByRefreshToken(refreshToken);
     }
+  }
+
+  /** ACC-02: consume a verification link and mark the account verified. */
+  async verifyEmail(token: string): Promise<void> {
+    const userId = await this.emailTokens.consumeVerification(token);
+    await this.users.markEmailVerified(userId);
+  }
+
+  /**
+   * ACC-07: always the same response, whether or not the email exists, so an
+   * attacker cannot enumerate accounts. A real account gets a 30-minute link.
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.users.findByEmail(email);
+    if (!user) return;
+    const token = await this.emailTokens.issueReset(user.id);
+    // Not awaited: waiting for the mail server would make a real account
+    // answer noticeably slower than an unknown email. send() never throws.
+    void this.email.send({
+      to: user.email,
+      subject: 'Reset your Travel Platform password',
+      text:
+        `Someone asked to reset your Travel Platform password.\n\n` +
+        `Your reset code (valid for 30 minutes, single use):\n${token}\n\n` +
+        `Send it with your new password to POST ${publicApiUrl()}/api/auth/reset-password ` +
+        `(the reset page of the website does this for you).\n` +
+        `If you did not ask for this, ignore this email.`,
+    });
+  }
+
+  /** ACC-07: single-use reset; all existing sessions end when the password changes. */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const userId = await this.emailTokens.consumeReset(token);
+    const hash = await this.passwords.hash(newPassword);
+    await this.users.setPasswordHash(userId, hash);
+    await this.sessions.revokeAllSessions(userId);
   }
 
   // A failed refresh: clears both cookies (they are useless now) and returns the generic

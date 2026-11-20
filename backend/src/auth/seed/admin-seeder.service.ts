@@ -52,6 +52,7 @@ export class AdminSeeder {
         role: Role.ADMIN,
         mustChangePassword: false,
         termsAcceptedAt: null,
+        emailVerifiedAt: new Date(),
       });
     } catch (error) {
       // A teammate seeded the same email at the same moment: the unique index rejected

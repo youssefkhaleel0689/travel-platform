@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.module';
 import { BlogModule } from './blog/blog.module';
 import { ModerationModule } from './moderation/moderation.module';
 import { AuthModule } from './auth/auth.module';
+import { EmailModule } from './email/email.module';
 import { ReferenceDataModule } from './common/reference-data/reference-data.module';
 import { FlightBookingsModule } from './flights/flight-bookings/flight-bookings.module';
 import { FlightsModule } from './flights/flights.module';
@@ -56,6 +57,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     ReviewsModule,
     ReferenceDataModule,
     AuthModule,
+    EmailModule,
     FlightsModule,
     FlightBookingsModule,
     NotificationsModule,

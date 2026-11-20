@@ -29,6 +29,7 @@ function user(overrides: Partial<User> = {}): User {
     lockedUntil: null,
     mustChangePassword: false,
     temporaryPasswordIssuedAt: null,
+    emailVerifiedAt: null,
     suspendedAt: null,
     deactivatedAt: null,
     createdAt: NOW,
@@ -172,6 +173,7 @@ describe('UsersService.create (ACC-01, GEN-13)', () => {
         'role',
         'status',
         'mustChangePassword',
+        'emailVerifiedAt',
         'createdAt',
         // ACC-12, ACC-16: when the owner deactivated the account and when an
         // admin suspended it, so the profile and the admin list can show it.
@@ -582,7 +584,9 @@ describe('clearing an ACC-05 lockout', () => {
       lockedUntil: new Date(NOW.getTime() + LOCKOUT_DURATION_MS),
     });
 
-  function updateFor(userModel: { updateOne: jest.Mock }): Record<string, unknown> {
+  function updateFor(userModel: {
+    updateOne: jest.Mock;
+  }): Record<string, unknown> {
     const [, update] = userModel.updateOne.mock.calls[0] as [
       unknown,
       { $set: Record<string, unknown> },
