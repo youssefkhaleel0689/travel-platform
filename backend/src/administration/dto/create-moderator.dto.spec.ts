@@ -58,7 +58,10 @@ describe('CreateModeratorDto (ACC-13)', () => {
   it('accepts an optional password and trims and lower-cases the email', async () => {
     const dto = plainToInstance(
       CreateModeratorDto,
-      airlineBody({ email: '  Omar@Airline.Example.COM ', password: 'Welcome2026' }),
+      airlineBody({
+        email: '  Omar@Airline.Example.COM ',
+        password: 'Welcome2026',
+      }),
     );
     expect(await validate(dto)).toHaveLength(0);
     expect(dto.email).toBe('omar@airline.example.com');

@@ -15,9 +15,7 @@ import type { ModeratorAssignmentPort } from '../common/providers/moderator-assi
  * The hotel half of ACC-13 is HotelModeratorAssignmentAdapter.
  */
 @Injectable()
-export class AirlineModeratorAssignmentAdapter
-  implements ModeratorAssignmentPort
-{
+export class AirlineModeratorAssignmentAdapter implements ModeratorAssignmentPort {
   constructor(private readonly airlines: AirlinesService) {}
 
   async assertAssignable(

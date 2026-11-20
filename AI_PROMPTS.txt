@@ -1170,6 +1170,15 @@ Fix the two payment gaps from the develop review: a payment that succeeds before
 How the output was used:
 Claude changed the Stripe webhook so that when the booking module refuses to confirm with a 409 (hold expired, or another state), it issues a full refund with a new cancelledBy SYSTEM, notifies the user that the booking was not confirmed, and answers 2xx instead of failing and leaving the money taken. Any other error is still rethrown so Stripe retries. For refunds it added a handler for refund.updated, refund.failed and charge.refund.updated that moves a PENDING refund to REFUNDED or FAILED with one conditional update, and GET /api/refunds/:id now asks Stripe again while a refund is PENDING (a Stripe error keeps the stored answer). Added 12 unit tests and a README section. Verified in the cloud: tsc clean, lint 0 errors, unit tests pass. I run the payments and refunds e2e on my machine before merging.
 ================================================
+Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: ACC-02, ACC-07, BON-01 (review of #77)
+Prompt:
+Review Zeyad's PR for email verification, password reset by email and admin analytics, fix what is wrong and make it mergeable before the release.
+How the output was used:
+Claude merged develop and resolved the hotel-bookings controller conflict (a formatting-only rewrite of the file). A reset or verification token was read and then saved, so the same link opened twice at once could be used twice; it is now consumed with one conditional update. The email links had no host and the reset link pointed a browser at a POST route; the emails now use APP_PUBLIC_URL and the reset email gives the code to send. forgot-password no longer waits for the mail server, so a real account does not answer slower than an unknown one. The email guard covered whole controllers, so turning it on would have stopped users from viewing or cancelling bookings; it now covers only the two routes that create a booking, and accounts created before the feature are not blocked. Analytics no longer adds different currencies together and names the right field in date errors. Specs that no longer type-checked were fixed, and 12 unit tests were added. Verified in the cloud: tsc clean, lint 0 errors, 119 suites / 1740 unit tests. The e2e suites run on my machine before the merge.
+================================================
 ================================================
 Date: 2026-11-20
 Student: Taher Khalaf

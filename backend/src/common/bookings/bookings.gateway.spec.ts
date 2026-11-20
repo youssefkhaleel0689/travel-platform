@@ -1,10 +1,7 @@
 import { NotFoundException, NotImplementedException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { BookingsGateway } from './bookings.gateway';
-import {
-  BookingsPort,
-  HoldReleaseReason,
-} from './bookings.port';
+import { BookingsPort, HoldReleaseReason } from './bookings.port';
 import { BookingStatus, BookingType, ProviderType } from './booking-status';
 
 describe('BookingsGateway (GEN-11)', () => {
@@ -208,7 +205,11 @@ describe('BookingsGateway (GEN-11)', () => {
     // A row made at `minutesAgo` minutes before a fixed instant.
     const NOW = new Date('2026-11-19T12:00:00.000Z');
 
-    function row(bookingType: BookingType, minutesAgo: number, id = String(minutesAgo).padStart(24, 'a')) {
+    function row(
+      bookingType: BookingType,
+      minutesAgo: number,
+      id = String(minutesAgo).padStart(24, 'a'),
+    ) {
       return {
         bookingId: id,
         bookingType,
@@ -281,7 +282,10 @@ describe('BookingsGateway (GEN-11)', () => {
         rows: [row(BookingType.HOTEL, 2), row(BookingType.HOTEL, 4)],
         total: 5,
       });
-      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+      const gateway = new BookingsGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
 
       const page = await gateway.listForAdmin({}, 1);
 
@@ -299,7 +303,10 @@ describe('BookingsGateway (GEN-11)', () => {
     it('asks each module for enough rows to cover the page', async () => {
       const flightPort = portStub();
       const hotelPort = portStub();
-      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+      const gateway = new BookingsGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
 
       await gateway.listForAdmin({ status: BookingStatus.CONFIRMED }, 3);
 
@@ -340,7 +347,10 @@ describe('BookingsGateway (GEN-11)', () => {
     it('asks only the module that owns the type when one is given', async () => {
       const flightPort = portStub();
       const hotelPort = portStub();
-      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+      const gateway = new BookingsGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
 
       await gateway.listForAdmin({ bookingType: BookingType.HOTEL }, 1);
 
@@ -380,7 +390,10 @@ describe('BookingsGateway (GEN-11)', () => {
         rows: [row(BookingType.HOTEL, 5, 'f'.repeat(24))],
         total: 1,
       });
-      const gateway = new BookingsGateway(asPort(flightPort), asPort(hotelPort));
+      const gateway = new BookingsGateway(
+        asPort(flightPort),
+        asPort(hotelPort),
+      );
 
       const page = await gateway.listForAdmin({}, 1);
 

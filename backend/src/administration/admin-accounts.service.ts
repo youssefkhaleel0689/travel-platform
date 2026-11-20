@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import { Role, UserStatus } from '../common/auth/auth.enums';
 import { SessionsService } from '../auth/sessions/sessions.service';
@@ -37,7 +41,10 @@ export class AdminAccountsService {
     filters: AccountListFilters,
   ): Promise<PageDto<AdminAccountDto>> {
     const result = await this.users.listAccounts(page, filters);
-    return new PageDto(result.items.map((item) => AdminAccountDto.from(item)), result.meta);
+    return new PageDto(
+      result.items.map((item) => AdminAccountDto.from(item)),
+      result.meta,
+    );
   }
 
   /**
@@ -179,7 +186,8 @@ export class AdminAccountsService {
     if (target.id === actorId) {
       throw new BadRequestException({
         code: 'CANNOT_TARGET_SELF',
-        message: 'An administrator cannot perform this action on their own account',
+        message:
+          'An administrator cannot perform this action on their own account',
       });
     }
     if (target.role === Role.ADMIN) {
