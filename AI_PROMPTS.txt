@@ -1170,3 +1170,13 @@ Fix the two payment gaps from the develop review: a payment that succeeds before
 How the output was used:
 Claude changed the Stripe webhook so that when the booking module refuses to confirm with a 409 (hold expired, or another state), it issues a full refund with a new cancelledBy SYSTEM, notifies the user that the booking was not confirmed, and answers 2xx instead of failing and leaving the money taken. Any other error is still rethrown so Stripe retries. For refunds it added a handler for refund.updated, refund.failed and charge.refund.updated that moves a PENDING refund to REFUNDED or FAILED with one conditional update, and GET /api/refunds/:id now asks Stripe again while a refund is PENDING (a Stripe error keeps the stored answer). Added 12 unit tests and a README section. Verified in the cloud: tsc clean, lint 0 errors, unit tests pass. I run the payments and refunds e2e on my machine before merging.
 ================================================
+================================================
+Date: 2026-11-20
+Student: Marawan Elgendy
+Tool: Claude Code
+Related Requirement: FLT-01, GEN-08
+Prompt:
+The airline logo upload was never built: airline.logo is always null. Now that the shared media service (GEN-08) is on develop, add the logo endpoints for the airline moderator.
+How the output was used:
+Claude added PUT, GET and DELETE /api/airlines/{id}/logo on top of the shared MediaService (limit 1 for AIRLINE). An admin or the assigned moderator can upload or replace the logo (a rejected file keeps the old one), anyone can read it for an ACTIVE airline, and airline.logo holds the URL or null. Unit tests with fake models cover permissions, replace, delete and the deactivated-airline rule.
+================================================
