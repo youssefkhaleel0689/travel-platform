@@ -125,7 +125,13 @@ export class PublicItinerariesService {
 
   async findOne(id: string, currency?: string) {
     const doc = await this.findPublicOrThrow(id);
-    const view = toItineraryView(doc);
+    const full = toItineraryView(doc);
+    // ITN-27: linked bookings (their ids and references) are the owner's
+    // private data; a public view shows the days without them.
+    const view = {
+      ...full,
+      days: full.days.map(({ bookingLinks: _private, ...day }) => day),
+    };
     if (!currency) return view;
     await this.referenceData.assertSupportedCurrency(currency);
     return {

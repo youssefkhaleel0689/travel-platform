@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -39,10 +38,11 @@ export class ItineraryBookingLinksService {
       dto.bookingId,
     );
 
+    // ACC-11: another account's booking is the same 404 as a missing one.
     if (booking.userId !== user.userId) {
-      throw new ForbiddenException({
-        code: 'NOT_BOOKING_OWNER',
-        message: 'You can link only your own bookings',
+      throw new NotFoundException({
+        code: 'BOOKING_NOT_FOUND',
+        message: 'Booking not found',
       });
     }
     if (
@@ -56,13 +56,15 @@ export class ItineraryBookingLinksService {
     }
 
     day.bookingLinks ??= [];
-    if (
-      day.bookingLinks.some(
+    // A booking feeds the budget once: linked to one day of the itinerary.
+    const alreadyLinked = itinerary.days.some((d) =>
+      (d.bookingLinks ?? []).some(
         (link) =>
           link.bookingType === dto.bookingType &&
           link.bookingId.toString() === dto.bookingId,
-      )
-    ) {
+      ),
+    );
+    if (alreadyLinked) {
       throw new ConflictException({
         code: 'BOOKING_ALREADY_LINKED',
         message: 'This booking is already linked to a day',
