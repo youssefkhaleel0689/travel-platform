@@ -46,6 +46,7 @@ import { IMAGE_MIME_TYPES } from '../media/media.constants';
 import type { UploadedImage } from '../media/media.service';
 import { CommentDto } from './dto/comment.dto';
 import {
+  AttachItineraryDto,
   CreatePostDto,
   PostsQueryDto,
   UpdatePostDto,
@@ -210,6 +211,53 @@ export class PostsController {
     @Body() dto: UpdatePostDto,
   ): Promise<PostDetailDto> {
     return this.posts.update(id, user, dto);
+  }
+
+  @Patch(':id/itinerary')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Attach your public itinerary to your post (BLG-13)',
+    description:
+      'Only the post author may do this, and the itinerary must be PUBLIC, ' +
+      'not hidden and owned by the same account. Use ' +
+      'DELETE /api/posts/{id}/itinerary to detach it.',
+  })
+  @ApiParam(POST_ID_PARAM)
+  @ApiOkResponse({ type: PostDetailDto })
+  @ApiErrorResponse(validationFailed(`${POST}/itinerary`, [
+    { field: 'itineraryId', messages: ['itineraryId must be a MongoDB id'] },
+  ]))
+  @ApiErrorResponse(unauthenticated(`${POST}/itinerary`))
+  @ApiErrorResponse(forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }))
+  @ApiErrorResponse({
+    status: 404,
+    description: 'No such public itinerary',
+    examples: [{ code: 'ITINERARY_NOT_FOUND', message: 'Public itinerary not found', path: `${POST}/itinerary` }],
+  })
+  @ApiErrorResponse(postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'))
+  attachItinerary(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: AttachItineraryDto,
+  ): Promise<PostDetailDto> {
+    return this.posts.attachItinerary(id, user, dto.itineraryId);
+  }
+
+  @Delete(':id/itinerary')
+  @ApiCookieAuth()
+  @ApiOperation({
+    summary: 'Detach the itinerary from your post (BLG-13)',
+  })
+  @ApiParam(POST_ID_PARAM)
+  @ApiOkResponse({ type: PostDetailDto })
+  @ApiErrorResponse(unauthenticated(`${POST}/itinerary`))
+  @ApiErrorResponse(forbidden(`${POST}/itinerary`, { role: false, passwordChange: true }))
+  @ApiErrorResponse(postNotFound(`${POST}/itinerary`, 'No such post, or it is not yours'))
+  detachItinerary(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PostDetailDto> {
+    return this.posts.detachItinerary(id, user);
   }
 
   @Delete(':id')

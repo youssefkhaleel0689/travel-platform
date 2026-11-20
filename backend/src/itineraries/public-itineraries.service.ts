@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -141,6 +142,27 @@ export class PublicItinerariesService {
       buildCloneData(source.toObject(), newOwner),
     );
     return toItineraryView(copy);
+  }
+
+  /** BON-02: any registered user may save a PUBLIC itinerary as a favourite. */
+  async assertPublic(id: string) {
+    const itinerary = await this.findPublicOrThrow(id);
+    return { id: String(itinerary._id), title: itinerary.title };
+  }
+
+  /**
+   * BLG-13: an author may attach only their own PUBLIC itinerary to a post.
+   * The same 404 is used for a missing, private or hidden itinerary.
+   */
+  async assertAttachableFor(userId: string, id: string) {
+    const itinerary = await this.findPublicOrThrow(id);
+    if (String(itinerary.userId) !== userId) {
+      throw new ForbiddenException({
+        code: 'NOT_ITINERARY_OWNER',
+        message: 'You can attach only your own itinerary',
+      });
+    }
+    return { id: String(itinerary._id), title: itinerary.title };
   }
 
   // GEN-09/GEN-10 (D2): what admin moderation needs to know about an itinerary.

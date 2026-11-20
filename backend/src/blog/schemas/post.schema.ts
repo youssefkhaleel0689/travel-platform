@@ -61,6 +61,10 @@ export class Post {
   @Prop({ type: Number, default: 0, min: 0 })
   interactionScore: number;
 
+  // BLG-13: the author's public itinerary attached to this post.
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Itinerary', default: null })
+  itineraryId: Types.ObjectId | null;
+
   @Prop({ type: Date, default: null })
   publishedAt: Date | null;
 
