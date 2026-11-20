@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { fieldBadRequest } from '../common/validation/field-error';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Room, RoomDocument } from '../rooms/schemas/room.schema';
@@ -36,12 +37,28 @@ export class HotelSearchService {
 
   /** HTL-11 / HTL-12: search + filter + sort active hotels. */
   async search(dto: HotelSearchDto) {
-    const { checkIn, checkOut, nights } = parseStay(dto.checkInDate, dto.checkOutDate);
+    const { checkIn, checkOut, nights } = parseStay(
+      dto.checkInDate,
+      dto.checkOutDate,
+    );
 
-    const minCents = dto.minPricePerNight !== undefined ? toCents(dto.minPricePerNight) : undefined;
-    const maxCents = dto.maxPricePerNight !== undefined ? toCents(dto.maxPricePerNight) : undefined;
-    if (minCents !== undefined && maxCents !== undefined && minCents > maxCents) {
-      throw new BadRequestException('minPricePerNight cannot be greater than maxPricePerNight');
+    const minCents =
+      dto.minPricePerNight !== undefined
+        ? toCents(dto.minPricePerNight)
+        : undefined;
+    const maxCents =
+      dto.maxPricePerNight !== undefined
+        ? toCents(dto.maxPricePerNight)
+        : undefined;
+    if (
+      minCents !== undefined &&
+      maxCents !== undefined &&
+      minCents > maxCents
+    ) {
+      throw fieldBadRequest(
+        'minPricePerNight',
+        'minPricePerNight cannot be greater than maxPricePerNight',
+      );
     }
 
     // 1. seeded ids, validated by ReferenceDataService, -> ACTIVE hotels
@@ -49,10 +66,14 @@ export class HotelSearchService {
       throw new BadRequestException({
         code: 'DESTINATION_REQUIRED',
         message: 'Provide cityId or countryId',
+        errors: [
+          { field: 'cityId', messages: ['Provide cityId or countryId'] },
+        ],
       });
     }
     if (dto.cityId) await this.referenceData.assertCityExists(dto.cityId);
-    if (dto.countryId) await this.referenceData.assertCountriesExist([dto.countryId]);
+    if (dto.countryId)
+      await this.referenceData.assertCountriesExist([dto.countryId]);
 
     const hotels = await this.hotels.findActiveByCityOrCountry(
       dto.cityId ? [dto.cityId] : [],
@@ -61,8 +82,15 @@ export class HotelSearchService {
     if (!hotels.length) return { nights, ...paginateArray([], dto.page) };
 
     // 2. active rooms of those hotels that are free for the WHOLE stay
-    const rooms = await this.roomModel.find({ hotelId: { $in: hotels.map((h) => h._id) }, isActive: true }).lean().exec();
-    const status = await this.inventory.evaluateRooms(rooms.map((r) => r._id), checkIn, checkOut);
+    const rooms = await this.roomModel
+      .find({ hotelId: { $in: hotels.map((h) => h._id) }, isActive: true })
+      .lean()
+      .exec();
+    const status = await this.inventory.evaluateRooms(
+      rooms.map((r) => r._id),
+      checkIn,
+      checkOut,
+    );
 
     const freeByHotel = new Map<string, typeof rooms>();
     for (const r of rooms) {
@@ -76,20 +104,33 @@ export class HotelSearchService {
     for (const h of hotels) {
       const free = freeByHotel.get(String(h._id)) ?? [];
       if (free.length < dto.roomCount) continue;
-      const capacity = [...free].sort((a, b) => b.maxOccupancy - a.maxOccupancy)
-        .slice(0, dto.roomCount).reduce((sum, r) => sum + r.maxOccupancy, 0);
+      const capacity = [...free]
+        .sort((a, b) => b.maxOccupancy - a.maxOccupancy)
+        .slice(0, dto.roomCount)
+        .reduce((sum, r) => sum + r.maxOccupancy, 0);
       if (capacity < dto.guestCount) continue;
 
-      const cheapest = free.map((r) => toCents(r.pricePerNight)).reduce((a, b) => (b < a ? b : a));
+      const cheapest = free
+        .map((r) => toCents(r.pricePerNight))
+        .reduce((a, b) => (b < a ? b : a));
       if (minCents !== undefined && cheapest < minCents) continue;
       if (maxCents !== undefined && cheapest > maxCents) continue;
 
       const rated = (h.ratingCount ?? 0) > 0;
       const average = h.ratingAverage ?? 0;
-      if (dto.minAverageRating !== undefined && !(rated && average >= dto.minAverageRating)) continue; // unrated excluded
+      if (
+        dto.minAverageRating !== undefined &&
+        !(rated && average >= dto.minAverageRating)
+      )
+        continue; // unrated excluded
 
       results.push({
-        hotelId: h._id, name: h.name, address: h.address, cityId: h.cityId, countryId: h.countryId, starClass: h.starClass,
+        hotelId: h._id,
+        name: h.name,
+        address: h.address,
+        cityId: h.cityId,
+        countryId: h.countryId,
+        starClass: h.starClass,
         photo: Array.isArray(h.photos) ? h.photos[0] : undefined,
         ratingAverage: rated ? average : null,
         ratingCount: h.ratingCount ?? 0,
@@ -101,11 +142,17 @@ export class HotelSearchService {
 
     // 4. sort (price asc by default; rating desc by default), stable tie-break on name
     const byRating = dto.sortBy === HotelSortBy.RATING;
-    const dir = (dto.sortOrder ?? (byRating ? SortOrder.DESC : SortOrder.ASC)) === SortOrder.ASC ? 1 : -1;
+    const dir =
+      (dto.sortOrder ?? (byRating ? SortOrder.DESC : SortOrder.ASC)) ===
+      SortOrder.ASC
+        ? 1
+        : -1;
     results.sort((a, b) => {
       const av = byRating ? (a.ratingAverage ?? -1) : Number(a._cents);
       const bv = byRating ? (b.ratingAverage ?? -1) : Number(b._cents);
-      return av === bv ? String(a.name).localeCompare(String(b.name)) : (av - bv) * dir;
+      return av === bv
+        ? String(a.name).localeCompare(String(b.name))
+        : (av - bv) * dir;
     });
 
     const all = results.map(({ _cents, ...rest }) => rest);

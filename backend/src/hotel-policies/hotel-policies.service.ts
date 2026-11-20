@@ -1,11 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { fieldBadRequest } from '../common/validation/field-error';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { HotelPolicy, HotelPolicyDocument } from './schemas/hotel-policy.schema';
+import {
+  HotelPolicy,
+  HotelPolicyDocument,
+} from './schemas/hotel-policy.schema';
 import { UpsertHotelPolicyDto } from './dto/upsert-hotel-policy.dto';
 import { HotelsService } from '../hotels/hotels.service';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
-import { DEFAULT_CHECK_IN_TIME, DEFAULT_CHECK_OUT_TIME } from '../common/constants';
+import {
+  DEFAULT_CHECK_IN_TIME,
+  DEFAULT_CHECK_OUT_TIME,
+} from '../common/constants';
 import { oid, rethrowDuplicate } from '../common/mongo';
 
 export interface PolicySnapshot {
@@ -18,21 +25,32 @@ export interface PolicySnapshot {
 @Injectable()
 export class HotelPoliciesService {
   constructor(
-    @InjectModel(HotelPolicy.name) private readonly policyModel: Model<HotelPolicyDocument>,
+    @InjectModel(HotelPolicy.name)
+    private readonly policyModel: Model<HotelPolicyDocument>,
     private readonly hotels: HotelsService,
   ) {}
 
   /** HTL-09 / HTL-10: only the assigned moderator may change the policy; version increments atomically. */
-  async upsert(user: AuthenticatedUser, hotelId: string, dto: UpsertHotelPolicyDto) {
+  async upsert(
+    user: AuthenticatedUser,
+    hotelId: string,
+    dto: UpsertHotelPolicyDto,
+  ) {
     const hotel = await this.hotels.assertManagesHotel(user, hotelId);
 
     const thresholds = dto.cancellationTiers.map((t) => t.daysBeforeCheckIn);
     if (new Set(thresholds).size !== thresholds.length) {
-      throw new BadRequestException('Cancellation tier day thresholds must be unique');
+      throw fieldBadRequest(
+        'cancellationTiers',
+        'Cancellation tier day thresholds must be unique',
+      );
     }
     const tiers = [...dto.cancellationTiers]
       .sort((a, b) => b.daysBeforeCheckIn - a.daysBeforeCheckIn)
-      .map((t) => ({ daysBeforeCheckIn: t.daysBeforeCheckIn, refundPercentage: t.refundPercentage }));
+      .map((t) => ({
+        daysBeforeCheckIn: t.daysBeforeCheckIn,
+        refundPercentage: t.refundPercentage,
+      }));
 
     try {
       return await this.policyModel
@@ -47,7 +65,12 @@ export class HotelPoliciesService {
             },
             $inc: { version: 1 }, // atomic; creates version = 1 on first insert
           },
-          { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: false },
+          {
+            new: true,
+            upsert: true,
+            runValidators: true,
+            setDefaultsOnInsert: false,
+          },
         )
         .exec();
     } catch (err) {
@@ -58,7 +81,9 @@ export class HotelPoliciesService {
   /** Public read (hotel details page HTL-02). Returns defaults when the moderator has not configured a policy yet. */
   async findByHotel(hotelId: string) {
     const hotel = await this.hotels.getActiveHotelOrThrow(hotelId);
-    const policy = await this.policyModel.findOne({ hotelId: hotel._id }).exec();
+    const policy = await this.policyModel
+      .findOne({ hotelId: hotel._id })
+      .exec();
     if (policy) return policy;
     return {
       hotelId: hotel._id,
@@ -71,14 +96,24 @@ export class HotelPoliciesService {
   }
 
   /** Exact policy to snapshot onto a reservation (used by HotelBookingsService, shown before payment PAY-02). */
-  async getSnapshot(hotelId: Types.ObjectId | string, session?: import('mongoose').ClientSession): Promise<PolicySnapshot> {
+  async getSnapshot(
+    hotelId: Types.ObjectId | string,
+    session?: import('mongoose').ClientSession,
+  ): Promise<PolicySnapshot> {
     const policy = await this.policyModel
-      .findOne({ hotelId: typeof hotelId === 'string' ? oid(hotelId) : hotelId })
+      .findOne({
+        hotelId: typeof hotelId === 'string' ? oid(hotelId) : hotelId,
+      })
       .session(session ?? null)
       .lean()
       .exec();
     if (!policy) {
-      return { policyVersion: 0, checkInTime: DEFAULT_CHECK_IN_TIME, checkOutTime: DEFAULT_CHECK_OUT_TIME, cancellationTiers: [] };
+      return {
+        policyVersion: 0,
+        checkInTime: DEFAULT_CHECK_IN_TIME,
+        checkOutTime: DEFAULT_CHECK_OUT_TIME,
+        cancellationTiers: [],
+      };
     }
     return {
       policyVersion: policy.version,

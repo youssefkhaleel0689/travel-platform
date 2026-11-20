@@ -15,12 +15,17 @@ export enum ReviewModerationState {
 @Schema({ _id: false })
 export class ReviewReply {
   @Prop({ type: String, required: true, maxlength: 1000 }) body!: string;
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }) moderatorId!: mongoose.Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true })
+  moderatorId!: mongoose.Types.ObjectId;
   @Prop({ type: Date, required: true }) repliedAt!: Date;
 }
 export const ReviewReplySchema = SchemaFactory.createForClass(ReviewReply);
 
-@Schema({ collection: 'reviews', timestamps: true, toJSON: { transform: jsonTransform, versionKey: false } })
+@Schema({
+  collection: 'reviews',
+  timestamps: true,
+  toJSON: { transform: jsonTransform, versionKey: false },
+})
 export class HotelReview {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Hotel', required: true })
   hotelId!: mongoose.Types.ObjectId;
@@ -28,23 +33,40 @@ export class HotelReview {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true })
   userId!: mongoose.Types.ObjectId;
 
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'HotelBooking', required: true })
+  @Prop({
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'HotelBooking',
+    required: true,
+  })
   bookingId!: mongoose.Types.ObjectId;
 
-  @Prop({ type: Number, required: true, min: 1, max: 5, validate: Number.isInteger })
+  @Prop({
+    type: Number,
+    required: true,
+    min: 1,
+    max: 5,
+    validate: Number.isInteger,
+  })
   rating!: number;
 
   @Prop({ type: String, maxlength: 1000 })
   comment?: string;
 
-  @Prop({ type: String, enum: Object.values(ReviewModerationState), default: ReviewModerationState.VISIBLE, required: true })
+  @Prop({
+    type: String,
+    enum: Object.values(ReviewModerationState),
+    default: ReviewModerationState.VISIBLE,
+    required: true,
+  })
   moderationState!: ReviewModerationState;
 
   // Moderation fields (GEN-10). Set by the admin / moderation module, never by B2 code.
   @Prop({ type: Date }) hiddenAt?: Date;
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' }) hiddenBy?: mongoose.Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
+  hiddenBy?: mongoose.Types.ObjectId;
   @Prop({ type: Date }) deletedAt?: Date;
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' }) deletedBy?: mongoose.Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })
+  deletedBy?: mongoose.Types.ObjectId;
 
   @Prop({ type: ReviewReplySchema })
   reply?: ReviewReply;

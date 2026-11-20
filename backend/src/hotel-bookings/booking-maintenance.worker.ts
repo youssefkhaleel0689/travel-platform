@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { HotelBookingsService } from './hotel-bookings.service';
 
 /**
@@ -29,7 +34,8 @@ export class BookingMaintenanceWorker implements OnModuleInit, OnModuleDestroy {
     try {
       const expired = await this.bookings.expireDueHolds();
       const completed = await this.bookings.completeDueBookings();
-      if (expired || completed) this.logger.log(`expired=${expired} completed=${completed}`);
+      if (expired || completed)
+        this.logger.log(`expired=${expired} completed=${completed}`);
     } catch (e) {
       this.logger.error(`Maintenance tick failed: ${(e as Error).message}`);
     }

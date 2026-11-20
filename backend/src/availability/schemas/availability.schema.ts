@@ -10,7 +10,11 @@ export enum AvailabilityStatus {
 }
 
 // BOOKED is never stored: it is derived from CONFIRMED / unexpired PENDING_PAYMENT hotel bookings (HTL-08).
-@Schema({ collection: 'availability', timestamps: true, toJSON: { transform: jsonTransform, versionKey: false } })
+@Schema({
+  collection: 'availability',
+  timestamps: true,
+  toJSON: { transform: jsonTransform, versionKey: false },
+})
 export class Availability {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Hotel', required: true })
   hotelId!: mongoose.Types.ObjectId;
@@ -25,7 +29,11 @@ export class Availability {
   @Prop({ type: Date, required: true })
   endDate!: Date;
 
-  @Prop({ type: String, enum: Object.values(AvailabilityStatus), required: true })
+  @Prop({
+    type: String,
+    enum: Object.values(AvailabilityStatus),
+    required: true,
+  })
   status!: AvailabilityStatus;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'User' })

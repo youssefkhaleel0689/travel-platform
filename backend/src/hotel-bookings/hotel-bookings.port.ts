@@ -70,7 +70,10 @@ export class HotelBookingsPort implements BookingsPort {
     bookingId: string,
     paymentId: string,
   ): Promise<BookingConfirmation> {
-    const result = await this.bookings.confirmAfterPayment(bookingId, paymentId);
+    const result = await this.bookings.confirmAfterPayment(
+      bookingId,
+      paymentId,
+    );
     if (!result.confirmed) {
       if (result.reason === 'HOLD_EXPIRED') {
         throw new ConflictException({
