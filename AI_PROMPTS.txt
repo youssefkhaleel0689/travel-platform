@@ -1235,3 +1235,12 @@ Review Khaled's FLT-27 and refunds PR, merge develop into it (it now has Taher's
 How the output was used:
 Claude resolved the conflicts with #80 (develop's settlement kept; this branch only had formatting there). It then found two places where they disagreed. The settlement acts on every succeeded PaymentIntent, so the webhook of a fare-difference payment would have been treated as a second payment for a confirmed booking and refunded; recordFareDifference now sets bookingConfirmedAt, which tells the settlement the money is already applied. The refund of a payment the booking could not take had kind CANCELLATION, so in a double payment it would have blocked the booking's own cancellation refund later; it now has its own kind UNCONFIRMED_PAYMENT, only CANCELLATION rows block a second cancellation, and its notice says the payment could not be applied instead of "your cancelled booking". Added 5 unit tests. Verified in the cloud: tsc clean, lint 0 errors, all unit tests pass.
 ================================================
+Date: 2026-11-20
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: GEN-10, BLG-13, GEN-08 (HTL-01 photos)
+Prompt:
+Fix the open findings from Fares's final check that were not fixed yet: a user can still edit or delete their review after an admin hid or deleted it, a blog post keeps showing the id of an itinerary that became private, hidden or deleted, and hotel photo upload has its own copy of the upload code instead of MediaService.
+How the output was used:
+The review owner lookup now also requires a VISIBLE review, so a moderated one answers 404. A post shows itineraryId only while the itinerary is still public and visible. Hotel photos are stored, served and removed through MediaService and the shared upload interceptor; the hotel keeps the 5-photo limit and its error codes. Two new e2e suites, 10 tests; the review and BLG-13 ones fail without the fixes. Verified: tsc and lint clean, unit and e2e tests pass.
+================================================
