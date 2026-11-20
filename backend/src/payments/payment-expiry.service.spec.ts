@@ -4,6 +4,10 @@ import { BookingStatus, BookingType } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { HoldReleaseReason } from '../common/bookings/bookings.port';
 import { PaymentExpiryService } from './payment-expiry.service';
+import {
+  PaymentSettlementService,
+  SettlementOutcome,
+} from './payment-settlement.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
@@ -16,7 +20,12 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
     findOpenPayments: jest.Mock;
     applyStatus: jest.Mock;
   };
-  let stripe: { cancelPaymentIntent: jest.Mock; isConfigured: boolean };
+  let stripe: {
+    cancelPaymentIntent: jest.Mock;
+    retrievePaymentIntent: jest.Mock;
+    isConfigured: boolean;
+  };
+  let settlement: { settleSucceeded: jest.Mock };
   let bookings: { getPayableOrThrow: jest.Mock; releaseHold: jest.Mock };
   let service: PaymentExpiryService;
   let loggedError: jest.SpyInstance;
@@ -56,7 +65,13 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
     };
     stripe = {
       cancelPaymentIntent: jest.fn().mockResolvedValue({ id: 'pi_1' }),
+      retrievePaymentIntent: jest
+        .fn()
+        .mockResolvedValue({ id: 'pi_1', status: 'canceled' }),
       isConfigured: true,
+    };
+    settlement = {
+      settleSucceeded: jest.fn().mockResolvedValue(SettlementOutcome.REFUNDED),
     };
     bookings = {
       getPayableOrThrow: jest.fn().mockResolvedValue(booking()),
@@ -73,6 +88,7 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
       payments as unknown as PaymentsService,
       stripe as unknown as StripeService,
       bookings as unknown as BookingsGateway,
+      settlement as unknown as PaymentSettlementService,
     );
   });
 
@@ -98,7 +114,7 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
         BOOKING_ID,
         HoldReleaseReason.HOLD_EXPIRED,
       );
-      expect(result).toEqual({ checked: 1, cancelled: 1 });
+      expect(result).toEqual({ checked: 1, cancelled: 1, settled: 0 });
     });
 
     it('cancels at Stripe before writing the status', async () => {
@@ -128,7 +144,7 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
 
       expect(stripe.cancelPaymentIntent).not.toHaveBeenCalled();
       expect(bookings.releaseHold).not.toHaveBeenCalled();
-      expect(result).toEqual({ checked: 1, cancelled: 0 });
+      expect(result).toEqual({ checked: 1, cancelled: 0, settled: 0 });
     });
 
     // A booking that got CONFIRMED has its own succeeded payment; this open
@@ -187,7 +203,7 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
 
       const result = await service.sweep();
 
-      expect(result).toEqual({ checked: 2, cancelled: 1 });
+      expect(result).toEqual({ checked: 2, cancelled: 1, settled: 0 });
       expect(stripe.cancelPaymentIntent).toHaveBeenCalledTimes(1);
     });
 
@@ -197,7 +213,59 @@ describe('PaymentExpiryService (PAY-01, GEN-11)', () => {
       await expect(service.sweep()).resolves.toEqual({
         checked: 0,
         cancelled: 0,
+        settled: 0,
       });
+    });
+  });
+
+  // The card was charged in the moment between the hold ending and the sweep
+  // reaching it, so Stripe refuses the cancel. That money is real.
+  describe('an intent Stripe had already charged', () => {
+    beforeEach(() => {
+      stripe.cancelPaymentIntent.mockResolvedValue(null);
+      stripe.retrievePaymentIntent.mockResolvedValue({
+        id: 'pi_1',
+        status: 'succeeded',
+      });
+    });
+
+    it('settles it instead of recording it as cancelled', async () => {
+      const result = await service.sweep();
+
+      expect(settlement.settleSucceeded).toHaveBeenCalledTimes(1);
+      expect(payments.applyStatus).not.toHaveBeenCalled();
+      expect(result).toEqual({ checked: 1, cancelled: 0, settled: 1 });
+    });
+
+    it('releases the expired hold once the payment is refunded', async () => {
+      await service.sweep();
+
+      expect(bookings.releaseHold).toHaveBeenCalledWith(
+        BookingType.HOTEL,
+        BOOKING_ID,
+        HoldReleaseReason.HOLD_EXPIRED,
+      );
+    });
+
+    it('does not release when the payment confirmed the booking after all', async () => {
+      settlement.settleSucceeded.mockResolvedValue(SettlementOutcome.CONFIRMED);
+
+      await service.sweep();
+
+      expect(bookings.releaseHold).not.toHaveBeenCalled();
+    });
+
+    it('still cancels as before when Stripe had cancelled it already', async () => {
+      stripe.retrievePaymentIntent.mockResolvedValue({
+        id: 'pi_1',
+        status: 'canceled',
+      });
+
+      const result = await service.sweep();
+
+      expect(settlement.settleSucceeded).not.toHaveBeenCalled();
+      expect(payments.applyStatus).toHaveBeenCalled();
+      expect(result.cancelled).toBe(1);
     });
   });
 

@@ -1494,7 +1494,9 @@ The signature is checked against the **raw request bytes**, which is why `main.t
 Handling is **exactly once**, not at least once, because Stripe retries until it gets a 2xx and can deliver the same event twice anyway. There are two guards, either of which is enough on its own:
 
 1. inserting a row in `stripeWebhookEvents` keyed by the Stripe event id is how a delivery claims the event, and the unique index turns a second delivery into a no-op;
-2. the payment's status is moved with a conditional update, so only one delivery gets past it even if an event row were ever lost.
+2. confirming is idempotent in the booking module (the same payment gets the same reference back), and `payments.bookingConfirmedAt` is set by a conditional update, so the user is told "confirmed" once however often a success is settled.
+
+Confirming does **not** depend on winning the move to `SUCCEEDED`. `GET /api/payments/:id` refreshes the status from Stripe, so a traveller who looks at the payment before the webhook arrives records `SUCCEEDED` first; a webhook that then stopped because the status was "already set" left the card charged with the booking neither confirmed nor refunded. `PaymentSettlementService` settles every success the same way, whoever learns of it first.
 
 A handler that throws records the failure and rethrows, so Stripe sees a 5xx and retries, and the stored event is `FAILED` rather than `PROCESSED` so the retry is allowed to claim it again.
 
@@ -1504,7 +1506,7 @@ A declined card does not finish a PaymentIntent: Stripe puts it back to `require
 
 The hold is re-checked before any client secret is handed back, including on a retry: once the hold has gone the seats or rooms have been released, so letting the user pay would sell inventory the platform no longer has.
 
-A sweep runs every minute (`PaymentExpiryService`) over the open payments. For each one whose booking is no longer payable it cancels the PaymentIntent at Stripe and then releases the hold. A TTL index cannot do this: two things have to happen together and neither is a deletion, and cancelling at Stripe is what makes a late payment impossible rather than merely ignored. Stripe is called before the status is written, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction.
+A sweep runs every minute (`PaymentExpiryService`) over the open payments. For each one whose booking is no longer payable it cancels the PaymentIntent at Stripe and then releases the hold. A TTL index cannot do this: two things have to happen together and neither is a deletion. Cancelling at Stripe makes a late payment unlikely, not impossible: when the card was charged just before the sweep got there, Stripe refuses the cancel (recognised by its error code, `payment_intent_unexpected_state`, not by its wording, which has changed), and the sweep settles that payment like a webhook success, so it is confirmed or refunded in full even if no webhook ever arrives, and never recorded as `CANCELLED`. Stripe is called before the status is written, so a crash in between leaves a cancelled PaymentIntent and a payment that still looks open, which is the harmless direction.
 
 ### A payment that succeeds too late, and refunds Stripe settles later
 

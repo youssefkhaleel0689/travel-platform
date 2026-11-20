@@ -6,6 +6,7 @@ import { BookingsModule } from '../common/bookings/bookings.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BookingPoliciesController } from './booking-policies.controller';
 import { PaymentExpiryService } from './payment-expiry.service';
+import { PaymentSettlementService } from './payment-settlement.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { PaymentsWebhookService } from './payments-webhook.service';
@@ -59,6 +60,7 @@ import { StripeService } from './stripe.service';
     PolicyAcceptancesService,
     PaymentsService,
     PaymentsWebhookService,
+    PaymentSettlementService,
     PaymentExpiryService,
     RefundsService,
   ],

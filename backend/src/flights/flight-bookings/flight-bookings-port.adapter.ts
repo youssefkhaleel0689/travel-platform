@@ -382,10 +382,21 @@ export class FlightBookingsPortAdapter implements BookingsPort {
       });
     }
     // A webhook Stripe delivered again: the work is done, give the same answer.
+    // Only for the payment that confirmed it, though. Another payment for a
+    // booking that is already confirmed (a double payment) gets 409, so the
+    // payments module refunds it instead of telling the user "confirmed"
+    // twice and keeping both charges. A booking confirmed before paymentId was
+    // stored has none and keeps the old answer.
     if (
       booking.status === BookingStatus.CONFIRMED &&
       booking.bookingReference
     ) {
+      if (booking.paymentId && booking.paymentId.toString() !== paymentId) {
+        throw new ConflictException({
+          code: 'ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT',
+          message: 'This booking is already confirmed by another payment',
+        });
+      }
       return {
         confirmation: {
           bookingId,
