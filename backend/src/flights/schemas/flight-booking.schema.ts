@@ -49,6 +49,17 @@ const isPositiveDecimal = decimalAtLeast(0, false);
 const isNonNegativeDecimal = decimalAtLeast(0, true);
 const isWholeNumber = (value: number): boolean => Number.isInteger(value);
 
+/** FLT-28: a chosen seat for one passenger on one flight segment. */
+@Schema({ _id: false, versionKey: false })
+export class SeatAssignment {
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
+  passengerId: Types.ObjectId;
+
+  @Prop({ type: String, required: true, match: /^[1-9]\d*[A-F]$/ })
+  seatNumber: string;
+}
+export const SeatAssignmentSchema = SchemaFactory.createForClass(SeatAssignment);
+
 // One flight of the booking with the flight and cabin as they were when it was held.
 // Later price or schedule edits (FLT-05) never change an existing booking.
 @Schema({ _id: false, versionKey: false })
@@ -106,6 +117,10 @@ export class FlightSegment {
 
   @Prop({ type: Number, required: true, min: 0.1 })
   maxBagWeightKg: number;
+
+  // FLT-28: chosen seats for this segment, one per seat-requiring passenger.
+  @Prop({ type: [SeatAssignmentSchema], default: [] })
+  seatAssignments?: SeatAssignment[];
 }
 
 export const FlightSegmentSchema = SchemaFactory.createForClass(FlightSegment);

@@ -14,6 +14,8 @@ import { FlightBookingsPortAdapter } from './flight-bookings-port.adapter';
 import { FlightBookingsController } from './flight-bookings.controller';
 import { FlightBookingsService } from './flight-bookings.service';
 import { FlightHoldExpiryService } from './flight-hold-expiry.service';
+import { SeatSelectionController } from './seat-selection.controller';
+import { SeatSelectionService } from './seat-selection.service';
 
 // Flight bookings (FLT-19, FLT-21, FLT-22): the summary, the hold and the bookings the
 // payments module reads.
@@ -37,7 +39,7 @@ import { FlightHoldExpiryService } from './flight-hold-expiry.service';
     FlightsModule,
     ReferenceDataModule,
   ],
-  controllers: [FlightBookingsController],
+  controllers: [FlightBookingsController, SeatSelectionController],
   providers: [
     FlightBookingsService,
     FlightBookingPolicyReader,
@@ -45,6 +47,7 @@ import { FlightHoldExpiryService } from './flight-hold-expiry.service';
     { provide: FLIGHT_BOOKINGS_PORT, useExisting: FlightBookingsPortAdapter },
     // Its @Cron runs through ScheduleModule.forRoot(), registered once in PaymentsModule.
     FlightHoldExpiryService,
+    SeatSelectionService,
   ],
   exports: [FLIGHT_BOOKINGS_PORT, FlightBookingsService],
 })
