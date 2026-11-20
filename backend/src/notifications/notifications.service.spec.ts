@@ -1,5 +1,7 @@
 import { Logger, NotFoundException } from '@nestjs/common';
 import { Model, Types } from 'mongoose';
+import { UsersService } from '../auth/users/users.service';
+import { EmailService } from './email.service';
 import { NotificationType } from './notification-type.enum';
 import { NotificationResourceType } from './notification-type.enum';
 import { NotificationsService } from './notifications.service';
@@ -34,8 +36,14 @@ describe('NotificationsService (GEN-01)', () => {
       updateMany: jest.fn().mockReturnValue(exec({ modifiedCount: 4 })),
       find: jest.fn(),
     };
+    const users = {
+      findById: jest.fn().mockResolvedValue({ email: 'user@example.com' }),
+    };
+    const email = { send: jest.fn().mockResolvedValue(undefined) };
     service = new NotificationsService(
       model as unknown as Model<Notification>,
+      users as unknown as UsersService,
+      email as unknown as EmailService,
     );
     loggedError = jest
       .spyOn(Logger.prototype, 'error')

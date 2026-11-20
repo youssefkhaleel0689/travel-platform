@@ -5,6 +5,7 @@ import { UsersService } from '../auth/users/users.service';
 import { ModeratorAssignmentsGateway } from '../common/providers/moderator-assignments.gateway';
 import { AuditAction } from '../audit/audit-action.enum';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../notifications/email.service';
 import { AdminModeratorsService } from './admin-moderators.service';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 
@@ -20,6 +21,7 @@ describe('AdminModeratorsService (ACC-13)', () => {
     Pick<ModeratorAssignmentsGateway, 'assertAssignable' | 'assign'>
   >;
   let audit: jest.Mocked<Pick<AuditService, 'record'>>;
+  let email: jest.Mocked<Pick<EmailService, 'sendModeratorInvitation'>>;
   let service: AdminModeratorsService;
 
   function profile(overrides: Record<string, unknown> = {}) {
@@ -68,12 +70,14 @@ describe('AdminModeratorsService (ACC-13)', () => {
     };
 
     audit = { record: jest.fn().mockResolvedValue(undefined) };
+    email = { sendModeratorInvitation: jest.fn().mockResolvedValue(undefined) };
 
     service = new AdminModeratorsService(
       users as unknown as UsersService,
       passwords as unknown as PasswordService,
       assignments as unknown as ModeratorAssignmentsGateway,
       audit as unknown as AuditService,
+      email as unknown as EmailService,
     );
   });
 

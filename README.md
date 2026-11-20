@@ -1671,6 +1671,27 @@ Rules worth knowing:
 
 Tests: `test/moderation.e2e-spec.ts`. Manual pass: `docs/api/POSTMAN-D2.md`.
 
+## Optional bonus features (FLT-27, FLT-28, ITN-27, ITN-28, BLG-13, GEN-01-B, BON-02)
+
+Built by Zeyad after the 110 mandatory endpoints were merged; reviewed and fixed before the merge. HTL-26 (moderator replies to reviews) came earlier with #30.
+
+| Method | Path | Requirement | Who |
+| --- | --- | --- | --- |
+| PATCH | `/api/flight-bookings/:id/change-flight` | FLT-27 | Owner of a Confirmed booking |
+| POST | `/api/flight-bookings/:id/change-flight/apply` | FLT-27 | Owner, after paying the difference |
+| PATCH | `/api/flight-bookings/:id/seat` | FLT-28 | Owner of a Confirmed booking |
+| POST | `/api/itineraries/:id/days/:dayId/bookings` | ITN-27 | Itinerary owner |
+| DELETE | `/api/itineraries/:id/days/:dayId/bookings/:bookingType/:bookingId` | ITN-27 | Itinerary owner |
+| GET | `/api/itineraries/:id/pdf?currency=` | ITN-28 | Itinerary owner |
+| PATCH, DELETE | `/api/posts/:id/itinerary` | BLG-13 | Post author |
+| POST, DELETE | `/api/favourites/hotels/:hotelId`, `/api/favourites/itineraries/:itineraryId` | BON-02 | Registered user |
+| GET | `/api/favourites` | BON-02 | Registered user |
+
+- **FLT-27:** same route and cabin only, on a SCHEDULED future flight of an ACTIVE airline, not the flight already booked, and a round trip must still land before the return leaves. The difference is computed per passenger with the booking's own rule (infants pay 10%). A higher fare opens a PaymentIntent and the change is applied by `/apply` once Stripe says it succeeded, to the segment and at the price that were quoted. A lower fare is applied at once and the difference refunded. Seats, every passenger's fare and the booking totals change in one transaction, so a later FLT-26 refund reads the new total.
+- **FLT-28:** one document per chosen seat in `flightSeatClaims`, unique per flight, cabin and seat. Two bookings picking the same seat at once: the database lets one win and the other gets 409 `SEAT_ALREADY_TAKEN`. A claim left by a cancelled or changed booking is taken over.
+- **ITN-27:** only your own Confirmed or Completed booking (another account's is 404, ACC-11), once per itinerary. Hotels count as accommodation and flights as intercity transport in the budget summary, at the price snapshot taken when linking. A public itinerary view does not show the links.
+- **GEN-01-B:** off unless `SMTP_ENABLE=true` (see `.env.example`); with it off no email work is done at all. An email failure is logged and never fails the request.
+
 ## Team workflow
 
 `develop` is the integration branch and `main` holds stable releases. Direct pushes are blocked: every change goes through a pull request that needs one approving review.

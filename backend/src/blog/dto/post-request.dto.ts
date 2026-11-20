@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsEnum,
+  IsMongoId,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -112,6 +113,16 @@ export class UpdatePostDto {
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
+}
+
+/** BLG-13: attach one of your own public itineraries to your post. */
+export class AttachItineraryDto {
+  @ApiProperty({
+    example: '6720f1c2a1b2c3d4e5f60718',
+    description: 'Id of a PUBLIC itinerary owned by the post author',
+  })
+  @IsMongoId()
+  itineraryId!: string;
 }
 
 export class PostsQueryDto extends PaginationQueryDto {

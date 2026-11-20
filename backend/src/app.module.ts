@@ -17,6 +17,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ItinerariesModule } from './itineraries/itineraries.module';
 import { ItineraryHotelsModule } from './itineraries/itinerary-hotels/itinerary-hotels.module';
+import { FavouritesModule } from './favourites/favourites.module';
 
 // B2 (Hotel side) — feature modules live flat in src/.
 import { HotelSearchModule } from './hotel-search/hotel-search.module';
@@ -65,6 +66,8 @@ import { ReviewsModule } from './reviews/reviews.module';
     ItineraryFlightsModule,
     // ITN-25: hotel search from an itinerary's city group (needs HotelSearchModule and ItinerariesModule).
     ItineraryHotelsModule,
+    // BON-02: saved hotels and public itineraries.
+    FavouritesModule,
     AuditModule,
     BlogModule,
     // D2: reports and admin moderation (GEN-09, GEN-10).
