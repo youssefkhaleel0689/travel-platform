@@ -1,19 +1,12 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import Stripe from 'stripe';
-import { BookingType } from '../common/bookings/booking-status';
 import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { HoldReleaseReason } from '../common/bookings/bookings.port';
-import { decimal128ToString } from '../common/money/money';
-import {
-  NotificationResourceType,
-  NotificationType,
-} from '../notifications/notification-type.enum';
-import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentSettlementService } from './payment-settlement.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
-import { CancelledBy } from './refund-status.enum';
 import { RefundsService } from './refunds.service';
 import { PaymentDocument } from './schemas/payment.schema';
 import {
@@ -69,7 +62,7 @@ export class PaymentsWebhookService {
     private readonly stripe: StripeService,
     private readonly payments: PaymentsService,
     private readonly bookings: BookingsGateway,
-    private readonly notifications: NotificationsService,
+    private readonly settlement: PaymentSettlementService,
     private readonly refunds: RefundsService,
   ) {}
 
@@ -139,7 +132,7 @@ export class PaymentsWebhookService {
 
     switch (event.type) {
       case 'payment_intent.succeeded':
-        await this.onSucceeded(payment, intent);
+        await this.settlement.settleSucceeded(payment);
         return;
       case 'payment_intent.payment_failed':
         await this.onFailed(payment, intent);
@@ -150,119 +143,6 @@ export class PaymentsWebhookService {
       default:
         return;
     }
-  }
-
-  /**
-   * The money is in. Confirm the booking, then tell the user (GEN-01).
-   *
-   * applyStatus moves the payment from its previous status in one conditional
-   * update, so only one delivery of the event gets past it and the booking is
-   * confirmed once. Confirmation itself is also idempotent on the booking
-   * module's side, which covers a retry that crashes between the two steps.
-   */
-  private async onSucceeded(
-    payment: PaymentDocument,
-    intent: Stripe.PaymentIntent,
-  ): Promise<void> {
-    const claimed = await this.payments.applyStatus(
-      payment._id,
-      payment.status,
-      PaymentStatus.SUCCEEDED,
-    );
-    if (!claimed) {
-      this.logger.log(
-        `Payment ${payment._id.toString()} was already recorded as ` +
-          `${payment.status}; not confirming again`,
-      );
-      return;
-    }
-
-    const bookingId = payment.bookingId.toString();
-    let confirmation: Awaited<ReturnType<BookingsGateway['confirmAfterPayment']>>;
-    try {
-      confirmation = await this.bookings.confirmAfterPayment(
-        payment.bookingType,
-        bookingId,
-        payment._id.toString(),
-      );
-    } catch (error) {
-      // FLT-22, HTL-18: the money arrived but the booking can no longer be
-      // confirmed (its hold ran out and the seats or rooms went back). The
-      // customer must not stay charged for nothing: refund it all.
-      if (isConflict(error)) {
-        await this.refundLatePayment(payment, bookingId, error);
-        return;
-      }
-      throw error;
-    }
-
-    await this.notifications.notify({
-      userId: payment.userId,
-      type: NotificationType.BOOKING_CONFIRMED,
-      title: 'Booking confirmed',
-      // The booking module may add what was booked (FLT-23: "with the booking
-      // details"); the reference and the amount are always there.
-      message:
-        `Your ${label(payment.bookingType)} ${confirmation.bookingReference} ` +
-        `is confirmed${confirmation.summary ? `: ${confirmation.summary}` : ''}. ` +
-        `${decimal128ToString(payment.amount)} ${payment.currency} was paid.`,
-      resourceType:
-        payment.bookingType === BookingType.FLIGHT
-          ? NotificationResourceType.FLIGHT_BOOKING
-          : NotificationResourceType.HOTEL_BOOKING,
-      resourceId: bookingId,
-    });
-
-    this.logger.log(
-      `Confirmed ${payment.bookingType} booking ${bookingId} as ` +
-        `${confirmation.bookingReference} after PaymentIntent ${intent.id}`,
-    );
-  }
-
-  /**
-   * A payment that succeeded for a booking that cannot be confirmed any more
-   * (usually: the webhook arrived after the 10-minute hold). The payment stays
-   * SUCCEEDED, because Stripe did take the money; a full refund is issued and
-   * the user is told why. The event is then handled, so Stripe stops retrying.
-   */
-  private async refundLatePayment(
-    payment: PaymentDocument,
-    bookingId: string,
-    reason: HttpException,
-  ): Promise<void> {
-    const body = reason.getResponse() as { code?: unknown } | string;
-    const code =
-      typeof body === 'object' && typeof body.code === 'string'
-        ? body.code
-        : 'CONFLICT';
-    this.logger.warn(
-      `${payment.bookingType} booking ${bookingId} could not be confirmed ` +
-        `after payment ${payment._id.toString()} (${code}): refunding in full`,
-    );
-    const refund = await this.refunds.issueForCancellation({
-      bookingType: payment.bookingType,
-      bookingId,
-      cancelledBy: CancelledBy.SYSTEM,
-      refundPercentage: 100,
-      reason: `Payment succeeded after the booking could no longer be confirmed (${code})`,
-    });
-    await this.notifications.notify({
-      userId: payment.userId,
-      type: NotificationType.BOOKING_CANCELLED,
-      title: 'Booking not confirmed',
-      message:
-        `Your payment of ${decimal128ToString(payment.amount)} ${payment.currency} ` +
-        `arrived after your ${label(payment.bookingType)} hold had expired, so it ` +
-        `could not be confirmed. ` +
-        (refund
-          ? 'The full amount is being refunded.'
-          : 'Please contact support for your refund.'),
-      resourceType:
-        payment.bookingType === BookingType.FLIGHT
-          ? NotificationResourceType.FLIGHT_BOOKING
-          : NotificationResourceType.HOTEL_BOOKING,
-      resourceId: bookingId,
-    });
   }
 
   /**
@@ -364,23 +244,10 @@ export class PaymentsWebhookService {
   }
 }
 
-function label(bookingType: BookingType): string {
-  return bookingType === BookingType.FLIGHT
-    ? 'flight booking'
-    : 'hotel reservation';
-}
-
 function isDuplicateKey(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
     (error as { code?: unknown }).code === 11000
-  );
-}
-
-/** A 409 from the booking module: the booking is in no state to confirm. */
-function isConflict(error: unknown): error is HttpException {
-  return (
-    error instanceof HttpException && error.getStatus() === HttpStatus.CONFLICT
   );
 }

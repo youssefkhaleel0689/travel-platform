@@ -234,6 +234,22 @@ export class PaymentsService {
       .exec();
   }
 
+  /**
+   * Records that this payment's booking is confirmed. Only the first caller
+   * gets true: the webhook and the expiry sweep can both settle the same
+   * success, and only one of them may tell the user.
+   */
+  async markBookingConfirmed(paymentId: Types.ObjectId): Promise<boolean> {
+    const updated = await this.paymentModel
+      .findOneAndUpdate(
+        { _id: paymentId, bookingConfirmedAt: null },
+        { $set: { bookingConfirmedAt: new Date() } },
+        { returnDocument: 'after' },
+      )
+      .exec();
+    return updated !== null;
+  }
+
   /** Open payments, for the hold-expiry sweep. */
   async findOpenPayments(limit: number): Promise<PaymentDocument[]> {
     return this.paymentModel

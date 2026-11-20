@@ -29,6 +29,7 @@ import {
   fromStripeRefundStatus,
   RefundStatus,
 } from './refund-status.enum';
+import { PaymentDocument } from './schemas/payment.schema';
 import { Refund, RefundDocument } from './schemas/refund.schema';
 import { StripeService } from './stripe.service';
 
@@ -162,6 +163,87 @@ export class RefundsService {
     });
 
     return this.sendToStripe(refund, payment.stripePaymentIntentId);
+  }
+
+  /**
+   * PAY-01: gives back, in full, one payment whose booking could not take it:
+   * the money arrived after the hold ran out, the booking was already
+   * confirmed by another payment, or the booking is gone.
+   *
+   * Keyed on the payment, not the booking. In a double payment the booking
+   * keeps the payment that confirmed it, and only this one is returned;
+   * issueForCancellation, which looks up "the" succeeded payment of a booking,
+   * could pick the wrong one. Safe to repeat - the webhook and the expiry
+   * sweep can both settle the same payment - because a payment gets at most
+   * one such refund, and one that already has a live refund of any kind is
+   * left alone. `created` says whether this call made it, so the caller tells
+   * the user once.
+   */
+  async refundUnconfirmablePayment(
+    payment: PaymentDocument,
+    reason: string,
+  ): Promise<{ refund: RefundDocument; created: boolean }> {
+    const existing = await this.refundModel
+      .find({ paymentId: payment._id })
+      .sort({ createdAt: -1 })
+      .exec();
+    const live = existing.find(
+      (refund) => refund.status !== RefundStatus.FAILED,
+    );
+    if (live) {
+      return { refund: live, created: false };
+    }
+    const idempotencyKey = `refund:unconfirmed:${payment._id.toString()}`;
+    const failed = existing.find(
+      (refund) => refund.idempotencyKey === idempotencyKey,
+    );
+    if (failed) {
+      // The same refund failed at Stripe before: send that row again, with
+      // its key, rather than a second one.
+      return {
+        refund: await this.sendToStripe(failed, payment.stripePaymentIntentId),
+        created: false,
+      };
+    }
+
+    const amount = decimal128ToString(payment.amount) ?? '0.00';
+    let refund: RefundDocument;
+    try {
+      refund = await this.refundModel.create({
+        bookingType: payment.bookingType,
+        bookingId: payment.bookingId,
+        paymentId: payment._id,
+        stripeRefundId: null,
+        amount: toDecimal128(amount),
+        currency: payment.currency,
+        status: RefundStatus.PENDING,
+        cancelledBy: CancelledBy.SYSTEM,
+        reason,
+        refundPercentage: 100,
+        policySnapshot: null,
+        idempotencyKey,
+        requestedAt: new Date(),
+        completedAt: null,
+        failureMessage: null,
+      });
+    } catch (error) {
+      if (isDuplicateKey(error)) {
+        // Another caller created it a moment ago; that one is sending it.
+        const winner = await this.refundModel
+          .findOne({ idempotencyKey })
+          .exec();
+        if (winner) return { refund: winner, created: false };
+      }
+      throw error;
+    }
+    this.logger.warn(
+      `Refunding payment ${payment._id.toString()} in full ` +
+        `(${amount} ${payment.currency}): ${reason}`,
+    );
+    return {
+      refund: await this.sendToStripe(refund, payment.stripePaymentIntentId),
+      created: true,
+    };
   }
 
   /**
@@ -361,4 +443,12 @@ export class RefundsService {
     });
   }
 
+}
+
+function isDuplicateKey(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 11000
+  );
 }
