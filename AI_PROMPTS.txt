@@ -1196,6 +1196,15 @@ Prompt:
 Two logo uploads for the same airline at the same moment: one of them gets 409 instead of replacing the logo. Fix that case.
 How the output was used:
 Claude changed the logo upload so that when the one logo slot is taken it removes the logo and stores again, up to three times, so the last upload wins; after three taken slots in a row it answers 409 CONCURRENT_UPDATE. A bad file is still rejected before anything is removed. MediaService.removeAllForTarget now deletes only the rows it read, so an image stored in between keeps its row and its file instead of leaving an orphan file. Added 2 unit tests. Verified in the cloud: tsc clean, lint 0 errors, 120 suites / 1755 unit tests.
+Student: Taher Khalaf
+Tool: Claude Code
+Related Requirement: ACC-17 (the admin booking list, flights side); branch fix/acc17-incomplete-rows
+Prompt:
+"make sure this doesnt mess up any other related tests or functionalities as well", about the payments fix, with the Leader's Milestone 1 status pasted in. This bug turned up during that check; it was not asked for by name.
+How the output was used:
+Re-running the whole Postman collection against a live server on the shared cluster, GET /api/admin/bookings answered 500 whenever flight bookings were included. The stack trace pointed at the flights listForAdmin I brought onto the ACC-17 branch: it read policySnapshot.airlineId unguarded. The row that broke it comes from test/admin-providers.e2e-spec.ts (Fares's ACC-15 suite), which writes a CONFIRMED flight booking straight to the collection with only what ACC-15 reads, so while that suite runs - from anyone on the team - the admin list was down for everybody. The fix is in my own listForAdmin, not in his suite: a read-only list should show a row with what it has, as it already did for a missing airline name, so the airline falls back to the first segment's, the dates to when the booking was made, the amount to 0.00 and the currency to USD. Two tests use that exact row shape and fail without the change. The rest of that file is Khaled's and was left as it was, unformatted lines included.
+Verified myself: 1727 unit tests on develop plus the Leader's PR #72 plus both of my branches; then, on a live server, the admin list asked every second while the ACC-15 suite was writing its bare rows - 126 requests, all 200, 14 of them listing the bare flight row, no server error - and that suite still 23/23; admin-bookings, flight-bookings, my-flight-bookings, airline-bookings and payments e2e all passing; Postman 94 requests, 217 assertions, 0 failures.
+================================================
 ================================================
 ================================================
 Date: 2026-11-20
