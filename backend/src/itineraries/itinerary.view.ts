@@ -62,6 +62,15 @@ function toDayView(day: ItineraryDay, index: number, startDate: Date) {
     notes: day.notes ?? null,
     activities: day.activities.map(toActivityView),
     budgetEntries: day.budgetEntries.map(toBudgetEntryView),
+    // ITN-27: confirmed bookings linked to this day, with price snapshots.
+    bookingLinks: (day.bookingLinks ?? []).map((link) => ({
+      bookingType: link.bookingType,
+      bookingId: link.bookingId.toString(),
+      amount: decimal128ToString(link.amount),
+      currency: link.currency,
+      reference: link.reference ?? null,
+      label: link.label ?? null,
+    })),
   };
 }
 

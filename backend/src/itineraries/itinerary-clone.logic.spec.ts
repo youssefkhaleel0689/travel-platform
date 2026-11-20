@@ -27,6 +27,7 @@ function source(): Itinerary {
         activities: [
           { _id: oid(), name: 'A', cost: money('5.00'), currency: 'EUR' },
         ] as Itinerary['days'][number]['activities'],
+        bookingLinks: [],
         budgetEntries: [
           {
             _id: oid(),

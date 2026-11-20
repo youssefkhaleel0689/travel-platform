@@ -1135,6 +1135,15 @@ Before the PR went up, the payment chain these shots show was run again on the t
 =========================================================================================
 ================================================
 Date: 2026-11-20
+Student: Youssef Khaleel
+Tool: Claude (Claude Code, cloud session)
+Related Requirement: FLT-27, FLT-28, ITN-27, ITN-28, BLG-13, GEN-01-B, BON-02 (review of PR #71)
+Prompt:
+Review Zeyad's bonus PR #71 so we can add it before the Milestone 1 release, and fix what blocks it.
+How the output was used:
+Claude merged develop into feature/bonus-features-all and fixed what the review found. tsc failed: itinerary-clone.logic.spec.ts lacked bookingLinks. FLT-28 checked a seat and then wrote it, so two bookings could take the same seat; it now claims seats in a flightSeatClaims collection with a unique index inside a transaction, keyed by flight, cabin and seat, and takes over claims left by cancelled bookings. FLT-27 always applied a paid change to segment 0 and re-read the current price; the pending change now stores the segment and the quoted price, refuses the same flight, a departed segment, a deactivated airline and a round trip out of order, counts infants at 10%, and updates passenger fares and the booking totals in the same transaction. ITN-27 answered 403 for another account's booking (now the ACC-11 404), allowed one booking on two days, and showed booking references on public itineraries (now hidden). Email work is skipped entirely when SMTP is off. Added 18 unit tests for these cases and a README section. Verified in the cloud: tsc clean, lint 0 errors, 115 suites / 1696 unit tests passed. The e2e suites need MongoDB and run on my machine before the merge.
+================================================
+Date: 2026-11-20
 Student: Khaled Elshitany
 Tool: Claude (chat with access to the project folder)
 Related Requirement: GEN-11, FLT-05 (with FLT-25, FLT-26, FLT-30)
