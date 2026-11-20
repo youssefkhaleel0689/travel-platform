@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, QueryFilter, Types } from 'mongoose';
+import { UsersService } from '../auth/users/users.service';
+import { EmailService } from './email.service';
 import { LeanDoc, paginateQuery } from '../common/pagination/paginate';
 import { PageDto } from '../common/pagination/dto/page.dto';
 import {
@@ -36,6 +38,8 @@ export class NotificationsService {
   constructor(
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<Notification>,
+    private readonly users: UsersService,
+    private readonly email: EmailService,
   ) {}
 
   /** Creates one notification. Never throws. */
@@ -71,6 +75,27 @@ export class NotificationsService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+
+    // GEN-01-B: mirror every in-app notice to the user's email. This is best
+    // effort and never changes the outcome of notifyMany().
+    await Promise.all(
+      inputs.map(async (input) => {
+        try {
+          const user = await this.users.findById(String(input.userId));
+          if (!user?.email) return;
+          await this.email.send({
+            to: user.email,
+            subject: input.title,
+            text: `${input.title}\n\n${input.message}`,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Could not email a notification to user ${String(input.userId)}`,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }),
+    );
   }
 
   /** GEN-01, GEN-05: one account's notifications, newest first, 10 per page. */
