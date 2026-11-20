@@ -9,7 +9,11 @@
 // STRIPE_SECRET_KEY in .env is a placeholder) and the BookingsPort that the
 // flights and hotels modules will provide. When A1 and B2 wire their ports in,
 // only the stand-in below goes away.
-import { INestApplication, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  INestApplication,
+  NotFoundException,
+} from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -18,6 +22,7 @@ import Stripe from 'stripe';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
+import { Notification } from './../src/notifications/schemas/notification.schema';
 import { configureApp } from './../src/app.setup';
 import {
   BookingStatus,
@@ -27,7 +32,9 @@ import {
 import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
 import { PaymentExpiryService } from './../src/payments/payment-expiry.service';
 import { PaymentStatus } from './../src/payments/payment-status.enum';
+import { CancelledBy, RefundStatus } from './../src/payments/refund-status.enum';
 import { Payment } from './../src/payments/schemas/payment.schema';
+import { Refund } from './../src/payments/schemas/refund.schema';
 import { PolicyAcceptance } from './../src/payments/schemas/policy-acceptance.schema';
 import { StripeWebhookEvent } from './../src/payments/schemas/stripe-webhook-event.schema';
 import { StripeService } from './../src/payments/stripe.service';
@@ -63,6 +70,8 @@ describe('Payments (e2e)', () => {
   let paymentModel: Model<Payment>;
   let acceptanceModel: Model<PolicyAcceptance>;
   let eventModel: Model<StripeWebhookEvent>;
+  let refundModel: Model<Refund>;
+  let notificationModel: Model<Notification>;
   let stripeSigner: Stripe;
 
   const createdUserIds: string[] = [];
@@ -78,6 +87,8 @@ describe('Payments (e2e)', () => {
   let confirmedReference: string;
   let confirmCalls: string[];
   let releaseCalls: string[];
+  /** Set to make the booking module refuse to confirm, as it does after the hold. */
+  let confirmRefusal: string | null;
 
   // The stand-in Stripe, reshaped per test.
   let intentCounter = 0;
@@ -87,6 +98,8 @@ describe('Payments (e2e)', () => {
   let newIntentStatus: string;
   let createdIntents: { amount: number; idempotencyKey: string }[];
   let cancelledIntents: string[];
+  let refundCounter = 0;
+  let createdRefunds: { amount: number; idempotencyKey: string }[];
 
   /** Moves one intent to a new status, as Stripe would. */
   function setIntentStatus(intentId: string, status: string): void {
@@ -128,6 +141,14 @@ describe('Payments (e2e)', () => {
       .spyOn(gateway, 'confirmAfterPayment')
       .mockImplementation((type, id) => {
         confirmCalls.push(id);
+        if (confirmRefusal) {
+          return Promise.reject(
+            new ConflictException({
+              code: confirmRefusal,
+              message: 'The hold expired before the payment was confirmed',
+            }),
+          );
+        }
         return Promise.resolve({
           bookingId: id,
           status: BookingStatus.CONFIRMED,
@@ -167,9 +188,24 @@ describe('Payments (e2e)', () => {
       } as never),
     );
     jest.spyOn(stripe, 'cancelPaymentIntent').mockImplementation((id) => {
+      // Stripe refuses to cancel an intent it has already charged.
+      if (intentStatuses[id] === 'succeeded') {
+        return Promise.resolve(null);
+      }
       cancelledIntents.push(id);
       intentStatuses[id] = 'canceled';
-      return Promise.resolve(null);
+      return Promise.resolve({ id, status: 'canceled' } as never);
+    });
+    jest.spyOn(stripe, 'createRefund').mockImplementation((input) => {
+      refundCounter += 1;
+      createdRefunds.push({
+        amount: Math.round(Number(input.amount) * 100),
+        idempotencyKey: input.idempotencyKey,
+      });
+      return Promise.resolve({
+        id: `re_e2e_${Date.now()}_${refundCounter}`,
+        status: 'succeeded',
+      } as never);
     });
   }
 
@@ -244,6 +280,10 @@ describe('Payments (e2e)', () => {
     eventModel = app.get<Model<StripeWebhookEvent>>(
       getModelToken(StripeWebhookEvent.name),
     );
+    refundModel = app.get<Model<Refund>>(getModelToken(Refund.name));
+    notificationModel = app.get<Model<Notification>>(
+      getModelToken(Notification.name),
+    );
     stripeSigner = new Stripe('sk_test_placeholder');
 
     owner = await createSignedInUser(app, { label: 'pay-owner' });
@@ -253,6 +293,11 @@ describe('Payments (e2e)', () => {
 
   afterAll(async () => {
     const userIds = createdUserIds.map((id) => new Types.ObjectId(id));
+    const paymentIds = (
+      await paymentModel.find({ userId: { $in: userIds } }, { _id: 1 }).exec()
+    ).map((payment) => payment._id as Types.ObjectId);
+    await refundModel.deleteMany({ paymentId: { $in: paymentIds } }).exec();
+    await notificationModel.deleteMany({ userId: { $in: userIds } }).exec();
     await paymentModel.deleteMany({ userId: { $in: userIds } }).exec();
     await acceptanceModel.deleteMany({ userId: { $in: userIds } }).exec();
     await eventModel.deleteMany({ stripeEventId: /^evt_e2e_/ }).exec();
@@ -269,6 +314,8 @@ describe('Payments (e2e)', () => {
     confirmedReference = `NILE-${Math.floor(Math.random() * 9000) + 1000}`;
     confirmCalls = [];
     releaseCalls = [];
+    confirmRefusal = null;
+    createdRefunds = [];
     intentStatuses = {};
     newIntentStatus = 'requires_payment_method';
     createdIntents = [];
@@ -760,6 +807,108 @@ describe('Payments (e2e)', () => {
       );
       const stored = await paymentModel.findById(created.body.id).exec();
       expect(stored?.status).toBe(PaymentStatus.REQUIRES_PAYMENT_METHOD);
+    }, SLOW_MS);
+  });
+
+  // Two ways a paid customer kept neither the booking nor the money, both
+  // reproduced against real Stripe before this was fixed.
+  describe('a success the webhook alone did not settle (PAY-01)', () => {
+    function refundsOf(paymentId: string) {
+      return refundModel
+        .find({ paymentId: new Types.ObjectId(paymentId) })
+        .exec();
+    }
+
+    // The traveller looks at the payment before the webhook comes: the read
+    // records SUCCEEDED, and the webhook used to take that as "already done".
+    it('still confirms when a status read saw the success first', async () => {
+      await acceptPolicies().expect(200);
+      const res = await startPayment().expect(201);
+      const intentId = res.body.stripePaymentIntentId as string;
+      setIntentStatus(intentId, 'succeeded');
+
+      const read = await request(app.getHttpServer())
+        .get(`/api/payments/${res.body.id}`)
+        .set('Cookie', owner.cookie)
+        .expect(200);
+      expect(read.body.status).toBe('SUCCEEDED');
+      expect(confirmCalls).toEqual([]);
+
+      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+
+      expect(confirmCalls).toEqual([bookingId]);
+      const stored = await paymentModel.findById(res.body.id).exec();
+      expect(stored?.bookingConfirmedAt).toBeInstanceOf(Date);
+    }, SLOW_MS);
+
+    it('refunds when a status read saw it first and the hold has gone', async () => {
+      await acceptPolicies().expect(200);
+      const res = await startPayment().expect(201);
+      const intentId = res.body.stripePaymentIntentId as string;
+      setIntentStatus(intentId, 'succeeded');
+      await request(app.getHttpServer())
+        .get(`/api/payments/${res.body.id}`)
+        .set('Cookie', owner.cookie)
+        .expect(200);
+      confirmRefusal = 'HOLD_EXPIRED';
+
+      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+
+      const refunds = await refundsOf(res.body.id);
+      expect(refunds).toHaveLength(1);
+      expect(refunds[0]).toMatchObject({
+        status: RefundStatus.REFUNDED,
+        cancelledBy: CancelledBy.SYSTEM,
+        refundPercentage: 100,
+      });
+      expect(refunds[0].amount.toString()).toBe('420.00');
+    }, SLOW_MS);
+
+    // No webhook at all: the hold ends, the sweep tries to cancel, and Stripe
+    // refuses because the card was charged. The payment used to stay open.
+    it('is settled by the expiry sweep when no webhook comes', async () => {
+      await acceptPolicies().expect(200);
+      const res = await startPayment().expect(201);
+      const intentId = res.body.stripePaymentIntentId as string;
+      setIntentStatus(intentId, 'succeeded');
+      holdExpiresAt = new Date(Date.now() - 1000);
+      confirmRefusal = 'HOLD_EXPIRED';
+
+      const result = await app.get(PaymentExpiryService).sweep();
+
+      expect(result.settled).toBeGreaterThanOrEqual(1);
+      expect(cancelledIntents).not.toContain(intentId);
+      const stored = await paymentModel.findById(res.body.id).exec();
+      expect(stored?.status).toBe(PaymentStatus.SUCCEEDED);
+      expect(await refundsOf(res.body.id)).toHaveLength(1);
+      expect(releaseCalls).toContain(bookingId);
+
+      // The webhook arriving after all changes nothing more.
+      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+      expect(await refundsOf(res.body.id)).toHaveLength(1);
+      expect(createdRefunds).toHaveLength(1);
+    }, SLOW_MS);
+
+    it('refunds once however often Stripe delivers a late success', async () => {
+      await acceptPolicies().expect(200);
+      const res = await startPayment().expect(201);
+      const intentId = res.body.stripePaymentIntentId as string;
+      setIntentStatus(intentId, 'succeeded');
+      confirmRefusal = 'HOLD_EXPIRED';
+
+      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+
+      expect(await refundsOf(res.body.id)).toHaveLength(1);
+      expect(createdRefunds).toHaveLength(1);
+      const notices = await notificationModel
+        .find({
+          userId: new Types.ObjectId(owner.userId),
+          title: 'Booking not confirmed',
+          resourceId: bookingId,
+        })
+        .exec();
+      expect(notices).toHaveLength(1);
     }, SLOW_MS);
   });
 });
