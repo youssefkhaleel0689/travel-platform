@@ -140,6 +140,7 @@ describe('AdminSeeder (ACC-18)', () => {
         role: Role.ADMIN,
         mustChangePassword: false,
         termsAcceptedAt: null,
+        emailVerifiedAt: expect.any(Date),
       });
     });
 

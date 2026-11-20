@@ -8,7 +8,9 @@ describe('AirlineModeratorAssignmentAdapter (ACC-13)', () => {
   const MODERATOR_ID = '6720f1c2a1b2c3d4e5f60002';
   const AIRLINE_ID = '6720f1c2a1b2c3d4e5f60777';
 
-  let airlines: jest.Mocked<Pick<AirlinesService, 'findOne' | 'assignModerator'>>;
+  let airlines: jest.Mocked<
+    Pick<AirlinesService, 'findOne' | 'assignModerator'>
+  >;
   let adapter: AirlineModeratorAssignmentAdapter;
 
   function airline(status = AirlineStatus.ACTIVE) {

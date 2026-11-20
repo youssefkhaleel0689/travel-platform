@@ -58,7 +58,8 @@ export class AdminModeratorsService {
 
     // The admin may set the temporary password; otherwise one is generated the
     // same way ACC-07a generates its reset passwords.
-    const temporaryPassword = dto.password ?? this.passwords.generateTemporary();
+    const temporaryPassword =
+      dto.password ?? this.passwords.generateTemporary();
 
     // Step 2. A duplicate email throws 409 EMAIL_ALREADY_REGISTERED from here.
     const profile = await this.users.create({
@@ -71,6 +72,7 @@ export class AdminModeratorsService {
       termsAcceptedAt: null,
       mustChangePassword: true,
       temporaryPasswordIssuedAt: new Date(),
+      emailVerifiedAt: new Date(),
     });
 
     // Step 3, with the compensating delete described above.
@@ -122,7 +124,10 @@ export class AdminModeratorsService {
         code: 'VALIDATION_FAILED',
         message: 'Validation failed',
         errors: [
-          { field, messages: [`${field} is required when role is ${dto.role}`] },
+          {
+            field,
+            messages: [`${field} is required when role is ${dto.role}`],
+          },
         ],
       });
     }

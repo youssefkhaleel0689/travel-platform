@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -18,6 +19,7 @@ import {
   ApiProduces,
   ApiTags,
 } from '@nestjs/swagger';
+import { EmailVerifiedGuard } from '../../auth/guards/email-verified.guard';
 import { Role } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
@@ -184,6 +186,7 @@ function ApiBookingRequestErrors(path: string): MethodDecorator {
 // FLT-19, FLT-21, FLT-22: booking a flight. Registered users only (ACC-11).
 @ApiTags('Flight bookings')
 @ApiCookieAuth('access_token')
+@UseGuards(EmailVerifiedGuard)
 @Controller('flight-bookings')
 export class FlightBookingsController {
   constructor(private readonly bookings: FlightBookingsService) {}

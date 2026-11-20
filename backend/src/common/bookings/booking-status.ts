@@ -46,10 +46,7 @@ export const ALLOWED_BOOKING_TRANSITIONS: Readonly<
     BookingStatus.CONFIRMED,
     BookingStatus.EXPIRED,
   ],
-  [BookingStatus.CONFIRMED]: [
-    BookingStatus.COMPLETED,
-    BookingStatus.CANCELLED,
-  ],
+  [BookingStatus.CONFIRMED]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
   // Terminal.
   [BookingStatus.COMPLETED]: [],
   [BookingStatus.EXPIRED]: [],

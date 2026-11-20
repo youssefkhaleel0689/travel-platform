@@ -12,7 +12,10 @@ import { Session, SessionSchema } from './session.schema';
 // sending a query, so these tests fail on a Mixed userId.
 // Typed as Model<Session>, the type findOwnedOrThrow takes; inferring it from the
 // schema would add the `id` virtual to the type and not match.
-const SessionModel = model<Session>(`${Session.name}OwnershipProbe`, SessionSchema);
+const SessionModel = model<Session>(
+  `${Session.name}OwnershipProbe`,
+  SessionSchema,
+);
 
 const OWNER_ID = new Types.ObjectId();
 const SESSION_ID = new Types.ObjectId();

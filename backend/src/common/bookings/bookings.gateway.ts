@@ -184,6 +184,25 @@ export class BookingsGateway {
     return new PageDto(rows, PageMetaDto.create(page, totalItems));
   }
 
+  /**
+   * BON-01: every matching booking in one list, for aggregation. The admin
+   * analytics endpoint asks for a date range, not a page, so it needs the full
+   * result rather than one page of ten.
+   */
+  async listAllForAdmin(query: AdminBookingsQuery): Promise<AdminBookingRow[]> {
+    const { bookingType, ...filter } = query;
+    const ports = (
+      bookingType === undefined
+        ? [this.flightPort, this.hotelPort]
+        : [this.port(bookingType)]
+    ).filter(listsForAdmin);
+
+    const answers = await Promise.all(
+      ports.map((port) => port.listForAdmin({ ...filter, limit: 100000 })),
+    );
+    return answers.flatMap((answer) => answer.rows).sort(newestFirst);
+  }
+
   private port(bookingType: BookingType): BookingsPort | undefined {
     return bookingType === BookingType.FLIGHT
       ? this.flightPort

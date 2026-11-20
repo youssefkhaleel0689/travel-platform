@@ -54,7 +54,11 @@ export class AdminBookingsService {
     const createdTo = to
       ? new Date(startOfUtcDay(to).getTime() + DAY_MS)
       : undefined;
-    if (createdFrom && createdTo && createdTo.getTime() <= createdFrom.getTime()) {
+    if (
+      createdFrom &&
+      createdTo &&
+      createdTo.getTime() <= createdFrom.getTime()
+    ) {
       throw new BadRequestException({
         code: 'INVALID_DATE_RANGE',
         message: 'from must not be later than to',

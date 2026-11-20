@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AuthModule } from '../../auth/auth.module';
 import { FLIGHT_BOOKINGS_PORT } from '../../common/bookings/bookings.port';
 import { ReferenceDataModule } from '../../common/reference-data/reference-data.module';
 import { PaymentsModule } from '../../payments/payments.module';
@@ -47,6 +48,8 @@ import { SeatSelectionService } from './seat-selection.service';
     // SeatInventoryService: the only code that writes the seat counters (FLT-22).
     FlightsModule,
     ReferenceDataModule,
+    // ACC-02: EmailVerifiedGuard blocks bookings until verification.
+    AuthModule,
     // FLT-27: fare differences go through Stripe in the payments module.
     PaymentsModule,
   ],

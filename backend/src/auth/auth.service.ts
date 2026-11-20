@@ -9,6 +9,9 @@ import type { Request, Response } from 'express';
 import { Role, UserStatus } from '../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../common/auth/authenticated-user';
 import { REFRESH_TOKEN_COOKIE } from './auth.constants';
+import { EmailService } from '../notifications/email.service';
+import { EmailTokenService } from './email-token.service';
+import { PasswordService } from './password/password.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { unauthenticated } from './guards/jwt-auth.guard';
@@ -64,6 +67,9 @@ export class AuthService {
     private readonly users: UsersService,
     private readonly accessTokens: AccessTokenService,
     private readonly sessions: SessionsService,
+    private readonly emailTokens: EmailTokenService,
+    private readonly email: EmailService,
+    private readonly passwords: PasswordService,
   ) {}
 
   /**
@@ -78,6 +84,14 @@ export class AuthService {
       role: Role.USER,
       termsAcceptedAt: new Date(),
     });
+    if (process.env.EMAIL_VERIFICATION_REQUIRED === 'true') {
+      const token = await this.emailTokens.issueVerification(profile.id);
+      await this.email.send({
+        to: profile.email,
+        subject: 'Verify your Travel Platform email',
+        text: `Open this link to verify your email:\n/api/auth/verify-email?token=${token}\nThe link expires in 30 minutes.`,
+      });
+    }
     return this.startSession(res, profile);
   }
 
@@ -218,6 +232,35 @@ export class AuthService {
     if (refreshToken !== '') {
       await this.sessions.revokeByRefreshToken(refreshToken);
     }
+  }
+
+  /** ACC-02: consume a verification link and mark the account verified. */
+  async verifyEmail(token: string): Promise<void> {
+    const userId = await this.emailTokens.consumeVerification(token);
+    await this.users.markEmailVerified(userId);
+  }
+
+  /**
+   * ACC-07: always the same response, whether or not the email exists, so an
+   * attacker cannot enumerate accounts. A real account gets a 30-minute link.
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.users.findByEmail(email);
+    if (!user) return;
+    const token = await this.emailTokens.issueReset(user.id);
+    await this.email.send({
+      to: user.email,
+      subject: 'Reset your Travel Platform password',
+      text: `Open this link within 30 minutes to choose a new password:\n/api/auth/reset-password?token=${token}\nIf you did not request this, ignore the email.`,
+    });
+  }
+
+  /** ACC-07: single-use reset; all existing sessions end when the password changes. */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const userId = await this.emailTokens.consumeReset(token);
+    const hash = await this.passwords.hash(newPassword);
+    await this.users.setPasswordHash(userId, hash);
+    await this.sessions.revokeAllSessions(userId);
   }
 
   // A failed refresh: clears both cookies (they are useless now) and returns the generic
