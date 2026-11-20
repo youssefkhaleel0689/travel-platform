@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  NotFoundException,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,10 +11,10 @@ import { BookingsGateway } from '../common/bookings/bookings.gateway';
 import { HoldReleaseReason } from '../common/bookings/bookings.port';
 import { NotificationType } from '../notifications/notification-type.enum';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaymentSettlementService } from './payment-settlement.service';
 import { PaymentStatus } from './payment-status.enum';
 import { PaymentsService } from './payments.service';
 import { PaymentsWebhookService } from './payments-webhook.service';
-import { CancelledBy } from './refund-status.enum';
 import { RefundsService } from './refunds.service';
 import {
   StripeWebhookEvent,
@@ -39,10 +40,15 @@ describe('PaymentsWebhookService (PAY-01)', () => {
   let payments: {
     findByStripeId: jest.Mock;
     applyStatus: jest.Mock;
+    findById: jest.Mock;
+    markBookingConfirmed: jest.Mock;
   };
   let bookings: { confirmAfterPayment: jest.Mock; releaseHold: jest.Mock };
   let notifications: { notify: jest.Mock };
-  let refunds: { issueForCancellation: jest.Mock; syncFromStripe: jest.Mock };
+  let refunds: {
+    refundUnconfirmablePayment: jest.Mock;
+    syncFromStripe: jest.Mock;
+  };
   let service: PaymentsWebhookService;
 
   const exec = (value: unknown) => ({
@@ -97,6 +103,10 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       applyStatus: jest
         .fn()
         .mockResolvedValue(paymentDoc({ status: PaymentStatus.SUCCEEDED })),
+      findById: jest
+        .fn()
+        .mockResolvedValue(paymentDoc({ status: PaymentStatus.SUCCEEDED })),
+      markBookingConfirmed: jest.fn().mockResolvedValue(true),
     };
     bookings = {
       confirmAfterPayment: jest.fn().mockResolvedValue({
@@ -108,7 +118,10 @@ describe('PaymentsWebhookService (PAY-01)', () => {
     };
     notifications = { notify: jest.fn().mockResolvedValue(undefined) };
     refunds = {
-      issueForCancellation: jest.fn().mockResolvedValue({ _id: 'refund_1' }),
+      refundUnconfirmablePayment: jest.fn().mockResolvedValue({
+        refund: { _id: 'refund_1', status: 'REFUNDED' },
+        created: true,
+      }),
       syncFromStripe: jest.fn().mockResolvedValue(null),
     };
 
@@ -116,12 +129,20 @@ describe('PaymentsWebhookService (PAY-01)', () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
+    // The real settlement step, on the same stand-ins: what the webhook does
+    // with a success is what these tests are about.
+    const settlement = new PaymentSettlementService(
+      payments as unknown as PaymentsService,
+      bookings as unknown as BookingsGateway,
+      refunds as unknown as RefundsService,
+      notifications as unknown as NotificationsService,
+    );
     service = new PaymentsWebhookService(
       eventModel as unknown as Model<StripeWebhookEvent>,
       stripe as unknown as StripeService,
       payments as unknown as PaymentsService,
       bookings as unknown as BookingsGateway,
-      notifications as unknown as NotificationsService,
+      settlement,
       refunds as unknown as RefundsService,
     );
   });
@@ -237,15 +258,64 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       expect(notifications.notify).not.toHaveBeenCalled();
     });
 
-    // Second guard: even if an event row were lost, the conditional status
-    // update stops the booking being confirmed a second time.
-    it('does not confirm when the payment was already recorded as succeeded', async () => {
-      payments.applyStatus.mockResolvedValue(null);
+    // The bug the Milestone 1 review left open: a status read
+    // (GET /api/payments/:id) recorded SUCCEEDED before the webhook came, the
+    // webhook took that as "already done", and the booking was never
+    // confirmed or refunded while the card stayed charged.
+    it('still confirms when a status read recorded SUCCEEDED first', async () => {
+      payments.findByStripeId.mockResolvedValue(
+        paymentDoc({ status: PaymentStatus.SUCCEEDED, bookingConfirmedAt: null }),
+      );
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(payments.applyStatus).not.toHaveBeenCalled();
+      expect(bookings.confirmAfterPayment).toHaveBeenCalledWith(
+        BookingType.HOTEL,
+        BOOKING_ID,
+        PAYMENT_ID,
+      );
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing more once the booking is confirmed for this payment', async () => {
+      payments.findByStripeId.mockResolvedValue(
+        paymentDoc({
+          status: PaymentStatus.SUCCEEDED,
+          bookingConfirmedAt: new Date('2026-11-20T10:00:00Z'),
+        }),
+      );
 
       await service.handle(RAW_BODY, SIGNATURE);
 
       expect(bookings.confirmAfterPayment).not.toHaveBeenCalled();
       expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    // The webhook and the sweep can settle the same success; confirmation is
+    // idempotent, and only the one that records it tells the user.
+    it('tells the user once when another settle recorded the confirmation', async () => {
+      payments.markBookingConfirmed.mockResolvedValue(false);
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(bookings.confirmAfterPayment).toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('moves a payment the sweep had marked CANCELLED to SUCCEEDED', async () => {
+      payments.findByStripeId.mockResolvedValue(
+        paymentDoc({ status: PaymentStatus.CANCELLED }),
+      );
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(payments.applyStatus).toHaveBeenCalledWith(
+        new Types.ObjectId(PAYMENT_ID),
+        PaymentStatus.CANCELLED,
+        PaymentStatus.SUCCEEDED,
+      );
+      expect(bookings.confirmAfterPayment).toHaveBeenCalled();
     });
 
     it('records the event as PROCESSED when it is done', async () => {
@@ -319,13 +389,13 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       const outcome = await service.handle(RAW_BODY, SIGNATURE);
 
       expect(outcome.status).toBe(WebhookEventStatus.PROCESSED);
-      expect(refunds.issueForCancellation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bookingId: BOOKING_ID,
-          cancelledBy: CancelledBy.SYSTEM,
-          refundPercentage: 100,
-        }),
-      );
+      // The whole payment, and this payment: in a double payment the booking
+      // keeps the one that confirmed it.
+      expect(refunds.refundUnconfirmablePayment).toHaveBeenCalledTimes(1);
+      const [payment, reason] = refunds.refundUnconfirmablePayment.mock
+        .calls[0] as [{ _id: Types.ObjectId }, string];
+      expect(payment._id.toString()).toBe(PAYMENT_ID);
+      expect(reason).toMatch(/HOLD_EXPIRED/);
     });
 
     it('tells the user the booking was not confirmed, not that it was', async () => {
@@ -340,11 +410,60 @@ describe('PaymentsWebhookService (PAY-01)', () => {
       );
     });
 
+    it('says why: a hold that ran out', async () => {
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const [notice] = notifications.notify.mock.calls[0] as [
+        { message: string },
+      ];
+      expect(notice.message).toMatch(/hold had expired/);
+    });
+
+    it('says why: the booking was already paid by another payment', async () => {
+      bookings.confirmAfterPayment.mockRejectedValue(
+        new ConflictException({
+          code: 'ALREADY_CONFIRMED_BY_ANOTHER_PAYMENT',
+          message: 'This booking is already confirmed by another payment',
+        }),
+      );
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      const [notice] = notifications.notify.mock.calls[0] as [
+        { message: string },
+      ];
+      expect(notice.message).toMatch(/already confirmed by another payment/);
+      expect(notice.message).not.toMatch(/hold had expired/);
+    });
+
     it('still rethrows an error that is not a conflict, so Stripe retries', async () => {
       bookings.confirmAfterPayment.mockRejectedValue(new Error('db down'));
 
       await expect(service.handle(RAW_BODY, SIGNATURE)).rejects.toThrow('db down');
-      expect(refunds.issueForCancellation).not.toHaveBeenCalled();
+      expect(refunds.refundUnconfirmablePayment).not.toHaveBeenCalled();
+    });
+
+    it('refunds when the booking no longer exists, too', async () => {
+      bookings.confirmAfterPayment.mockRejectedValue(
+        new NotFoundException('Hotel booking not found'),
+      );
+
+      const outcome = await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(outcome.status).toBe(WebhookEventStatus.PROCESSED);
+      expect(refunds.refundUnconfirmablePayment).toHaveBeenCalledTimes(1);
+    });
+
+    // The sweep and a late webhook can both settle it: one notice, not two.
+    it('does not tell the user twice when the refund already existed', async () => {
+      refunds.refundUnconfirmablePayment.mockResolvedValue({
+        refund: { _id: 'refund_1', status: 'REFUNDED' },
+        created: false,
+      });
+
+      await service.handle(RAW_BODY, SIGNATURE);
+
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 
