@@ -29,6 +29,10 @@ import {
   SeatChange,
   SeatInventoryService,
 } from '../seat-inventory/seat-inventory.service';
+import {
+  decimal128ToString,
+  PLATFORM_CURRENCY,
+} from '../../common/money/money';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
 import { toAirportLocalIso } from '../../common/time/airport-time';
 import { formatLocalTime } from './e-ticket/e-ticket.view';
@@ -261,19 +265,30 @@ export class FlightBookingsPortAdapter implements BookingsPort {
       this.bookingModel.countDocuments(query).exec(),
     ]);
 
+    // A read-only admin list must not fail on one incomplete row. A booking
+    // written straight to the collection (a test fixture, an old document) can
+    // lack the policy or price snapshot, so each field falls back instead of
+    // throwing: the airline from the first segment, the trip dates from when
+    // the booking was made, the amount as 0.00.
+    const airlineOf = (booking: LeanFlightBooking) =>
+      booking.policySnapshot?.airlineId ?? booking.segments?.[0]?.airlineId;
     const airlineNames = await this.airlineNames(
-      bookings.map((booking) => booking.policySnapshot.airlineId),
+      bookings
+        .map(airlineOf)
+        .filter((id): id is Types.ObjectId => id !== undefined && id !== null),
     );
 
     return {
       rows: bookings.map((booking) => {
-        const departures = booking.segments.map((segment) =>
+        const segments = booking.segments ?? [];
+        const departures = segments.map((segment) =>
           segment.departureAtUtc.getTime(),
         );
-        const arrivals = booking.segments.map((segment) =>
+        const arrivals = segments.map((segment) =>
           segment.arrivalAtUtc.getTime(),
         );
-        const airlineId = booking.policySnapshot.airlineId.toString();
+        const madeAt = booking.createdAt.getTime();
+        const airlineId = airlineOf(booking)?.toString() ?? '';
         return {
           bookingId: booking._id.toString(),
           bookingType: BookingType.FLIGHT,
@@ -284,10 +299,13 @@ export class FlightBookingsPortAdapter implements BookingsPort {
           providerName: airlineNames.get(airlineId) ?? null,
           // A round trip has two segments: the trip runs from the first
           // departure to the last arrival.
-          startsAt: new Date(Math.min(...departures)),
-          endsAt: new Date(Math.max(...arrivals)),
-          totalAmount: moneyString(booking.priceSnapshot.total),
-          currency: booking.priceSnapshot.currency,
+          startsAt: new Date(
+            departures.length ? Math.min(...departures) : madeAt,
+          ),
+          endsAt: new Date(arrivals.length ? Math.max(...arrivals) : madeAt),
+          totalAmount:
+            decimal128ToString(booking.priceSnapshot?.total) ?? '0.00',
+          currency: booking.priceSnapshot?.currency ?? PLATFORM_CURRENCY,
           status: booking.status,
           createdAt: booking.createdAt,
         };

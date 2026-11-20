@@ -737,5 +737,59 @@ describe('FlightBookingsPortAdapter (GEN-11, PAY-01)', () => {
 
       expect(rows[0].providerName).toBeNull();
     });
+
+    // The shape test/admin-providers.e2e-spec.ts writes straight to the
+    // collection: only what ACC-15 reads, no policy or price snapshot. While
+    // that suite ran, one such row made the whole admin list answer 500.
+    it('still lists a booking that has no policy or price snapshot', async () => {
+      const bare = {
+        _id: BOOKING_ID,
+        userId: USER_ID,
+        tripType: 'ONE_WAY',
+        status: BookingStatus.CONFIRMED,
+        segments: [
+          {
+            flightId: new Types.ObjectId(),
+            airlineId: AIRLINE_ID,
+            flightNumber: 'C2151',
+            departureAirportId: 'CAI',
+            arrivalAirportId: 'DXB',
+            departureAtUtc: new Date('2026-12-20T06:00:00.000Z'),
+            arrivalAtUtc: new Date('2026-12-20T09:00:00.000Z'),
+          },
+        ],
+        createdAt: CREATED_AT,
+      } as unknown as FlightBooking;
+      const { adapter } = adminSetup([bare]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows[0]).toMatchObject({
+        providerId: AIRLINE_ID.toString(),
+        providerName: 'KD Airways',
+        startsAt: new Date('2026-12-20T06:00:00.000Z'),
+        endsAt: new Date('2026-12-20T09:00:00.000Z'),
+        totalAmount: '0.00',
+        currency: 'USD',
+        bookingReference: null,
+      });
+    });
+
+    it('falls back to when it was made for a booking with no segments', async () => {
+      const bare = {
+        _id: BOOKING_ID,
+        userId: USER_ID,
+        status: BookingStatus.CONFIRMED,
+        createdAt: CREATED_AT,
+      } as unknown as FlightBooking;
+      const { adapter } = adminSetup([bare]);
+
+      const { rows } = await adapter.listForAdmin({ limit: 10 });
+
+      expect(rows[0].startsAt).toEqual(CREATED_AT);
+      expect(rows[0].endsAt).toEqual(CREATED_AT);
+      expect(rows[0].providerId).toBe('');
+      expect(rows[0].providerName).toBeNull();
+    });
   });
 });
