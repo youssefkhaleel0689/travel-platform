@@ -26,7 +26,8 @@ export const HOTEL_AMENITY_MAX_LENGTH = 50;
 export const HOTEL_MIN_STAR_CLASS = 1;
 export const HOTEL_MAX_STAR_CLASS = 5;
 
-// Embedded photos[] (schema section 3): url; storageKey; mimeType; sizeBytes.
+// Embedded photos[] (schema section 3): url; mimeType; sizeBytes (storageKey only on
+// photos stored before MediaService). The file itself is kept by MediaService.
 // Each photo keeps its own _id so it can be removed individually.
 @Schema({ _id: true, versionKey: false, timestamps: false })
 export class HotelPhoto {
@@ -35,9 +36,10 @@ export class HotelPhoto {
   @Prop({ type: String, required: true })
   url: string;
 
-  // Path relative to the uploads directory, e.g. hotels/<hotelId>/<uuid>.jpg.
-  @Prop({ type: String, required: true })
-  storageKey: string;
+  // Only on photos stored before MediaService held hotel photos (GEN-08);
+  // the file of a newer photo is found through MediaService by its _id.
+  @Prop({ type: String })
+  storageKey?: string;
 
   @Prop({ type: String, required: true, enum: HOTEL_PHOTO_MIME_TYPES })
   mimeType: HotelPhotoMimeType;
