@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsMongoId, IsOptional, Min } from 'class-validator';
+import { IsInt, IsMongoId, IsOptional, Max, Min } from 'class-validator';
 
 /** FLT-27: change one segment of a confirmed flight booking. */
 export class ChangeFlightDto {
@@ -7,9 +7,10 @@ export class ChangeFlightDto {
   @IsMongoId()
   newFlightId: string;
 
-  @ApiPropertyOptional({ example: 0, description: 'Segment index, starting at 0' })
+  @ApiPropertyOptional({ example: 0, description: 'Segment index: 0 outbound, 1 return' })
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(1)
   segmentIndex?: number;
 }

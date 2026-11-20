@@ -5,6 +5,10 @@ import { ReferenceDataModule } from '../../common/reference-data/reference-data.
 import { PaymentsModule } from '../../payments/payments.module';
 import { Airline, AirlineSchema } from '../schemas/airline.schema';
 import {
+  FlightSeatClaim,
+  FlightSeatClaimSchema,
+} from '../schemas/flight-seat-claim.schema';
+import {
   FlightBooking,
   FlightBookingSchema,
 } from '../schemas/flight-booking.schema';
@@ -35,6 +39,8 @@ import { SeatSelectionService } from './seat-selection.service';
   imports: [
     MongooseModule.forFeature([
       { name: Airline.name, schema: AirlineSchema },
+      // FLT-28: one document per chosen seat, unique per flight and cabin.
+      { name: FlightSeatClaim.name, schema: FlightSeatClaimSchema },
       { name: Flight.name, schema: FlightSchema },
       { name: FlightBooking.name, schema: FlightBookingSchema },
     ]),

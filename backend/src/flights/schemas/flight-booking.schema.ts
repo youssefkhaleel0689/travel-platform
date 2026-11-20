@@ -131,6 +131,15 @@ export class PendingFlightChange {
   @Prop({ type: SchemaTypes.ObjectId, required: true })
   newFlightId: Types.ObjectId;
 
+  // Which segment changes (0 outbound, 1 return) and the new cabin price per
+  // seat agreed when the difference was quoted, so applying the paid change
+  // never re-reads a price that may have moved since.
+  @Prop({ type: Number, required: true, min: 0, max: 1 })
+  segmentIndex: number;
+
+  @Prop({ type: SchemaTypes.Decimal128, required: true })
+  newCabinPrice: Types.Decimal128;
+
   @Prop({ type: String, required: true })
   amountDifference: string;
 
