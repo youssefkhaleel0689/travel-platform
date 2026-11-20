@@ -1,5 +1,5 @@
 import { BadRequestException, HttpException } from '@nestjs/common';
-import type { Model } from 'mongoose';
+import type { ClientSession, Connection, Model } from 'mongoose';
 import { Types } from 'mongoose';
 import { Role } from '../../common/auth/auth.enums';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
@@ -20,6 +20,8 @@ const MODERATOR_ID = new Types.ObjectId().toString();
 const SESSION_ID = new Types.ObjectId().toString();
 // The server clock in every test.
 const NOW = new Date('2026-11-12T10:00:00.000Z');
+// What the fake connection hands to the work it runs in a transaction.
+const SESSION = { id: 'test-session' } as unknown as ClientSession;
 
 const moderator: AuthenticatedUser = {
   userId: MODERATOR_ID,
@@ -81,6 +83,7 @@ function setup(
     updated?: Flight | null;
     updateError?: unknown;
     confirmedBookings?: { _id: Types.ObjectId; userId: Types.ObjectId }[];
+    moveTimesError?: unknown;
   } = {},
 ) {
   const assignedTo =
@@ -148,9 +151,23 @@ function setup(
   };
   const flightBookingModel = {
     find: jest.fn(() => query(options.confirmedBookings ?? [])),
+    updateMany: jest.fn(() => ({
+      exec: () =>
+        options.moveTimesError
+          ? Promise.reject(options.moveTimesError as Error)
+          : Promise.resolve({ modifiedCount: 1 }),
+    })),
   };
   const notifications = {
     notifyMany: jest.fn(() => Promise.resolve()),
+  };
+  // Runs the callback with a stand-in session, the way Connection.transaction would; a
+  // rejection inside it rejects the whole transaction.
+  const connection = {
+    transaction: jest.fn(
+      <T>(work: (session: ClientSession) => Promise<T>): Promise<T> =>
+        work(SESSION),
+    ),
   };
   const service = new FlightsService(
     flightModel as unknown as Model<Flight>,
@@ -159,6 +176,7 @@ function setup(
     referenceData as unknown as ReferenceDataService,
     flightBookingModel as unknown as Model<FlightBooking>,
     notifications as unknown as NotificationsService,
+    connection as unknown as Connection,
   );
   return {
     service,
@@ -168,6 +186,7 @@ function setup(
     referenceData,
     flightBookingModel,
     notifications,
+    connection,
   };
 }
 
@@ -474,7 +493,7 @@ const CURRENT = CURRENT_PLAIN as unknown as Flight;
 type UpdateCall = [
   Record<string, unknown>,
   { $set: Record<string, unknown> },
-  { new: boolean },
+  { new: boolean; session: ClientSession },
 ];
 
 const lastUpdate = (flightModel: { findOneAndUpdate: jest.Mock }) =>
@@ -609,6 +628,99 @@ describe('FlightsService.update (FLT-05)', () => {
     );
     expect(result.id).toBe(FLIGHT_ID.toString());
     expect(flightModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(notifications.notifyMany).not.toHaveBeenCalled();
+  });
+
+  it('moves the times its open bookings copied, in the same transaction as the flight', async () => {
+    const updated = {
+      ...CURRENT_PLAIN,
+      departureLocalInput: '2026-12-20T09:15',
+      departureAtUtc: new Date('2026-12-20T07:15:00.000Z'),
+    } as unknown as Flight;
+    const { service, flightModel, flightBookingModel, connection } = setup({
+      current: CURRENT,
+      updated,
+    });
+    await service.update(
+      FLIGHT_ID.toString(),
+      { departureLocalInput: '2026-12-20T09:15' },
+      moderator,
+    );
+    expect(connection.transaction).toHaveBeenCalledTimes(1);
+    expect(lastUpdate(flightModel)[2]).toEqual({ new: true, session: SESSION });
+    expect(flightBookingModel.updateMany).toHaveBeenCalledTimes(1);
+    expect(flightBookingModel.updateMany).toHaveBeenCalledWith(
+      {
+        'segments.flightId': FLIGHT_ID,
+        status: {
+          $in: [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED],
+        },
+      },
+      {
+        $set: {
+          'segments.$[segment].departureAtUtc': new Date(
+            '2026-12-20T07:15:00.000Z',
+          ),
+          'segments.$[segment].arrivalAtUtc': CURRENT.arrivalAtUtc,
+        },
+      },
+      { arrayFilters: [{ 'segment.flightId': FLIGHT_ID }], session: SESSION },
+    );
+  });
+
+  it('leaves the bookings alone when no time changes', async () => {
+    const updated = {
+      ...CURRENT_PLAIN,
+      departureAirportId: 'LHR',
+    } as unknown as Flight;
+    const { service, flightBookingModel } = setup({
+      current: CURRENT,
+      updated,
+    });
+    // 06:30 in London (UTC+0 in December) is the same instant as 08:30 in Cairo.
+    await service.update(
+      FLIGHT_ID.toString(),
+      { departureAirportId: 'LHR', departureLocalInput: '2026-12-20T06:30' },
+      moderator,
+    );
+    expect(flightBookingModel.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('leaves the bookings alone when the flight update matched nothing', async () => {
+    const { service, flightBookingModel } = setup({
+      current: CURRENT,
+      updated: null,
+    });
+    const error = await failure(
+      service.update(
+        FLIGHT_ID.toString(),
+        { departureLocalInput: '2026-12-20T09:15' },
+        moderator,
+      ),
+    );
+    expect(error.getStatus()).toBe(409);
+    expect(flightBookingModel.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('fails the whole edit, and notifies nobody, when the bookings cannot be moved', async () => {
+    const boom = new Error('connection lost');
+    const updated = {
+      ...CURRENT_PLAIN,
+      departureLocalInput: '2026-12-20T09:15',
+      departureAtUtc: new Date('2026-12-20T07:15:00.000Z'),
+    } as unknown as Flight;
+    const { service, notifications } = setup({
+      current: CURRENT,
+      updated,
+      moveTimesError: boom,
+    });
+    await expect(
+      service.update(
+        FLIGHT_ID.toString(),
+        { departureLocalInput: '2026-12-20T09:15' },
+        moderator,
+      ),
+    ).rejects.toBe(boom);
     expect(notifications.notifyMany).not.toHaveBeenCalled();
   });
 
