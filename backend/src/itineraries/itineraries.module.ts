@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ReferenceDataModule } from '../common/reference-data/reference-data.module';
 import { ExchangeRatesModule } from '../exchange-rates/exchange-rates.module';
+import { MediaModule } from '../media/media.module';
 import { ActivitiesController } from './activities.controller';
 import { ActivitiesService } from './activities.service';
+import { ActivityImagesController } from './activity-images.controller';
 import { BudgetSummaryController } from './budget-summary.controller';
 import { BudgetsController } from './budgets.controller';
 import { BudgetsService } from './budgets.service';
@@ -23,11 +25,14 @@ import { Itinerary, ItinerarySchema } from './schemas/itinerary.schema';
     ]),
     ExchangeRatesModule,
     ReferenceDataModule,
+    // ITN-12: activity images through the shared media store (GEN-08).
+    MediaModule,
   ],
   controllers: [
     ItinerariesController,
     DaysController,
     ActivitiesController,
+    ActivityImagesController,
     BudgetsController,
     BudgetSummaryController,
     PublicItinerariesController,

@@ -1,12 +1,23 @@
 import { decimal128ToString } from '../common/money/money';
 import {
   Activity,
+  ActivityImage,
   BudgetEntry,
   Itinerary,
   ItineraryDay,
   TransportCost,
 } from './schemas/itinerary.schema';
 import { dateOfDay, groupConsecutiveDays } from './itinerary-days.logic';
+
+export function toActivityImageView(i: ActivityImage) {
+  return {
+    id: i._id.toString(),
+    url: i.url,
+    mimeType: i.mimeType,
+    sizeBytes: i.sizeBytes,
+    uploadedAt: i.uploadedAt,
+  };
+}
 
 export function toActivityView(a: Activity) {
   return {
@@ -16,6 +27,8 @@ export function toActivityView(a: Activity) {
     time: a.time ?? null,
     cost: decimal128ToString(a.cost),
     currency: a.currency ?? null,
+    // ITN-12. Activities saved before images existed have no array yet.
+    images: (a.images ?? []).map(toActivityImageView),
   };
 }
 

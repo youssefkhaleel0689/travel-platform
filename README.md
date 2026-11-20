@@ -1083,6 +1083,20 @@ The unit tests are next to the code. `test/flight-search.e2e-spec.ts` runs the r
 
 The unit tests are next to the code. `test/itinerary-flights.e2e-spec.ts` creates its itineraries through D1's own endpoints and checks the defaults, a round trip, chosen dates, the 404, the 400 and the 409 on the shared database. It creates one airline named "KE e2e itinerary flights" with an unused two-digit IATA code from 70 up, flights numbered `KE8xxx` in March 2099 and `test_c2_` accounts with their itineraries, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-flights`.
 
+## Activity images (ITN-12)
+
+| Method | Path | Who |
+| --- | --- | --- |
+| POST | `/api/activities/:id/images` | The itinerary's owner. Multipart, field `file` |
+| GET | `/api/activities/:id/images/:imageId` | The owner, and anyone when the itinerary is public and not hidden by moderation |
+| DELETE | `/api/activities/:id/images/:imageId` | The owner |
+
+- The file goes through the shared media store (`MediaService`, GEN-08), so the rules are the same as for blog images: JPG or PNG checked on the bytes, 5 MB, at most 5 per activity (409 `IMAGE_LIMIT_REACHED`).
+- Another account's activity is the same 404 `ACTIVITY_NOT_FOUND` as a missing one (ACC-11); a private itinerary's image answers 404 to everyone but its owner.
+- Each activity lists its images (`id`, `url`, `mimeType`, `sizeBytes`, `uploadedAt`) in every itinerary view, public ones included.
+- Deleting an activity, a day or an itinerary also deletes the stored files (after the save; a failure is only logged). A clone starts without images, so it never shares a file with the original.
+- `test/itinerary-images.e2e-spec.ts` writes only `test_c2_` accounts, their itineraries and their images, and deletes exactly those. Run it with `npm run test:e2e -- itinerary-images`.
+
 ## Flight details (FLT-17)
 
 `GET /api/flights/:id` is public, like search, so a guest can open the details page from a search result. It returns:
