@@ -32,7 +32,10 @@ import {
 import { BookingsGateway } from './../src/common/bookings/bookings.gateway';
 import { PaymentExpiryService } from './../src/payments/payment-expiry.service';
 import { PaymentStatus } from './../src/payments/payment-status.enum';
-import { CancelledBy, RefundStatus } from './../src/payments/refund-status.enum';
+import {
+  CancelledBy,
+  RefundStatus,
+} from './../src/payments/refund-status.enum';
 import { Payment } from './../src/payments/schemas/payment.schema';
 import { Refund } from './../src/payments/schemas/refund.schema';
 import { PolicyAcceptance } from './../src/payments/schemas/policy-acceptance.schema';
@@ -938,94 +941,110 @@ describe('Payments (e2e)', () => {
 
     // The traveller looks at the payment before the webhook comes: the read
     // records SUCCEEDED, and the webhook used to take that as "already done".
-    it('still confirms when a status read saw the success first', async () => {
-      await acceptPolicies().expect(200);
-      const res = await startPayment().expect(201);
-      const intentId = res.body.stripePaymentIntentId as string;
-      setIntentStatus(intentId, 'succeeded');
+    it(
+      'still confirms when a status read saw the success first',
+      async () => {
+        await acceptPolicies().expect(200);
+        const res = await startPayment().expect(201);
+        const intentId = res.body.stripePaymentIntentId as string;
+        setIntentStatus(intentId, 'succeeded');
 
-      const read = await request(app.getHttpServer())
-        .get(`/api/payments/${res.body.id}`)
-        .set('Cookie', owner.cookie)
-        .expect(200);
-      expect(read.body.status).toBe('SUCCEEDED');
-      expect(confirmCalls).toEqual([]);
+        const read = await request(app.getHttpServer())
+          .get(`/api/payments/${res.body.id}`)
+          .set('Cookie', owner.cookie)
+          .expect(200);
+        expect(read.body.status).toBe('SUCCEEDED');
+        expect(confirmCalls).toEqual([]);
 
-      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+        await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
 
-      expect(confirmCalls).toEqual([bookingId]);
-      const stored = await paymentModel.findById(res.body.id).exec();
-      expect(stored?.bookingConfirmedAt).toBeInstanceOf(Date);
-    }, SLOW_MS);
+        expect(confirmCalls).toEqual([bookingId]);
+        const stored = await paymentModel.findById(res.body.id).exec();
+        expect(stored?.bookingConfirmedAt).toBeInstanceOf(Date);
+      },
+      SLOW_MS,
+    );
 
-    it('refunds when a status read saw it first and the hold has gone', async () => {
-      await acceptPolicies().expect(200);
-      const res = await startPayment().expect(201);
-      const intentId = res.body.stripePaymentIntentId as string;
-      setIntentStatus(intentId, 'succeeded');
-      await request(app.getHttpServer())
-        .get(`/api/payments/${res.body.id}`)
-        .set('Cookie', owner.cookie)
-        .expect(200);
-      confirmRefusal = 'HOLD_EXPIRED';
+    it(
+      'refunds when a status read saw it first and the hold has gone',
+      async () => {
+        await acceptPolicies().expect(200);
+        const res = await startPayment().expect(201);
+        const intentId = res.body.stripePaymentIntentId as string;
+        setIntentStatus(intentId, 'succeeded');
+        await request(app.getHttpServer())
+          .get(`/api/payments/${res.body.id}`)
+          .set('Cookie', owner.cookie)
+          .expect(200);
+        confirmRefusal = 'HOLD_EXPIRED';
 
-      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+        await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
 
-      const refunds = await refundsOf(res.body.id);
-      expect(refunds).toHaveLength(1);
-      expect(refunds[0]).toMatchObject({
-        status: RefundStatus.REFUNDED,
-        cancelledBy: CancelledBy.SYSTEM,
-        refundPercentage: 100,
-      });
-      expect(refunds[0].amount.toString()).toBe('420.00');
-    }, SLOW_MS);
+        const refunds = await refundsOf(res.body.id);
+        expect(refunds).toHaveLength(1);
+        expect(refunds[0]).toMatchObject({
+          status: RefundStatus.REFUNDED,
+          cancelledBy: CancelledBy.SYSTEM,
+          refundPercentage: 100,
+        });
+        expect(refunds[0].amount.toString()).toBe('420.00');
+      },
+      SLOW_MS,
+    );
 
     // No webhook at all: the hold ends, the sweep tries to cancel, and Stripe
     // refuses because the card was charged. The payment used to stay open.
-    it('is settled by the expiry sweep when no webhook comes', async () => {
-      await acceptPolicies().expect(200);
-      const res = await startPayment().expect(201);
-      const intentId = res.body.stripePaymentIntentId as string;
-      setIntentStatus(intentId, 'succeeded');
-      holdExpiresAt = new Date(Date.now() - 1000);
-      confirmRefusal = 'HOLD_EXPIRED';
+    it(
+      'is settled by the expiry sweep when no webhook comes',
+      async () => {
+        await acceptPolicies().expect(200);
+        const res = await startPayment().expect(201);
+        const intentId = res.body.stripePaymentIntentId as string;
+        setIntentStatus(intentId, 'succeeded');
+        holdExpiresAt = new Date(Date.now() - 1000);
+        confirmRefusal = 'HOLD_EXPIRED';
 
-      const result = await app.get(PaymentExpiryService).sweep();
+        const result = await app.get(PaymentExpiryService).sweep();
 
-      expect(result.settled).toBeGreaterThanOrEqual(1);
-      expect(cancelledIntents).not.toContain(intentId);
-      const stored = await paymentModel.findById(res.body.id).exec();
-      expect(stored?.status).toBe(PaymentStatus.SUCCEEDED);
-      expect(await refundsOf(res.body.id)).toHaveLength(1);
-      expect(releaseCalls).toContain(bookingId);
+        expect(result.settled).toBeGreaterThanOrEqual(1);
+        expect(cancelledIntents).not.toContain(intentId);
+        const stored = await paymentModel.findById(res.body.id).exec();
+        expect(stored?.status).toBe(PaymentStatus.SUCCEEDED);
+        expect(await refundsOf(res.body.id)).toHaveLength(1);
+        expect(releaseCalls).toContain(bookingId);
 
-      // The webhook arriving after all changes nothing more.
-      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
-      expect(await refundsOf(res.body.id)).toHaveLength(1);
-      expect(createdRefunds).toHaveLength(1);
-    }, SLOW_MS);
+        // The webhook arriving after all changes nothing more.
+        await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+        expect(await refundsOf(res.body.id)).toHaveLength(1);
+        expect(createdRefunds).toHaveLength(1);
+      },
+      SLOW_MS,
+    );
 
-    it('refunds once however often Stripe delivers a late success', async () => {
-      await acceptPolicies().expect(200);
-      const res = await startPayment().expect(201);
-      const intentId = res.body.stripePaymentIntentId as string;
-      setIntentStatus(intentId, 'succeeded');
-      confirmRefusal = 'HOLD_EXPIRED';
+    it(
+      'refunds once however often Stripe delivers a late success',
+      async () => {
+        await acceptPolicies().expect(200);
+        const res = await startPayment().expect(201);
+        const intentId = res.body.stripePaymentIntentId as string;
+        setIntentStatus(intentId, 'succeeded');
+        confirmRefusal = 'HOLD_EXPIRED';
 
-      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
-      await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+        await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
+        await deliverWebhook('payment_intent.succeeded', intentId).expect(200);
 
-      expect(await refundsOf(res.body.id)).toHaveLength(1);
-      expect(createdRefunds).toHaveLength(1);
-      const notices = await notificationModel
-        .find({
-          userId: new Types.ObjectId(owner.userId),
-          title: 'Booking not confirmed',
-          resourceId: bookingId,
-        })
-        .exec();
-      expect(notices).toHaveLength(1);
-    }, SLOW_MS);
+        expect(await refundsOf(res.body.id)).toHaveLength(1);
+        expect(createdRefunds).toHaveLength(1);
+        const notices = await notificationModel
+          .find({
+            userId: new Types.ObjectId(owner.userId),
+            title: 'Booking not confirmed',
+            resourceId: bookingId,
+          })
+          .exec();
+        expect(notices).toHaveLength(1);
+      },
+      SLOW_MS,
+    );
   });
 });
