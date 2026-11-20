@@ -84,6 +84,14 @@ export class Refund {
   @Prop({ type: String, required: true, unique: true })
   idempotencyKey: string;
 
+  /**
+   * PAY-03: how many times a FAILED refund was sent again. Stripe replays the
+   * stored answer for a key it has seen, so each retry sends a key of its own
+   * (`<idempotencyKey>:retry:<n>`); the row keeps its key.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  retryCount: number;
+
   @Prop({ type: Date, required: true })
   requestedAt: Date;
 

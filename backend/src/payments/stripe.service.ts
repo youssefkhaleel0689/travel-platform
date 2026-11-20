@@ -9,7 +9,18 @@ import {
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { BookingType } from '../common/bookings/booking-status';
-import { PLATFORM_CURRENCY, toMinorUnits } from '../common/money/money';
+import {
+  formatMoney,
+  isGreaterThan,
+  PLATFORM_CURRENCY,
+  toMinorUnits,
+} from '../common/money/money';
+
+/**
+ * Stripe's smallest charge in USD. A PaymentIntent below it is refused by
+ * Stripe, so it is refused here first with a clear 400 (PAY-01, FLT-27).
+ */
+export const STRIPE_MINIMUM_CHARGE = '0.50';
 
 export interface CreatePaymentIntentInput {
   /** Decimal string in the platform currency, e.g. "199.99". */
@@ -81,6 +92,20 @@ export class StripeService implements OnModuleInit {
   async createPaymentIntent(
     input: CreatePaymentIntentInput,
   ): Promise<Stripe.PaymentIntent> {
+    if (isGreaterThan(STRIPE_MINIMUM_CHARGE, input.amount)) {
+      throw new BadRequestException({
+        code: 'AMOUNT_TOO_SMALL',
+        message:
+          `Card payments must be at least ${STRIPE_MINIMUM_CHARGE} ` +
+          `${PLATFORM_CURRENCY}; this one is ${formatMoney(input.amount)}`,
+        errors: [
+          {
+            field: 'amount',
+            messages: [`must be at least ${STRIPE_MINIMUM_CHARGE}`],
+          },
+        ],
+      });
+    }
     const stripe = this.require();
     return this.translate(() =>
       stripe.paymentIntents.create(

@@ -11,6 +11,8 @@ export enum AuditAction {
   REPORT_DISMISSED = 'REPORT_DISMISSED',
   // FLT-06: an airline moderator cancelled a flight.
   FLIGHT_CANCELLED = 'FLIGHT_CANCELLED',
+  // PAY-03: an admin sent a FAILED refund to Stripe again.
+  REFUND_RETRIED = 'REFUND_RETRIED',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);
@@ -25,6 +27,7 @@ export enum AuditEntityType {
   ITINERARY = 'ITINERARY',
   REPORT = 'REPORT',
   FLIGHT = 'FLIGHT',
+  REFUND = 'REFUND',
 }
 
 export const AUDIT_ENTITY_TYPES = Object.values(AuditEntityType);

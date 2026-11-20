@@ -1477,6 +1477,7 @@ The `payments` module owns `payments`, `refunds`, `policyAcceptances` and `strip
 | `GET /api/payments/:id` | PAY-01 |
 | `POST /api/payments/webhook` | PAY-01 (Stripe calls it; not in Swagger) |
 | `GET /api/refunds/:id` | PAY-03 |
+| `POST /api/refunds/:id/retry` (admin) | PAY-03 |
 
 `:type` is `flight` or `hotel`, matched case-insensitively.
 
@@ -1542,6 +1543,8 @@ await this.refunds.issueForCancellation({
 - A 0% tier and a booking that was never paid both return `null` and issue nothing: PAY-03 covers a cancellation with a positive refund amount.
 - A Stripe failure does **not** throw. The cancellation has already happened, so the refund is recorded as `FAILED` with Stripe's message and shows on the booking details, where it can be retried. Do not undo your cancellation because a refund failed.
 - The same booking refuses a second cancellation refund (409 `REFUND_ALREADY_ISSUED`).
+- **Retrying a FAILED refund (admin):** `POST /api/refunds/:id/retry`. Only a `FAILED` refund, with the same amount and payment. One conditional update moves it back to `PENDING` and counts `retryCount`, so two retries at once send it once (the other gets 409 `REFUND_NOT_FAILED`). Stripe gets `<idempotencyKey>:retry:<n>`, a key of its own per try: for a key it has seen, Stripe only replays the old answer, so a retry with the same key could never succeed. Each retry is in the audit log (`REFUND_RETRIED`).
+- **Stripe's minimum charge.** Stripe will not charge less than 0.50 USD. `StripeService.createPaymentIntent` refuses a smaller amount with 400 `AMOUNT_TOO_SMALL` before calling Stripe, so a tiny booking or fare difference gets a clear answer instead of a Stripe error. Refunds have no minimum.
 - A booking can have several payments and refunds. A flight change to a pricier flight adds a SUCCEEDED payment for the fare difference (`PaymentsService.recordFareDifference`), and a change to a cheaper one refunds the difference with `issueFareDifference`, recorded and notified like any refund with `kind: FARE_DIFFERENCE` (FLT-27). A cancellation then refunds its tier of **what is still paid**: everything captured less every refund that has not failed, which is the booking's current total. It is drawn newest payment first, never more from one payment than it has left, so a fare difference paid on top goes back first and the refund may be two rows. `GET /api/refunds/:id` shows `kind`. A full refund of a payment the booking could not take (PAY-01, #80) has `kind: UNCONFIRMED_PAYMENT`; only a `CANCELLATION` refund blocks a second cancellation.
 
 ### Environment and running it locally

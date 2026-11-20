@@ -332,12 +332,23 @@ export class RefundsService {
       (refund) => refund.idempotencyKey === idempotencyKey,
     );
     if (failed) {
-      // The same refund failed at Stripe before: send that row again, with
-      // its key, rather than a second one.
-      return {
-        refund: await this.sendToStripe(failed, payment.stripePaymentIntentId),
-        created: false,
-      };
+      // The same refund failed at Stripe before: send that row again
+      // rather than a second one. Another caller may be resending it right
+      // now; then its answer stands.
+      try {
+        return {
+          refund: await this.resendFailed(
+            failed,
+            payment.stripePaymentIntentId,
+          ),
+          created: false,
+        };
+      } catch (error) {
+        if (error instanceof ConflictException) {
+          return { refund: failed, created: false };
+        }
+        throw error;
+      }
     }
 
     const amount = decimal128ToString(payment.amount) ?? '0.00';
@@ -388,16 +399,39 @@ export class RefundsService {
   async retryFailed(refundId: string): Promise<RefundDocument> {
     const refund = await this.findByIdOrThrow(refundId);
     if (refund.status !== RefundStatus.FAILED) {
-      throw new ConflictException({
-        code: 'REFUND_NOT_FAILED',
-        message: `This refund is ${refund.status} and cannot be retried`,
-      });
+      throw refundNotFailed(refund.status);
     }
     const payment = await this.payments.findById(refund.paymentId);
     if (!payment) {
       throw new NotFoundException('Payment not found');
     }
-    return this.sendToStripe(refund, payment.stripePaymentIntentId);
+    return this.resendFailed(refund, payment.stripePaymentIntentId);
+  }
+
+  /**
+   * Sends a FAILED refund again. One conditional update moves it back to
+   * PENDING and counts the attempt, so two retries at the same moment send
+   * it once; the loser gets 409. The attempt goes to Stripe under a key of
+   * its own, because Stripe would only replay the failure for the old key.
+   */
+  private async resendFailed(
+    refund: RefundDocument,
+    stripePaymentIntentId: string,
+  ): Promise<RefundDocument> {
+    const claimed = await this.refundModel
+      .findOneAndUpdate(
+        { _id: refund._id, status: RefundStatus.FAILED },
+        {
+          $set: { status: RefundStatus.PENDING, failureMessage: null },
+          $inc: { retryCount: 1 },
+        },
+        { returnDocument: 'after' },
+      )
+      .exec();
+    if (!claimed) {
+      throw refundNotFailed(RefundStatus.PENDING);
+    }
+    return this.sendToStripe(claimed, stripePaymentIntentId);
   }
 
   /** PAY-03: the refunds of one booking, for the booking details screen. */
@@ -531,7 +565,7 @@ export class RefundsService {
       const stripeRefund = await this.stripe.createRefund({
         stripePaymentIntentId,
         amount,
-        idempotencyKey: refund.idempotencyKey,
+        idempotencyKey: stripeKeyOf(refund),
         bookingId: refund.bookingId.toString(),
       });
 
@@ -588,6 +622,21 @@ function refundNotice(refund: RefundDocument, amount: string): string {
     default:
       return `${money} for your cancelled booking (${refund.refundPercentage}% of what you paid).`;
   }
+}
+
+/** The key Stripe sees: the row's own, then one per retry (see retryCount). */
+function stripeKeyOf(refund: RefundDocument): string {
+  const retries = refund.retryCount ?? 0;
+  return retries > 0
+    ? `${refund.idempotencyKey}:retry:${retries}`
+    : refund.idempotencyKey;
+}
+
+function refundNotFailed(status: RefundStatus): ConflictException {
+  return new ConflictException({
+    code: 'REFUND_NOT_FAILED',
+    message: `This refund is ${status} and cannot be retried`,
+  });
 }
 
 function isDuplicateKey(error: unknown): boolean {

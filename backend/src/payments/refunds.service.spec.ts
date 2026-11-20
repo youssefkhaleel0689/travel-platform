@@ -335,17 +335,41 @@ describe('RefundsService (PAY-03)', () => {
   });
 
   describe('retryFailed', () => {
-    it('resends a failed refund with the same amount', async () => {
+    it('resends a failed refund with the same amount and a new Stripe key', async () => {
       model.findById.mockReturnValue(
         exec(refundDoc({ status: RefundStatus.FAILED })),
+      );
+      model.findOneAndUpdate.mockReturnValue(
+        exec(refundDoc({ status: RefundStatus.PENDING, retryCount: 1 })),
       );
 
       const refund = await service.retryFailed(REFUND_ID);
 
+      // Claimed from FAILED in one conditional update, the attempt counted.
+      expect(model.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RefundStatus.FAILED }),
+        expect.objectContaining({ $inc: { retryCount: 1 } }),
+        expect.anything(),
+      );
       expect(stripe.createRefund).toHaveBeenCalledWith(
-        expect.objectContaining({ amount: '210.00' }),
+        expect.objectContaining({
+          amount: '210.00',
+          idempotencyKey: `refund:HOTEL:${BOOKING_ID}:1:retry:1`,
+        }),
       );
       expect(refund.status).toBe(RefundStatus.REFUNDED);
+    });
+
+    it('sends it once when two retries arrive together: the other gets 409', async () => {
+      model.findById.mockReturnValue(
+        exec(refundDoc({ status: RefundStatus.FAILED })),
+      );
+      model.findOneAndUpdate.mockReturnValue(exec(null));
+
+      await expect(service.retryFailed(REFUND_ID)).rejects.toMatchObject({
+        response: { code: 'REFUND_NOT_FAILED' },
+      });
+      expect(stripe.createRefund).not.toHaveBeenCalled();
     });
 
     it.each([RefundStatus.PENDING, RefundStatus.REFUNDED])(
