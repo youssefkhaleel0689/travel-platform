@@ -367,7 +367,7 @@ export class HotelsController {
     description:
       'The upload is larger than 5 MB and was stopped while receiving it',
     examples: [
-      { code: 'HTTP_413', message: 'File too large', path: PHOTOS_PATH },
+      { code: 'PAYLOAD_TOO_LARGE', message: 'File too large', path: PHOTOS_PATH },
     ],
   })
   addPhoto(
