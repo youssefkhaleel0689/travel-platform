@@ -684,11 +684,22 @@ export class UsersService {
   /**
    * ACC-02: booking is blocked until the email is verified, when the feature
    * is enabled. Disabled by default so local/dev and existing tests keep working.
+   *
+   * Only an explicit null blocks. Accounts created after this feature store
+   * null until they verify; accounts created before it have no field at all
+   * and are treated as verified, so turning the flag on does not lock every
+   * existing user (and the seeded test accounts) out of booking.
    */
   async assertCanBook(userId: string): Promise<void> {
     if (process.env.EMAIL_VERIFICATION_REQUIRED !== 'true') return;
-    const user = await this.findById(userId);
-    if (!user?.emailVerifiedAt) {
+    if (!OBJECT_ID.test(userId)) return;
+    const unverified = await this.userModel
+      .exists({
+        _id: new Types.ObjectId(userId),
+        emailVerifiedAt: { $type: 'null' },
+      })
+      .exec();
+    if (unverified) {
       throw new ForbiddenException({
         code: 'EMAIL_NOT_VERIFIED',
         message: 'Verify your email before making a booking',

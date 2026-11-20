@@ -61,6 +61,12 @@ export function accountLocked(
   );
 }
 
+/** Where the API is reachable from an email link (ACC-02, ACC-07). */
+function publicApiUrl(): string {
+  const configured = process.env.APP_PUBLIC_URL?.replace(/\/+$/, '');
+  return configured || `http://localhost:${process.env.PORT ?? 3000}`;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -89,7 +95,10 @@ export class AuthService {
       await this.email.send({
         to: profile.email,
         subject: 'Verify your Travel Platform email',
-        text: `Open this link to verify your email:\n/api/auth/verify-email?token=${token}\nThe link expires in 30 minutes.`,
+        text:
+          `Open this link to verify your email:\n` +
+          `${publicApiUrl()}/api/auth/verify-email?token=${token}\n` +
+          `The link expires in 30 minutes.`,
       });
     }
     return this.startSession(res, profile);
@@ -248,10 +257,17 @@ export class AuthService {
     const user = await this.users.findByEmail(email);
     if (!user) return;
     const token = await this.emailTokens.issueReset(user.id);
-    await this.email.send({
+    // Not awaited: waiting for the mail server would make a real account
+    // answer noticeably slower than an unknown email. send() never throws.
+    void this.email.send({
       to: user.email,
       subject: 'Reset your Travel Platform password',
-      text: `Open this link within 30 minutes to choose a new password:\n/api/auth/reset-password?token=${token}\nIf you did not request this, ignore the email.`,
+      text:
+        `Someone asked to reset your Travel Platform password.\n\n` +
+        `Your reset code (valid for 30 minutes, single use):\n${token}\n\n` +
+        `Send it with your new password to POST ${publicApiUrl()}/api/auth/reset-password ` +
+        `(the reset page of the website does this for you).\n` +
+        `If you did not ask for this, ignore this email.`,
     });
   }
 

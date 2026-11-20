@@ -27,6 +27,7 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
     role: Role.ADMIN,
     status: UserStatus.ACTIVE,
     mustChangePassword: false,
+    emailVerifiedAt: null,
     suspendedAt: null,
     deactivatedAt: null,
     createdAt: new Date('2026-11-12T10:00:00.000Z'),

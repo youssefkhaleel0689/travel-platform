@@ -186,7 +186,6 @@ function ApiBookingRequestErrors(path: string): MethodDecorator {
 // FLT-19, FLT-21, FLT-22: booking a flight. Registered users only (ACC-11).
 @ApiTags('Flight bookings')
 @ApiCookieAuth('access_token')
-@UseGuards(EmailVerifiedGuard)
 @Controller('flight-bookings')
 export class FlightBookingsController {
   constructor(private readonly bookings: FlightBookingsService) {}
@@ -212,6 +211,9 @@ export class FlightBookingsController {
   }
 
   @Post('hold')
+  // ACC-02: only creating a booking needs a verified email; viewing and
+  // cancelling existing bookings stay open.
+  @UseGuards(EmailVerifiedGuard)
   @Roles(Role.USER)
   @ApiOperation({
     summary: 'Hold the seats for 10 minutes (FLT-22)',
@@ -226,6 +228,19 @@ export class FlightBookingsController {
   @ApiBody({ type: FlightBookingRequestDto })
   @ApiCreatedResponse({ type: FlightBookingDto })
   @ApiBookingRequestErrors(HOLD_PATH)
+  @ApiErrorResponse({
+    status: 403,
+    description:
+      'Wrong role (FORBIDDEN), or the email is not verified while EMAIL_VERIFICATION_REQUIRED=true (EMAIL_NOT_VERIFIED, ACC-02)',
+    examples: [
+      {
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Verify your email before making a booking',
+        path: HOLD_PATH,
+        errors: [{ field: 'email', messages: ['email is not verified'] }],
+      },
+    ],
+  })
   hold(
     @Body() dto: FlightBookingRequestDto,
     @CurrentUser() user: AuthenticatedUser,

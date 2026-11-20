@@ -42,12 +42,8 @@ export class EmailTokenService {
     return this.consume(this.verification, token);
   }
 
+  /** A newer request invalidates every earlier one (ACC-07): see issue(). */
   async issueReset(userId: string): Promise<string> {
-    // A newer request invalidates every earlier one (ACC-07).
-    await this.reset.updateMany(
-      { userId: new Types.ObjectId(userId), usedAt: null },
-      { $set: { usedAt: new Date() } },
-    );
     return this.issue(this.reset, userId);
   }
 
@@ -78,16 +74,20 @@ export class EmailTokenService {
     token: string,
   ): Promise<string> {
     if (!/^[a-f0-9]{64}$/i.test(token)) throw invalidToken();
+    // One conditional update, not find-then-save: if the same link is opened
+    // twice at the same moment, only one request can flip usedAt from null.
     const row = await model
-      .findOne({
-        tokenHash: hash(token),
-        usedAt: null,
-        expiresAt: { $gt: new Date() },
-      })
+      .findOneAndUpdate(
+        {
+          tokenHash: hash(token),
+          usedAt: null,
+          expiresAt: { $gt: new Date() },
+        },
+        { $set: { usedAt: new Date() } },
+        { returnDocument: 'after' },
+      )
       .exec();
     if (!row) throw invalidToken();
-    row.usedAt = new Date();
-    await row.save();
     return String(row.userId);
   }
 }

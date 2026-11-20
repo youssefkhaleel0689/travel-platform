@@ -19,7 +19,7 @@ const REVENUE_STATUSES = new Set([
   BookingStatus.COMPLETED,
 ]);
 
-function startOfUtcDay(day: string): Date {
+function startOfUtcDay(day: string, field: 'from' | 'to'): Date {
   const parsed = new Date(`${day}T00:00:00.000Z`);
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
@@ -29,7 +29,7 @@ function startOfUtcDay(day: string): Date {
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
       message: `${day} is not a valid date (YYYY-MM-DD)`,
-      errors: [{ field: 'from', messages: ['invalid calendar date'] }],
+      errors: [{ field, messages: ['invalid calendar date'] }],
     });
   }
   return parsed;
@@ -41,8 +41,10 @@ export class AdminAnalyticsService {
   constructor(private readonly bookings: BookingsGateway) {}
 
   async get(query: AdminAnalyticsQueryDto): Promise<AdminAnalyticsDto> {
-    const from = startOfUtcDay(query.from);
-    const toExclusive = new Date(startOfUtcDay(query.to).getTime() + DAY_MS);
+    const from = startOfUtcDay(query.from, 'from');
+    const toExclusive = new Date(
+      startOfUtcDay(query.to, 'to').getTime() + DAY_MS,
+    );
     if (toExclusive.getTime() <= from.getTime()) {
       throw new BadRequestException({
         code: 'INVALID_DATE_RANGE',
@@ -63,7 +65,8 @@ export class AdminAnalyticsService {
 
     for (const row of rows) {
       totalBookings += 1;
-      const key = `${row.providerType}:${row.providerId}`;
+      // Money in different currencies is never added together (PAY-04).
+      const key = `${row.providerType}:${row.providerId}:${row.currency}`;
       let entry = grouped.get(key);
       if (!entry) {
         entry = {
@@ -75,7 +78,7 @@ export class AdminAnalyticsService {
           providerName: row.providerName,
           bookings: 0,
           revenue: '0.00',
-          currency: PLATFORM_CURRENCY,
+          currency: row.currency,
         };
         grouped.set(key, entry);
       }
@@ -83,7 +86,9 @@ export class AdminAnalyticsService {
       if (REVENUE_STATUSES.has(row.status)) {
         const amount = new Decimal(row.totalAmount);
         entry.revenue = new Decimal(entry.revenue).plus(amount).toFixed(2);
-        totalRevenue = totalRevenue.plus(amount);
+        if (row.currency === PLATFORM_CURRENCY) {
+          totalRevenue = totalRevenue.plus(amount);
+        }
       }
     }
 

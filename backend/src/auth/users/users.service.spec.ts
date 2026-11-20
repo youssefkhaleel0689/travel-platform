@@ -29,6 +29,7 @@ function user(overrides: Partial<User> = {}): User {
     lockedUntil: null,
     mustChangePassword: false,
     temporaryPasswordIssuedAt: null,
+    emailVerifiedAt: null,
     suspendedAt: null,
     deactivatedAt: null,
     createdAt: NOW,
