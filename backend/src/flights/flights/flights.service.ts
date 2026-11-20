@@ -5,8 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../common/auth/authenticated-user';
 import { BookingStatus } from '../../common/bookings/booking-status';
 import { ReferenceDataService } from '../../common/reference-data/reference-data.service';
@@ -66,11 +66,14 @@ export class FlightsService {
     private readonly assignmentModel: Model<AirlineModeratorAssignment>,
     @InjectModel(Airline.name) private readonly airlineModel: Model<Airline>,
     private readonly referenceData: ReferenceDataService,
-    // Read only: FLT-05 looks up the CONFIRMED bookings of a flight to notify them. The
-    // booking module (Khaled) owns every write to this collection.
+    // FLT-05 looks up the CONFIRMED bookings of a flight to notify them, and moves the
+    // flight times its open bookings copied when the times change. Every other write to
+    // this collection belongs to the booking module.
     @InjectModel(FlightBooking.name)
     private readonly flightBookingModel: Model<FlightBooking>,
     private readonly notifications: NotificationsService,
+    // FLT-05: a time change and the booking times that follow it commit together.
+    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   /**
@@ -337,39 +340,47 @@ export class FlightsService {
 
     // ONE conditional update. The filter repeats what was read (so a parallel edit cannot
     // be overwritten) and, for an airport change, requires that no seat is booked or held.
+    // A time change also moves the times the flight's open bookings copied, in the same
+    // transaction: both change or neither does.
     let updated: Flight | null;
     try {
-      updated = await this.flightModel
-        .findOneAndUpdate(
-          {
-            _id: flightId,
-            airlineId,
-            status: FlightStatus.SCHEDULED,
-            departureAtUtc: {
-              $eq: current.departureAtUtc,
-              $gt: new Date(Date.now()),
-            },
-            arrivalAtUtc: current.arrivalAtUtc,
-            departureAirportId: current.departureAirportId,
-            arrivalAirportId: current.arrivalAirportId,
-            ...(airportsChanged && {
-              cabinInventory: {
-                $not: {
-                  $elemMatch: {
-                    $or: [
-                      { bookedSeats: { $gt: 0 } },
-                      { heldSeats: { $gt: 0 } },
-                    ],
+      updated = await this.connection.transaction(async (session) => {
+        const flight = await this.flightModel
+          .findOneAndUpdate(
+            {
+              _id: flightId,
+              airlineId,
+              status: FlightStatus.SCHEDULED,
+              departureAtUtc: {
+                $eq: current.departureAtUtc,
+                $gt: new Date(Date.now()),
+              },
+              arrivalAtUtc: current.arrivalAtUtc,
+              departureAirportId: current.departureAirportId,
+              arrivalAirportId: current.arrivalAirportId,
+              ...(airportsChanged && {
+                cabinInventory: {
+                  $not: {
+                    $elemMatch: {
+                      $or: [
+                        { bookedSeats: { $gt: 0 } },
+                        { heldSeats: { $gt: 0 } },
+                      ],
+                    },
                   },
                 },
-              },
-            }),
-          },
-          { $set: changes },
-          { new: true },
-        )
-        .lean<Flight>()
-        .exec();
+              }),
+            },
+            { $set: changes },
+            { new: true, session },
+          )
+          .lean<Flight>()
+          .exec();
+        if (flight && (departureChanged || arrivalChanged)) {
+          await this.moveBookingTimes(flight, session);
+        }
+        return flight;
+      });
     } catch (error) {
       // The unique index airlineId + flightNumber + departureDateKey is the real guard:
       // moving the flight to a date this flight number already uses is a conflict.
@@ -452,6 +463,34 @@ export class FlightsService {
       code: 'FLIGHT_CHANGED',
       message: 'The flight was changed at the same time, please try again',
     });
+  }
+
+  // FLT-05: price changes do not affect existing bookings, but time changes do. A booking
+  // keeps a copy of its flight times (for the e-ticket, "My bookings", the cancellation
+  // tier and completion), so the copies of every PENDING_PAYMENT and CONFIRMED booking on
+  // this flight move with it. A round trip has two segments: arrayFilters changes only the
+  // one on this flight. CANCELLED and EXPIRED bookings keep the times they ended with.
+  private async moveBookingTimes(
+    flight: Flight,
+    session: ClientSession,
+  ): Promise<void> {
+    await this.flightBookingModel
+      .updateMany(
+        {
+          'segments.flightId': flight._id,
+          status: {
+            $in: [BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED],
+          },
+        },
+        {
+          $set: {
+            'segments.$[segment].departureAtUtc': flight.departureAtUtc,
+            'segments.$[segment].arrivalAtUtc': flight.arrivalAtUtc,
+          },
+        },
+        { arrayFilters: [{ 'segment.flightId': flight._id }], session },
+      )
+      .exec();
   }
 
   // GEN-01: one in-app notice per CONFIRMED booking of the flight. The notification

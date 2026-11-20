@@ -1152,3 +1152,12 @@ Before the release to main, check the whole project for edge cases and anything 
 How the output was used:
 Claude checked the global error filter by booting a small app against it. A Mongoose ValidationError (a schema rule the DTO let through), a VersionError (two requests saving the same document) and a BSONError (a malformed id passed to new ObjectId) all answered 500; they now answer 400 VALIDATION_FAILED with field names only, 409 CONCURRENT_UPDATE and 400 INVALID_ID, and 413/415/423/429/503 get named codes. A huge page number made MongoDB reject the skip and answered 500; page, returnPage and itinerariesPage are now capped at 100000. FLT-06 still wrote only a log line where GEN-07 asks for an audit entry; it now records FLIGHT_CANCELLED through AuditService. It also checked malformed JSON (already 400), background jobs (all catch their errors), cookie flags and regex escaping, which needed no change. Verified in the cloud: tsc clean, lint 0 errors, 112 suites / 1683 unit tests. e2e runs on my machine before the merge.
 ================================================
+Date: 2026-11-20
+Student: Khaled Elshitany
+Tool: Claude (chat with access to the project folder)
+Related Requirement: GEN-11, FLT-05 (with FLT-25, FLT-26, FLT-30)
+Prompt:
+After a full review of develop, fix everything flights-related that it found: flight bookings never became COMPLETED after their flights departed, and when an airline moved a flight, the bookings kept the old times on the e-ticket, in My bookings and for the cancellation tier.
+How the output was used:
+The flight status job now also completes CONFIRMED bookings once every flight has departed, and waits for a run in progress before shutdown. A flight time change moves the copied times of its held and confirmed bookings in the same transaction, only for that segment of a round trip. Round-trip consistency after a move is left out. Verified: tsc and lint clean, 1691 unit and 524 e2e tests pass.
+================================================
