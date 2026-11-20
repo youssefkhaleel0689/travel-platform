@@ -77,7 +77,11 @@ export class NotificationsService {
     }
 
     // GEN-01-B: mirror every in-app notice to the user's email. This is best
-    // effort and never changes the outcome of notifyMany().
+    // effort and never changes the outcome of notifyMany(). With email off
+    // (the default) no user is looked up at all.
+    if (!this.email.enabled) {
+      return;
+    }
     await Promise.all(
       inputs.map(async (input) => {
         try {

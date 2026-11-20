@@ -19,7 +19,8 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private transport?: nodemailer.Transporter;
 
-  private get enabled(): boolean {
+  /** False unless SMTP_ENABLE=true: callers can skip work for email. */
+  get enabled(): boolean {
     return process.env.SMTP_ENABLE === 'true';
   }
 
