@@ -49,6 +49,9 @@ import {
 // Atlas, account registration over HTTP and index builds all happen in beforeAll.
 const CONNECT_TIMEOUT_MS = 120_000;
 const SLOW_MS = 30_000;
+// Six holds racing for the same seats retry each other's transactions; against
+// the shared Atlas cluster that has taken more than 30 seconds.
+const RACE_MS = 60_000;
 
 const SUMMARY = '/api/flight-bookings';
 const HOLD = '/api/flight-bookings/hold';
@@ -421,7 +424,7 @@ describe('Flight bookings (e2e, shared database)', () => {
         );
         expect(await heldSeats(outboundId)).toBe(5);
       },
-      SLOW_MS,
+      RACE_MS,
     );
   });
 
